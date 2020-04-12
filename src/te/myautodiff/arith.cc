@@ -120,6 +120,168 @@ ExtRange ExtRange::floor_mod(int factor) {
 }
 
 
+void RangeInference::VisitExpr_(const VarNode* op) {
+  range_map[op->name_hint] = scope_.back();
+}
+
+
+void RangeInference::VisitExpr_(const AddNode* op) {
+  const IntImmNode *a_as_int = op->a.as<IntImmNode>();
+  const IntImmNode *b_as_int = op->b.as<IntImmNode>();
+  ExtRange range = scope_.back();
+  if (a_as_int != nullptr) {
+    int bias = (int)a_as_int->value;
+    if (!range.left_inf) {
+      range.left = range.left - bias;
+    }
+    if (!range.right_inf) {
+      range.right = range.right - bias;
+    }
+    scope_.push_back(range);
+    VisitExpr(op->b);
+    scope_.pop_back();
+  } else if (b_as_int != nullptr) {
+    int bias = (int)b_as_int->value;
+    if (!range.left_inf) {
+      range.left = range.left - bias;
+    }
+    if (!range.right_inf) {
+      range.right = range.right - bias;
+    }
+    scope_.push_back(range);
+    VisitExpr(op->a);
+    scope_.pop_back();
+  }
+}
+
+
+void RangeInference::VisitExpr_(const SubNode* op) {
+  const IntImmNode *a_as_int = op->a.as<IntImmNode>();
+  const IntImmNode *b_as_int = op->b.as<IntImmNode>();
+  ExtRange range = scope_.back();
+  if (a_as_int != nullptr) {
+    int bias = (int)a_as_int->value;
+    ExtRangeType range_type = range.range_type();
+    if (range_type == ExtRangeType::LCRC) {
+      range.left = bias - scope_.back().right;
+      range.right = bias - scope_.back().left;
+    } else if (range_type == ExtRangeType::LCRO) {
+      range.left_inf = true;
+      range.right_inf = false;
+      range.right = bias - range.left;
+    } else if (range_type == ExtRangeType::LORC) {
+      range.left_inf = false;
+      range.right_inf = true;
+      range.left = bias - range.right;
+    } else {
+      // nothing to do
+    }
+    scope_.push_back(range);
+    VisitExpr(op->b);
+    scope_.pop_back();
+  } else if (b_as_int != nullptr) {
+    int bias = (int)b_as_int->value;
+    if (!range.left_inf) {
+      range.left = range.left + bias;
+    }
+    if (!range.right_inf) {
+      range.right = range.right + bias;
+    }
+    scope_.push_back(range);
+    VisitExpr(op->a);
+    scope_.pop_back();
+  }
+}
+
+
+void RangeInference::VisitExpr_(const MulNode* op) {
+  const IntImmNode *a_as_int = op->a.as<IntImmNode>();
+  const IntImmNode *b_as_int = op->b.as<IntImmNode>();
+  ExtRange range = scope_.back();
+  if (a_as_int != nullptr) {
+    int bias = (int)a_as_int->value;
+    if (bias == 0) {
+      range.left = 0;
+      range.left_inf = false;
+      range.right = 1;
+      range.right_inf = false;
+    } else if (bias > 0) {
+      ExtRangeType range_type = range.range_type();
+      if (range_type == ExtRangeType::LCRC) {
+        range.left = FloorDivNode::make(range.left, bias);
+        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+      } else if (range_type == ExtRangeType::LCRO) {
+        range.left = FloorDivNode::make(range.left, bias);
+      } else if (range_type == ExtRangeType::LORC) {
+        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+      } else {
+        // nothing to do
+      }
+    } else {
+      ExtRangeType range_type = range.range_type();
+      if (range_type == ExtRangeType::LCRC) {
+        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(scope_.back().right, -bias-1), -bias), 1), -1);
+        range.right = MulNode::make(SubNode::make(FloorDivNode::make(scope_.back().left, -bias), 1), -1);
+      } else if (range_type == ExtRangeType::LCRO) {
+        range.left_inf = true;
+        range.right_inf = false;
+        range.right = MulNode::make(SubNode::make(FloorDivNode::make(range.left, -bias), 1), -1);
+      } else if (range_type == ExtRangeType::LORC) {
+        range.left_inf = false;
+        range.right_inf = true;
+        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(range.right, -bias-1), -bias), 1), -1);
+      } else {
+        // nothing to do
+      }
+    }
+    
+    scope_.push_back(range);
+    VisitExpr(op->b);
+    scope_.pop_back();
+  } else if (b_as_int != nullptr) {
+    int bias = (int)b_as_int->value;
+    if (bias == 0) {
+      range.left = 0;
+      range.left_inf = false;
+      range.right = 1;
+      range.right_inf = false;
+    } else if (bias > 0) {
+      ExtRangeType range_type = range.range_type();
+      if (range_type == ExtRangeType::LCRC) {
+        range.left = FloorDivNode::make(range.left, bias);
+        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+      } else if (range_type == ExtRangeType::LCRO) {
+        range.left = FloorDivNode::make(range.left, bias);
+      } else if (range_type == ExtRangeType::LORC) {
+        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+      } else {
+        // nothing to do
+      }
+    } else {
+      ExtRangeType range_type = range.range_type();
+      if (range_type == ExtRangeType::LCRC) {
+        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(scope_.back().right, -bias-1), -bias), 1), -1);
+        range.right = MulNode::make(SubNode::make(FloorDivNode::make(scope_.back().left, -bias), 1), -1);
+      } else if (range_type == ExtRangeType::LCRO) {
+        range.left_inf = true;
+        range.right_inf = false;
+        range.right = MulNode::make(SubNode::make(FloorDivNode::make(range.left, -bias), 1), -1);
+      } else if (range_type == ExtRangeType::LORC) {
+        range.left_inf = false;
+        range.right_inf = true;
+        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(range.right, -bias-1), -bias), 1), -1);
+      } else {
+        // nothing to do
+      }
+    }
+    
+    scope_.push_back(range);
+    VisitExpr(op->a);
+    scope_.pop_back();
+  }
+}
+
+
 Array<PrimExpr> relax_matrix_array_product(Matrix<int> &m, Array<PrimExpr> &v) {
   Array<PrimExpr> res;
   int rows = m.height();

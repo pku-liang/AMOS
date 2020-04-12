@@ -139,105 +139,62 @@ class ExtRange {
 };
 
 
-// class RangeInference : public ExprFunctor<ExtRange(const PrimExpr&)> {
-//  private:
-//   std::vector<ExtRange> scope_;
-//  public:
-//   std::unoredered_map<std::string, ExtRange> range_map;
-//   RangeInference(ExtRange init) { scope_.push_back(init); }
+class RangeInference : public ExprFunctor<void(const PrimExpr&)> {
+ private:
+  std::vector<ExtRange> scope_;
+ public:
+  std::unordered_map<std::string, ExtRange> range_map;
+  RangeInference(ExtRange init) { scope_.push_back(init); }
 
-//  protected:
-//   // list of functions to override.
-//   ExtRange VisitExpr_(const VarNode* op) override {
-//     range_map[op->name_hint] = scope_.back();
-//     return scope_.back();
-//   }
+  void do_infer(const PrimExpr &expr) {
+    VisitExpr(expr);
+  }
 
-//   ExtRange VisitExpr_(const SizeVarNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const LoadNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const BufferLoadNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const LetNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const CallNode* op) override UNEXPECTED
+ protected:
+  // list of functions to override.
+  void VisitExpr_(const VarNode* op) override;
 
-//   ExtRange VisitExpr_(const AddNode* op) override {
+  // void VisitExpr_(const SizeVarNode* op) override UNEXPECTED
+  // void VisitExpr_(const LoadNode* op) override UNEXPECTED
+  // void VisitExpr_(const BufferLoadNode* op) override UNEXPECTED
+  // void VisitExpr_(const LetNode* op) override UNEXPECTED
+  // void VisitExpr_(const CallNode* op) override UNEXPECTED
 
-//   }
+  void VisitExpr_(const AddNode* op) override;
 
-//   ExtRange VisitExpr_(const SubNode* op) override {
+  void VisitExpr_(const SubNode* op) override;
 
-//   }
+  void VisitExpr_(const MulNode* op) override;
 
-//   ExtRange VisitExpr_(const MulNode* op) override {
+  // void VisitExpr_(const DivNode* op) override UNEXPECTED
+  // void VisitExpr_(const ModNode* op) override UNEXPECTED
+  // void VisitExpr_(const FloorDivNode* op) override UNEXPECTED
+  // void VisitExpr_(const FloorModNode* op) override UNEXPECTED
+  // void VisitExpr_(const MinNode* op) override UNEXPECTED
+  // void VisitExpr_(const MaxNode* op) override UNEXPECTED
+  // void VisitExpr_(const EQNode* op) override UNEXPECTED
+  // void VisitExpr_(const NENode* op) override UNEXPECTED
+  // void VisitExpr_(const LTNode* op) override UNEXPECTED
+  // void VisitExpr_(const LENode* op) override UNEXPECTED
+  // void VisitExpr_(const GTNode* op) override UNEXPECTED
+  // void VisitExpr_(const GENode* op) override UNEXPECTED
+  // void VisitExpr_(const AndNode* op) override UNEXPECTED
+  // void VisitExpr_(const OrNode* op) override UNEXPECTED
+  // void VisitExpr_(const ReduceNode* op) override UNEXPECTED
+  // void VisitExpr_(const CastNode* op) override UNEXPECTED
+  // void VisitExpr_(const NotNode* op) override UNEXPECTED
+  // void VisitExpr_(const SelectNode* op) override UNEXPECTED
+  // void VisitExpr_(const RampNode* op) override UNEXPECTED
+  // void VisitExpr_(const BroadcastNode* op) override UNEXPECTED
+  // void VisitExpr_(const ShuffleNode* op) override UNEXPECTED
 
-//   }
+  // void VisitExpr_(const IntImmNode* op) override {
 
-//   ExtRange VisitExpr_(const DivNode* op) override {
+  // }
 
-//   }
-
-//   ExtRange VisitExpr_(const ModNode* op) override {
-
-//   }
-
-//   ExtRange VisitExpr_(const FloorDivNode* op) override {
-
-//   }
-
-//   ExtRange VisitExpr_(const FloorModNode* op) override {
-
-//   }
-
-//   ExtRange VisitExpr_(const MinNode* op) override {
-
-//   }
-
-//   ExtRange VisitExpr_(const MaxNode* op) override {
-
-//   }
-
-//   ExtRange VisitExpr_(const EQNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const NENode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const LTNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const LENode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const GTNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const GENode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const AndNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const OrNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const ReduceNode* op) override UNEXPECTED
-
-//   ExtRange VisitExpr_(const CastNode* op) override {
-//     type_check(CastNode)
-//     return VisitExpr(op->value, other_op->value);
-//   }
-
-//   ExtRange VisitExpr_(const NotNode* op) override UNEXPECTED
-
-//   ExtRange VisitExpr_(const SelectNode* op) override {
-//     type_check(SelectNode)
-//     return (VisitExpr(op->condition, other_op->condition) &&
-//             VisitExpr(op->true_value, other_op->true_value) &&
-//             VisitExpr(op->false_value, other_op->false_value));
-//   }
-
-//   ExtRange VisitExpr_(const RampNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const BroadcastNode* op) override UNEXPECTED
-//   ExtRange VisitExpr_(const ShuffleNode* op) override UNEXPECTED
-
-//   ExtRange VisitExpr_(const IntImmNode* op) override {
-//     type_check(IntImmNode)
-//     return op->value == other_op->value;
-//   }
-
-//   ExtRange VisitExpr_(const FloatImmNode* op) override {
-//     type_check(FloatImmNode)
-//     return op->value == other_op->value;
-//   }
-
-//   ExtRange VisitExpr_(const StringImmNode* op) override {
-//     type_check(StringImmNode)
-//     return op->value == other_op->value;
-//   }
-// };
+  // void VisitExpr_(const FloatImmNode* op) override UNEXPECTED
+  // void VisitExpr_(const StringImmNode* op) override UNEXPECTED
+};
 
 
 Array<PrimExpr> relax_matrix_array_product(Matrix<int> &m, Array<PrimExpr> &v);

@@ -265,6 +265,26 @@ class GradOp : public ExprMutator {
             context_.range_map[as_var->name_hint] = context_.range_map[kv.first];
           }
         }
+        for (auto kv : results) {
+          // const VarNode *as_var = kv.second.as<VarNode>();
+          // if (as_var != nullptr && relaxes.count(as_var->name_hint) != 0) {
+          //   // we should know the lhs
+          //   CHECK(context_.range_map.count(kv.first) != 0) << "Internal error: unknown var: "
+          //                                                  << kv.first << ".\n";
+          //   context_.range_map[as_var->name_hint] = context_.range_map[kv.first];
+          // }
+          RangeInference infer(context_.range_map[kv.first]);
+          infer.do_infer(kv.second);
+          std::cout << "check range inference:\n";
+          for (auto kkv : infer.range_map) {
+            std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
+            if (context_.range_map.count(kkv.first) == 0 ||
+                context_.range_map[kkv.first].range_type() != ExtRangeType::LCRC) {
+              if (kkv.second.range_type() == ExtRangeType::LCRC)
+                context_.range_map[kkv.first] = kkv.second;
+            }
+          }
+        }
 
         std::cout << "check bindings:\n";
         for (auto kv : results) {
