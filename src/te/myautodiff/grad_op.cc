@@ -555,7 +555,7 @@ class GradOp : public ExprMutator {
 
 
 PrimExpr ensure_unique_var(const ComputeOpNode *op, SubstituteContext &context,
-    NameGenerator &generator, int idx) {
+    NameGenerator &generator, Array<PrimExpr> &call_args, int idx) {
   Map<Var, PrimExpr> vmap;
 
   PrimExpr body = op->body[idx];
@@ -572,6 +572,7 @@ PrimExpr ensure_unique_var(const ComputeOpNode *op, SubstituteContext &context,
     context.range_map[new_name] = ExtRange(
         iter_var->dom->min, AddNode::make(iter_var->dom->min, iter_var->dom->extent), false, false);
     vmap.Set(iter_var->var, new_var);
+    call_args.push_back(new_var);
   }
 
   // reduce node is always top-level
@@ -625,9 +626,10 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
 
   SubstituteContext context;
   NameGenerator generator;
-  PrimExpr body = ensure_unique_var(op, context, generator, output->value_index);
-  PrimExpr new_body;
   Array<IterVar> compute_indices;
+  Array<PrimExpr> call_args;
+  PrimExpr body = ensure_unique_var(op, context, generator, call_args, output->value_index);
+  PrimExpr new_body;
 
   for (size_t i = 0; i < input->shape.size(); ++i) {
     std::string new_name = generator.unique_name("z");
@@ -651,10 +653,10 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   const ComputeOpNode* oop = output->op.as<ComputeOpNode>();
   CHECK(oop != nullptr) << "Only support ComputeOpNode.\n";
 
-  Array<PrimExpr> call_args;
-  for (auto val : oop->axis) {
-    call_args.push_back(val->var);
-  }
+  // Array<PrimExpr> call_args;
+  // for (auto val : oop->axis) {
+  //   call_args.push_back(val->var);
+  // }
 
   const ReduceNode *as_red = body.as<ReduceNode>();
   if (as_red != nullptr) {
