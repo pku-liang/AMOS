@@ -302,7 +302,8 @@ class RelayBuildModule : public runtime::ModuleNode {
     pass_seqs.push_back(transform::CombineParallelConv2D(3));
     pass_seqs.push_back(transform::CombineParallelDense(3));
     pass_seqs.push_back(transform::FoldConstant());
-    pass_seqs.push_back(transform::FoldScaleAxis());
+    //FoldScaleAxis rejects LetNode, which is common in backward
+    //pass_seqs.push_back(transform::FoldScaleAxis());
     pass_seqs.push_back(transform::CanonicalizeCast());
     pass_seqs.push_back(transform::CanonicalizeOps());
 
