@@ -23,8 +23,10 @@ namespace tvm {
 namespace te {
 
 class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)> {
+ private:
+  bool check_name_;
  public:
-  CheckExprEqual() {}
+  CheckExprEqual(bool check_name=false) : check_name_(check_name) {}
 
   bool check_equal(const PrimExpr& a, const PrimExpr &b) {
     return VisitExpr(a, b);
@@ -43,7 +45,11 @@ class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)
   // list of functions to override.
   bool VisitExpr_(const VarNode* op, const PrimExpr& target) override {
     type_check(VarNode)
-    return op->name_hint == other_op->name_hint;
+    if (check_name_) {
+      return op->name_hint == other_op->name_hint;
+    } else {
+      return true;
+    }
   }
 
   bool VisitExpr_(const SizeVarNode* op, const PrimExpr& target) override {

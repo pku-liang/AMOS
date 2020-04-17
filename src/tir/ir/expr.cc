@@ -192,7 +192,9 @@ PrimExpr SelectNode::make(PrimExpr condition, PrimExpr true_value, PrimExpr fals
   CHECK(condition.dtype().is_bool());
   CHECK(condition.dtype().lanes() == true_value.dtype().lanes() ||
         condition.dtype().lanes() == 1);
-  CHECK(false_value.dtype() == true_value.dtype()) << "TypeError: mismatched types";
+  CHECK(false_value.dtype() == true_value.dtype()) << "TypeError: mismatched types "
+                                                   << false_value.dtype() << " vs. "
+                                                   << true_value.dtype() << "\n";
 
   ObjectPtr<SelectNode> node = make_object<SelectNode>();
   node->dtype = true_value.dtype();

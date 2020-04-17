@@ -161,7 +161,9 @@ class GradOp : public ExprMutator {
         for (int i = 0; i < cols - dims; ++i) {
           std::string new_name = generator_.unique_name(dummy_tag_);
           relaxes.insert(new_name);
-          Ub.push_back(Var(new_name));
+          Var v(new_name);
+          Ub.push_back(v);
+          context_.var_map[new_name] = v;
           // these vars are unbounded
           context_.range_map[new_name] = ExtRange();
         }
@@ -211,7 +213,9 @@ class GradOp : public ExprMutator {
           PrimExpr rhs;
           if (it.first == "") {
             std::string new_name = generator_.unique_name(dummy_tag_);
-            rhs = Var(new_name);
+            Var v(new_name);
+            rhs = v;
+            context_.var_map[new_name] = v;
             relaxes.insert(new_name);
             CHECK(context_.range_map.count(it.var_name) != 0) << "We should know var: "
                                                                << it.var_name << ".\n";
@@ -222,8 +226,10 @@ class GradOp : public ExprMutator {
           rhs = MulNode::make(rhs, it.factor);
           if (it.second == "") {
             std::string new_name = generator_.unique_name(dummy_tag_);
-            rhs = AddNode::make(rhs, Var(new_name));
+            Var v(new_name);
+            rhs = AddNode::make(rhs, v);
             relaxes.insert(new_name);
+            context_.var_map[new_name] = v;
             CHECK(context_.range_map.count(it.var_name) != 0) << "We should know var: "
                                                                << it.var_name << ".\n";
             context_.range_map[new_name] = context_.range_map[it.var_name].floor_mod(it.factor);
@@ -284,6 +290,16 @@ class GradOp : public ExprMutator {
                 context_.range_map[kkv.first] = kkv.second;
             }
           }
+
+          // Put bound checkers
+          // TODO: do not put unnecessary checkers
+          if (kv.second.as<VarNode>() == nullptr) {
+            CHECK(context_.range_map[kv.first].range_type() == ExtRangeType::LCRC);
+            conditions.push_back(AndNode::make(
+              GENode::make(kv.second, context_.range_map[kv.first].left),
+              LTNode::make(kv.second, context_.range_map[kv.first].right)
+            ));
+          }
         }
 
         std::cout << "check bindings:\n";
@@ -331,7 +347,9 @@ class GradOp : public ExprMutator {
         Array<IterVar> new_axis;
         for (auto it : relaxes) {
           ExtRange range = context_.range_map[it];
-          new_axis.push_back(reduce_axis(Range(range.left, range.right), it));
+          IterVar iv = IterVarNode::make(
+                  Range(range.left, range.right), context_.var_map[it], kCommReduce);
+          new_axis.push_back(iv);
         }
 
         // form reduce
@@ -514,6 +532,7 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const SelectNode* op) {
     vmap_scope_.clear();
     PrimExpr new_true = grad(op->true_value);
+    // TODO: we do not support grad in condition
     PrimExpr sub_cond = op->condition;
     if (vmap_scope_.size() != 0) {
       sub_cond = Substitute(sub_cond, vmap_scope_.back());
@@ -542,6 +561,821 @@ class GradOp : public ExprMutator {
   }
 
   PrimExpr VisitExpr_(const StringImmNode* op) NOT_IMPLEMENTED
+};
+
+
+class LiftReduce : public ExprMutator {
+ private:
+ public:
+  PrimExpr lift(const PrimExpr &expr) {
+    return VisitExpr(expr);
+  }
+ protected:
+  // list of functions to override.
+  // PrimExpr VisitExpr_(const VarNode* op) override;
+  // PrimExpr VisitExpr_(const SizeVarNode* op) override;
+  // PrimExpr VisitExpr_(const LoadNode* op) override;
+  // PrimExpr VisitExpr_(const BufferLoadNode* op) override;
+  // PrimExpr VisitExpr_(const LetNode* op) override;
+  // PrimExpr VisitExpr_(const CallNode* op) override;
+
+  PrimExpr VisitExpr_(const AddNode* op) override {
+    PrimExpr new_a = VisitExpr(op->a);
+    PrimExpr new_b = VisitExpr(op->b);
+    const ReduceNode *a_as_red = new_a.as<ReduceNode>();
+    const ReduceNode *b_as_red = new_b.as<ReduceNode>();
+    if (a_as_red != nullptr && b_as_red != nullptr) {
+      // see if the reduce axis can be merged
+      // only support one source
+      // TODO: check combiner
+      if (a_as_red->axis.size() == b_as_red->axis.size() &&
+        (int)a_as_red->source.size() == 1 && (int)b_as_red->source.size() == 1) {
+        // TODO: we still can't identify such equality
+        // a: reduce axis r0:[0, 8], r1: [0, r0]
+        // b: reduce axis r2 [0, 8], r3: [0, r2]
+        CheckExprEqual cee;
+        std::unordered_set<size_t> visit;
+        std::vector<size_t> pos_map;
+        // empty axis, equal
+        bool equal = true;
+        for (size_t i = 0; i < a_as_red->axis.size(); ++i) {
+          // reset to not equal
+          equal = false;
+          for (size_t j = 0; j < b_as_red->axis.size(); ++j) {
+            if (visit.count(j) != 0) {
+              continue;
+            } else if (cee(a_as_red->axis[i]->dom->min, b_as_red->axis[j]->dom->min) &&
+                cee(a_as_red->axis[i]->dom->extent, b_as_red->axis[j]->dom->extent)) {
+              visit.insert(j);
+              pos_map.push_back(j);
+              // only if found the same axis
+              equal = true;
+              break;
+            }
+          }
+          // no match
+          if (!equal) {
+            break;
+          }
+        }
+        // only when reduce axes are the same
+        if (equal) {
+          Map<Var, PrimExpr> vmap;
+          size_t i = 0;
+          for (auto iv : a_as_red->axis) {
+            vmap.Set(b_as_red->axis[pos_map[i]]->var, iv->var);
+            ++i;
+          }
+          Array<PrimExpr> new_source;
+          i = 0;
+          for (auto expr : a_as_red->source) {
+            new_source.push_back(
+              Substitute(AddNode::make(expr, b_as_red->source[i]), vmap));
+            ++i;
+          }
+          return ReduceNode::make(
+            a_as_red->combiner,
+            new_source,
+            a_as_red->axis,
+            a_as_red->condition,
+            a_as_red->value_index
+          );
+        }
+      }
+    }
+    return Simplify(AddNode::make(new_a, new_b));
+  }
+
+  PrimExpr VisitExpr_(const SubNode* op) override {
+    PrimExpr new_a = VisitExpr(op->a);
+    PrimExpr new_b = VisitExpr(op->b);
+    const ReduceNode *a_as_red = new_a.as<ReduceNode>();
+    const ReduceNode *b_as_red = new_b.as<ReduceNode>();
+    if (a_as_red != nullptr && b_as_red != nullptr) {
+      // see if the reduce axis can be merged
+      // only support one source
+      // TODO: check combiner
+      if (a_as_red->axis.size() == b_as_red->axis.size() &&
+        (int)a_as_red->source.size() == 1 && (int)b_as_red->source.size() == 1) {
+        // TODO: we still can't identify such equality
+        // a: reduce axis r0:[0, 8], r1: [0, r0]
+        // b: reduce axis r2 [0, 8], r3: [0, r2]
+        CheckExprEqual cee;
+        std::unordered_set<size_t> visit;
+        std::vector<size_t> pos_map;
+        // empty axis, equal
+        bool equal = true;
+        for (size_t i = 0; i < a_as_red->axis.size(); ++i) {
+          // reset to not equal
+          equal = false;
+          for (size_t j = 0; j < b_as_red->axis.size(); ++j) {
+            if (visit.count(j) != 0) {
+              continue;
+            } else if (cee(a_as_red->axis[i]->dom->min, b_as_red->axis[j]->dom->min) &&
+                cee(a_as_red->axis[i]->dom->extent, b_as_red->axis[j]->dom->extent)) {
+              visit.insert(j);
+              pos_map.push_back(j);
+              // only if found the same axis
+              equal = true;
+              break;
+            }
+          }
+          // no match
+          if (!equal) {
+            break;
+          }
+        }
+        // only when reduce axes are the same
+        if (equal) {
+          Map<Var, PrimExpr> vmap;
+          size_t i = 0;
+          for (auto iv : a_as_red->axis) {
+            std::cout << "check temp b iv=" << b_as_red->axis[pos_map[i]]->var << ", a iv=" << iv->var << "\n";
+            vmap.Set(b_as_red->axis[pos_map[i]]->var, iv->var);
+            ++i;
+          }
+          Array<PrimExpr> new_source;
+          i = 0;
+          for (auto expr : a_as_red->source) {
+            new_source.push_back(
+              Substitute(SubNode::make(expr, b_as_red->source[i]), vmap));
+            ++i;
+          }
+          return ReduceNode::make(
+            a_as_red->combiner,
+            new_source,
+            a_as_red->axis,
+            a_as_red->condition,
+            a_as_red->value_index
+          );
+        }
+      }
+    }
+    return Simplify(SubNode::make(new_a, new_b));
+  }
+
+  PrimExpr VisitExpr_(const MulNode* op) override {
+    PrimExpr new_a = VisitExpr(op->a);
+    PrimExpr new_b = VisitExpr(op->b);
+    const ReduceNode *a_as_red = new_a.as<ReduceNode>();
+    const ReduceNode *b_as_red = new_b.as<ReduceNode>();
+    if (a_as_red != nullptr && b_as_red == nullptr) {
+      Array<PrimExpr> new_source;
+      for (auto expr : a_as_red->source) {
+        new_source.push_back(
+          MulNode::make(expr, new_b));
+      }
+      return ReduceNode::make(
+        a_as_red->combiner,
+        new_source,
+        a_as_red->axis,
+        a_as_red->condition,
+        a_as_red->value_index
+      );
+    } else if (a_as_red == nullptr && b_as_red != nullptr) {
+      Array<PrimExpr> new_source;
+      for (auto expr : b_as_red->source) {
+        new_source.push_back(
+          MulNode::make(new_a, expr));
+      }
+      return ReduceNode::make(
+        b_as_red->combiner,
+        new_source,
+        b_as_red->axis,
+        b_as_red->condition,
+        b_as_red->value_index
+      );
+    }
+    return Simplify(MulNode::make(new_a, new_b));
+  }
+
+  PrimExpr VisitExpr_(const DivNode* op) override {
+    PrimExpr new_a = VisitExpr(op->a);
+    PrimExpr new_b = VisitExpr(op->b);
+    const ReduceNode *a_as_red = new_a.as<ReduceNode>();
+    const ReduceNode *b_as_red = new_b.as<ReduceNode>();
+    if (a_as_red != nullptr && b_as_red == nullptr) {
+      Array<PrimExpr> new_source;
+      for (auto expr : a_as_red->source) {
+        new_source.push_back(
+          DivNode::make(expr, new_b));
+      }
+      return ReduceNode::make(
+        a_as_red->combiner,
+        new_source,
+        a_as_red->axis,
+        a_as_red->condition,
+        a_as_red->value_index
+      );
+    }
+    return Simplify(DivNode::make(new_a, new_b));
+  }
+
+  // PrimExpr VisitExpr_(const ModNode* op) override;
+  // PrimExpr VisitExpr_(const FloorDivNode* op) override;
+  // PrimExpr VisitExpr_(const FloorModNode* op) override;
+  // PrimExpr VisitExpr_(const MinNode* op) override;
+  // PrimExpr VisitExpr_(const MaxNode* op) override;
+  // PrimExpr VisitExpr_(const EQNode* op) override;
+  // PrimExpr VisitExpr_(const NENode* op) override;
+  // PrimExpr VisitExpr_(const LTNode* op) override;
+  // PrimExpr VisitExpr_(const LENode* op) override;
+  // PrimExpr VisitExpr_(const GTNode* op) override;
+  // PrimExpr VisitExpr_(const GENode* op) override;
+  // PrimExpr VisitExpr_(const AndNode* op) override;
+  // PrimExpr VisitExpr_(const OrNode* op) override;
+  // PrimExpr VisitExpr_(const ReduceNode* op) override;
+
+  PrimExpr VisitExpr_(const CastNode* op) override {
+    PrimExpr new_val = VisitExpr(op->value);
+    const ReduceNode *as_red = new_val.as<ReduceNode>();
+    if (as_red != nullptr) {
+      Array<PrimExpr> new_source;
+      for (auto expr : as_red->source) {
+        new_source.push_back(CastNode::make(op->dtype, expr));
+      }
+      return ReduceNode::make(
+        as_red->combiner,
+        new_source,
+        as_red->axis,
+        as_red->condition,
+        as_red->value_index
+      );
+    }
+    return Simplify(CastNode::make(op->dtype, op->value));
+  }
+
+  // PrimExpr VisitExpr_(const NotNode* op) override;
+
+  PrimExpr VisitExpr_(const SelectNode* op) override {
+    PrimExpr new_cond = VisitExpr(op->condition);
+    PrimExpr new_true = VisitExpr(op->true_value);
+    PrimExpr new_false = VisitExpr(op->false_value);
+    const ReduceNode *a_as_red = new_true.as<ReduceNode>();
+    const ReduceNode *b_as_red = new_false.as<ReduceNode>();
+    if (a_as_red != nullptr && b_as_red != nullptr) {
+      // see if the reduce axis can be merged
+      // only support one source
+      // TODO: check combiner
+      if (a_as_red->axis.size() == b_as_red->axis.size() &&
+        (int)a_as_red->source.size() == 1 && (int)b_as_red->source.size() == 1) {
+        // TODO: we still can't identify such equality
+        // a: reduce axis r0:[0, 8], r1: [0, r0]
+        // b: reduce axis r2 [0, 8], r3: [0, r2]
+        CheckExprEqual cee;
+        std::unordered_set<size_t> visit;
+        std::vector<size_t> pos_map;
+        // empty axis, equal
+        bool equal = true;
+        for (size_t i = 0; i < a_as_red->axis.size(); ++i) {
+          // reset to not equal
+          equal = false;
+          for (size_t j = 0; j < b_as_red->axis.size(); ++j) {
+            if (visit.count(j) != 0) {
+              continue;
+            } else if (cee(a_as_red->axis[i]->dom->min, b_as_red->axis[j]->dom->min) &&
+                cee(a_as_red->axis[i]->dom->extent, b_as_red->axis[j]->dom->extent)) {
+              visit.insert(j);
+              pos_map.push_back(j);
+              // only if found the same axis
+              equal = true;
+              break;
+            }
+          }
+          // no match
+          if (!equal) {
+            break;
+          }
+        }
+        // only when reduce axes are the same
+        if (equal) {
+          Map<Var, PrimExpr> vmap;
+          size_t i = 0;
+          for (auto iv : a_as_red->axis) {
+            vmap.Set(b_as_red->axis[pos_map[i]]->var, iv->var);
+            ++i;
+          }
+          Array<PrimExpr> new_source;
+          i = 0;
+          for (auto expr : a_as_red->source) {
+            new_source.push_back(
+              Substitute(SelectNode::make(new_cond, expr, b_as_red->source[i]), vmap));
+            ++i;
+          }
+          return ReduceNode::make(
+            a_as_red->combiner,
+            new_source,
+            a_as_red->axis,
+            a_as_red->condition,
+            a_as_red->value_index
+          );
+        }
+      }
+    }
+    return Simplify(SelectNode::make(new_cond, new_true, new_false));
+  }
+
+  // PrimExpr VisitExpr_(const RampNode* op) override;
+  // PrimExpr VisitExpr_(const BroadcastNode* op) override;
+  // PrimExpr VisitExpr_(const ShuffleNode* op) override;
+  // PrimExpr VisitExpr_(const IntImmNode* op) override;
+  // PrimExpr VisitExpr_(const FloatImmNode* op) override;
+  // PrimExpr VisitExpr_(const StringImmNode* op) override;
+};
+
+
+class FormCompute : public ExprVisitor {
+ private:
+  NameGenerator &generator_;
+  const std::string &tensor_name_key_;
+  Array<PrimExpr> &shape_;
+  Array<Var> &sub_vars_;
+ public:
+  std::vector<Tensor> tensor_list;
+  FormCompute(NameGenerator &generator, const std::string &tensor_name,
+    Array<PrimExpr> &shape, Array<Var> &sub_vars) :
+    generator_(generator), tensor_name_key_(tensor_name), shape_(shape), sub_vars_(sub_vars) {}
+
+  void form_compute(const PrimExpr &expr) {
+    VisitExpr(expr);
+  }
+
+ protected:
+  void VisitExpr_(const VarNode* op) override {
+    auto func =
+      [=](const Array<Var> &input_indices) {
+        Map<Var, PrimExpr> vmap;
+        CHECK(input_indices.size() == sub_vars_.size());
+        for (size_t i = 0; i < input_indices.size(); ++i) {
+          vmap.Set(sub_vars_[i], input_indices[i]);
+        }
+        return Substitute(Var(op->name_hint, op->dtype), vmap);
+      };
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+  }
+
+  void VisitExpr_(const SizeVarNode* op) override UNEXPECTED
+  void VisitExpr_(const LoadNode* op) override UNEXPECTED
+  void VisitExpr_(const BufferLoadNode* op) override UNEXPECTED
+  void VisitExpr_(const LetNode* op) override UNEXPECTED
+
+  void VisitExpr_(const CallNode* op) override {
+    auto func =
+      [=](const Array<Var> &input_indices) {
+        Map<Var, PrimExpr> vmap;
+        CHECK(input_indices.size() == sub_vars_.size());
+        for (size_t i = 0; i < input_indices.size(); ++i) {
+          vmap.Set(sub_vars_[i], input_indices[i]);
+        }
+        return Substitute(CallNode::make(
+                op->dtype,
+                op->name,
+                op->args,
+                op->call_type,
+                op->func,
+                op->value_index), vmap);
+      };
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+  }
+
+  template<typename T>
+  void visit_binay_op(const T*op) {
+    VisitExpr(op->a);
+    VisitExpr(op->b);
+    CHECK((int)tensor_list.size() > 1);
+    Tensor ta = tensor_list[tensor_list.size() - 2];
+    Tensor tb = tensor_list[tensor_list.size() - 1];
+    const ComputeOpNode *ca = ta->op.as<ComputeOpNode>();
+    const ComputeOpNode *cb = tb->op.as<ComputeOpNode>();
+    CHECK(ca != nullptr && cb != nullptr);
+    const ReduceNode *a_red = op->a.template as<ReduceNode>();
+    const ReduceNode *b_red = op->b.template as<ReduceNode>();
+    if (a_red != nullptr && b_red != nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          PrimExpr a_body = CallNode::make(
+            ta->dtype,
+            ta->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            ta->op,
+            ta->value_index
+          );
+          PrimExpr b_body = CallNode::make(
+            tb->dtype,
+            tb->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            tb->op,
+            tb->value_index
+          );
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          size_t i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(T::make(a_body, b_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.push_back(new_tensor);
+    } else if (a_red == nullptr && b_red != nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          CHECK((int)ca->body.size() == 1);
+          Map<Var, PrimExpr> a_vmap;
+          size_t i = 0;
+          for (auto iv : ca->axis) {
+            a_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr a_body = Substitute(ca->body[0], a_vmap);
+          PrimExpr b_body = CallNode::make(
+            tb->dtype,
+            tb->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            tb->op,
+            tb->value_index
+          );
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(T::make(a_body, b_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.pop_back();
+      tensor_list.push_back(tb);
+      tensor_list.push_back(new_tensor);
+    } else if (a_red != nullptr && b_red == nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          CHECK((int)cb->body.size() == 1);
+          Map<Var, PrimExpr> b_vmap;
+          size_t i = 0;
+          for (auto iv : cb->axis) {
+            b_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr b_body = Substitute(cb->body[0], b_vmap);
+          PrimExpr a_body = CallNode::make(
+            ta->dtype,
+            ta->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            ta->op,
+            ta->value_index
+          );
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(T::make(a_body, b_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.pop_back();
+      tensor_list.push_back(ta);
+      tensor_list.push_back(new_tensor);
+    } else {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          CHECK((int)ca->body.size() == 1);
+          Map<Var, PrimExpr> a_vmap;
+          size_t i = 0;
+          for (auto iv : ca->axis) {
+            a_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr a_body = Substitute(ca->body[0], a_vmap);
+          CHECK((int)cb->body.size() == 1);
+          Map<Var, PrimExpr> b_vmap;
+          i = 0;
+          for (auto iv : cb->axis) {
+            b_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr b_body = Substitute(cb->body[0], b_vmap);
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(T::make(a_body, b_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.pop_back();
+      tensor_list.push_back(new_tensor);
+    }
+  }
+
+  void VisitExpr_(const AddNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const SubNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const MulNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const DivNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const ModNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const FloorDivNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const FloorModNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const MinNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const MaxNode* op) override {
+    visit_binay_op(op);
+  }
+
+  void VisitExpr_(const EQNode* op) override UNEXPECTED
+  void VisitExpr_(const NENode* op) override UNEXPECTED
+  void VisitExpr_(const LTNode* op) override UNEXPECTED
+  void VisitExpr_(const LENode* op) override UNEXPECTED
+  void VisitExpr_(const GTNode* op) override UNEXPECTED
+  void VisitExpr_(const GENode* op) override UNEXPECTED
+  void VisitExpr_(const AndNode* op) override UNEXPECTED
+  void VisitExpr_(const OrNode* op) override UNEXPECTED
+
+  void VisitExpr_(const ReduceNode* op) override {
+    auto func =
+      [=](const Array<Var> &input_indices) {
+        Map<Var, PrimExpr> vmap;
+        CHECK(input_indices.size() == sub_vars_.size());
+        for (size_t i = 0; i < input_indices.size(); ++i) {
+          vmap.Set(sub_vars_[i], input_indices[i]);
+        }
+        return Substitute(ReduceNode::make(
+                op->combiner,
+                op->source,
+                op->axis,
+                op->condition,
+                op->value_index), vmap);
+      };
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+  }
+
+  void VisitExpr_(const CastNode* op) override {
+    VisitExpr(op->value);
+    const ReduceNode *as_red = op->value.as<ReduceNode>();
+    Tensor t = tensor_list.back();
+    const ComputeOpNode *cop = t->op.as<ComputeOpNode>();
+    CHECK(cop != nullptr);
+    if (as_red != nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          PrimExpr body = CallNode::make(
+            t->dtype, t->op->name, call_args, CallNode::CallType::Halide, t->op, t->value_index);
+          body = CastNode::make(op->dtype, body);
+          return body;
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.push_back(new_tensor);
+    } else {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          CHECK(cop->body.size() == 1) << "Only support body size 1.\n";
+          PrimExpr body = cop->body[0];
+          body = CastNode::make(op->dtype, body);
+          CHECK(cop->axis.size() == input_indices.size()) << "Internal error: input indices mismatch.\n";
+          Map<Var, PrimExpr> vmap;
+          size_t i = 0;
+          for (auto iv : cop->axis) {
+            vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          return Substitute(body, vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.push_back(new_tensor);
+    }
+  }
+
+  void VisitExpr_(const NotNode* op) override UNEXPECTED
+
+  void VisitExpr_(const SelectNode* op) override {
+    // TODO: we do not support grad in condition
+    VisitExpr(op->true_value);
+    VisitExpr(op->false_value);
+    CHECK((int)tensor_list.size() > 1);
+    Tensor true_tensor = tensor_list[tensor_list.size() - 2];
+    Tensor false_tensor = tensor_list[tensor_list.size() - 1];
+    const ReduceNode *t_as_red = op->true_value.as<ReduceNode>();
+    const ReduceNode *f_as_red = op->false_value.as<ReduceNode>();
+    const ComputeOpNode *top = true_tensor->op.as<ComputeOpNode>();
+    const ComputeOpNode *fop = false_tensor->op.as<ComputeOpNode>();
+    CHECK(top != nullptr && fop != nullptr);
+    if (t_as_red != nullptr && f_as_red != nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          PrimExpr true_body = CallNode::make(
+            true_tensor->dtype,
+            true_tensor->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            true_tensor->op,
+            true_tensor->value_index
+          );
+          PrimExpr false_body = CallNode::make(
+            false_tensor->dtype,
+            false_tensor->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            false_tensor->op,
+            false_tensor->value_index
+          );
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          size_t i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.push_back(new_tensor);
+    } else if (t_as_red == nullptr && f_as_red != nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          CHECK((int)top->body.size() == 1);
+          Map<Var, PrimExpr> true_vmap;
+          size_t i = 0;
+          for (auto iv : top->axis) {
+            true_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr true_body = Substitute(top->body[0], true_vmap);
+          PrimExpr false_body = CallNode::make(
+            false_tensor->dtype,
+            false_tensor->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            false_tensor->op,
+            false_tensor->value_index
+          );
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.pop_back();
+      tensor_list.push_back(false_tensor);
+      tensor_list.push_back(new_tensor);
+    } else if (t_as_red != nullptr && f_as_red == nullptr) {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          Array<PrimExpr> call_args;
+          for (auto v : input_indices) {
+            call_args.push_back(v);
+          }
+          CHECK((int)fop->body.size() == 1);
+          Map<Var, PrimExpr> false_vmap;
+          size_t i = 0;
+          for (auto iv : fop->axis) {
+            false_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr false_body = Substitute(fop->body[0], false_vmap);
+          PrimExpr true_body = CallNode::make(
+            true_tensor->dtype,
+            true_tensor->op->name,
+            call_args,
+            CallNode::CallType::Halide,
+            true_tensor->op,
+            true_tensor->value_index
+          );
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.pop_back();
+      tensor_list.push_back(true_tensor);
+      tensor_list.push_back(new_tensor);
+    } else {
+      auto func =
+        [=](const Array<Var> &input_indices){
+          CHECK((int)top->body.size() == 1);
+          Map<Var, PrimExpr> true_vmap;
+          size_t i = 0;
+          for (auto iv : top->axis) {
+            true_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr true_body = Substitute(top->body[0], true_vmap);
+          CHECK((int)fop->body.size() == 1);
+          Map<Var, PrimExpr> false_vmap;
+          i = 0;
+          for (auto iv : fop->axis) {
+            false_vmap.Set(iv->var, input_indices[i]);
+            ++i;
+          }
+          PrimExpr false_body = Substitute(fop->body[0], false_vmap);
+          Map<Var, PrimExpr> vmap;
+          CHECK(sub_vars_.size() == input_indices.size());
+          i = 0;
+          for (auto v : sub_vars_) {
+            vmap.Set(v, input_indices[i]);
+            ++i;
+          }
+          return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        };
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      tensor_list.pop_back();
+      tensor_list.pop_back();
+      tensor_list.push_back(new_tensor);
+    }
+  }
+
+  void VisitExpr_(const RampNode* op) override UNEXPECTED
+  void VisitExpr_(const BroadcastNode* op) override UNEXPECTED
+  void VisitExpr_(const ShuffleNode* op) override UNEXPECTED
+
+  void VisitExpr_(const IntImmNode* op) override {
+    auto func =
+      [=](const Array<Var> &input_indices) {
+        return make_const(op->dtype, op->value);
+      };
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+  }
+
+  void VisitExpr_(const FloatImmNode* op) override {
+    auto func =
+      [=](const Array<Var> &input_indices) {
+        PrimExpr ret = make_const(op->dtype, op->value);
+        return ret;
+      };
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+  }
+
+  void VisitExpr_(const StringImmNode* op) override UNEXPECTED
 };
 
 
@@ -658,8 +1492,11 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   //   call_args.push_back(val->var);
   // }
 
+  PrimExpr grad_body;
+
   const ReduceNode *as_red = body.as<ReduceNode>();
   if (as_red != nullptr) {
+    CHECK((int)as_red->source.size() == 1) << "Only support one source now.\n";
     Array<PrimExpr> new_source;
     for (auto expr : as_red->source) {
       SubstituteContext new_context = context.copy();
@@ -668,14 +1505,45 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
       std::cout << "check source: " << Simplify(new_expr) << "\n";
       new_source.push_back(new_expr);
     }
+    // only take away the first one
+    grad_body = Simplify(new_source[0]);
   } else {
     SubstituteContext new_context = context.copy();
     GradOp helper(generator, new_context, input, doutput, call_args, compute_args);
     PrimExpr new_expr = helper.grad(body);
     std::cout << "check body: " << Simplify(new_expr)  << "\n";
+    grad_body = Simplify(new_expr);
   }
 
-  return input;
+  std::cout << "\nLift ReduceNode:\n";
+  LiftReduce lifter;
+  grad_body = Simplify(lifter.lift(grad_body));
+  std::cout << "Result:\n" << grad_body << "\n";
+
+  // std::vector<Tensor> tensor_list;
+  // FormCompute(NameGenerator &generator, const std::string &tensor_name,
+  //   Array<PrimExpr> &shape, Array<Var> &sub_vars)
+  Array<PrimExpr> shape;
+  for (auto it : input->shape) {
+    shape.push_back(it);
+  }
+  Array<Var> sub_vars;
+  for (auto iv : compute_indices) {
+    sub_vars.push_back(iv->var);
+  }
+  FormCompute former(generator, generator.unique_name("_tensor"), shape, sub_vars);
+  former.form_compute(grad_body);
+  
+  std::cout << "check form compute:\n";
+  for (auto it : former.tensor_list) {
+    std::cout << "tensor: " << it << "\n";
+    const ComputeOpNode *cop = it->op.as<ComputeOpNode>();
+    CHECK(cop != nullptr);
+    std::cout << "axis: " << cop->axis << "\n";
+    std::cout << "body: " << cop->body << "\n";
+  }
+  
+  return former.tensor_list.back();
 }
 
 
