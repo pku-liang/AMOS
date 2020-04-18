@@ -26,12 +26,12 @@ class GradOp : public ExprMutator {
   const Tensor &input_;
   const Tensor &doutput_;
   Array<PrimExpr> &call_args_;
-  Array<PrimExpr> &compute_args_;
+  Array<PrimExpr> compute_args_;
   std::vector<Map<Var, PrimExpr>> vmap_scope_;
   // bool first_met_;
  public:
   explicit GradOp(NameGenerator &generator, SubstituteContext &context, const Tensor &input,
-    const Tensor &doutput, Array<PrimExpr> &call_args, Array<PrimExpr> &compute_args) :
+    const Tensor &doutput, Array<PrimExpr> &call_args, Array<PrimExpr> compute_args) :
     generator_(generator), context_(context), input_(input), doutput_(doutput),
     call_args_(call_args), compute_args_(compute_args) {
       const_tag_ = generator_.unique_name("_const");
@@ -39,6 +39,8 @@ class GradOp : public ExprMutator {
       dummy_tag_ = generator_.unique_name("_r");
       eliminator_ = new EliminateFloorDivAndMod(generator_, sub_hint_, context_);
       // first_met_ = true;
+      // context_.index_names.push_back(const_tag_);
+      // compute_args_.push_back(Var(const_tag_));
     }
   
   ~GradOp() {
@@ -101,6 +103,10 @@ class GradOp : public ExprMutator {
             } else {
               trans[i][j] = 0;
             }
+          }
+          // has constants
+          if (coeffs[i].count(const_tag_)) {
+            compute_args_.Set(i, SubNode::make(compute_args_[i], coeffs[i][const_tag_]));
           }
         }
 
@@ -263,6 +269,10 @@ class GradOp : public ExprMutator {
         }
         // for the remaining vars, get the bounds
         for (auto kv : results) {
+          // do not get bounds for const placeholder
+          // if (kv.first == const_tag_) {
+          //   continue;
+          // }
           const VarNode *as_var = kv.second.as<VarNode>();
           if (as_var != nullptr && relaxes.count(as_var->name_hint) != 0) {
             // we should know the lhs
@@ -382,9 +392,20 @@ class GradOp : public ExprMutator {
                              SelectNode::make(GENode::make(op->args[0], make_zero(type)),
                                               FloatImm(type, 1.0), FloatImm(type, -1.0)));
       } else if (op->name == intrinsic::tvm_if_then_else) {
-        Array<PrimExpr> new_args = {op->args[0],
-                                    grad(op->args[1]),
-                                    grad(op->args[2])};
+        vmap_scope_.clear();
+        PrimExpr new_arg1 = grad(op->args[1]);
+        PrimExpr sub_cond = op->args[0];
+        if (vmap_scope_.size() != 0) {
+          sub_cond = Substitute(sub_cond, vmap_scope_.back());
+        }
+        vmap_scope_.clear();
+        PrimExpr new_arg2 = grad(op->args[2]);
+        if (vmap_scope_.size() != 0) {
+          sub_cond = Substitute(sub_cond, vmap_scope_.back());
+        }
+        Array<PrimExpr> new_args = {sub_cond,
+                                    new_arg1,
+                                    new_arg2};
         return CallNode::make(op->dtype, op->name, new_args,
                               op->call_type, op->func, op->value_index);
       } else if (piecewise_const.count(op->name)) {
@@ -537,13 +558,11 @@ class GradOp : public ExprMutator {
     if (vmap_scope_.size() != 0) {
       sub_cond = Substitute(sub_cond, vmap_scope_.back());
     }
-
     vmap_scope_.clear();
     PrimExpr new_false = grad(op->false_value);
     if (vmap_scope_.size() != 0) {
       sub_cond = Substitute(sub_cond, vmap_scope_.back());
     }
-
     return SelectNode::make(sub_cond,
         new_true, new_false);
   }
