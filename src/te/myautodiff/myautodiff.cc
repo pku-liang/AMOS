@@ -65,7 +65,7 @@ Tensor zeros_like(const Tensor &tensor) {
 
 
 Tensor grad_intra_op(const Tensor &input, const Tensor &output, const Tensor &doutput) {
-  return input;
+  return grad_op(input, output, doutput);
 }
 
 
