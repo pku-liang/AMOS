@@ -333,7 +333,7 @@ class SubstituteContext {
 
   friend std::ostream &operator<<(std::ostream &out, SubstituteContext &context) {
     out << "Show Substitute Context";
-    out << "indices:\n";
+    out << "\nindices:\n";
     for (auto name : context.index_names) {
       out << name << " ";
     }

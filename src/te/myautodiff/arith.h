@@ -139,7 +139,7 @@ class ExtRange {
 };
 
 
-class RangeInference : public ExprFunctor<void(const PrimExpr&)> {
+class RangeInference : public ExprVisitor {
  private:
   std::vector<ExtRange> scope_;
  public:

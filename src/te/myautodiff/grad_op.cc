@@ -154,10 +154,10 @@ class GradOp : public ExprMutator {
         std::cout << "\n";
 
         // check if is identity
-        if (!check_identity(trans, dims)) {
-          LOG(FATAL) << "Don't know how to handle non-identity matrix, waiting for more discussion...\n";
-          throw;
-        }
+        // if (!check_identity(trans, dims)) {
+        //   LOG(FATAL) << "Don't know how to handle non-identity matrix, waiting for more discussion...\n";
+        //   throw;
+        // }
 
         // explain the results:
         Array<PrimExpr> Ub = relax_matrix_array_product(U, compute_args_);
@@ -191,24 +191,23 @@ class GradOp : public ExprMutator {
         }
         std::cout << "\n\n";
         for (int i = 0; i < cols; ++i) {
+          PrimExpr bind_val = VUb[i];
+          if (i < dims) {
+            bind_val = FloorDivNode::make(bind_val, trans[i][i]);
+          }
           if (bindings.count(context_.index_names[i]) > 0) {
-            bindings[context_.index_names[i]].push_back(Simplify(VUb[i]));
+            bindings[context_.index_names[i]].push_back(Simplify(bind_val));
           } else {
-            bindings[context_.index_names[i]] = std::vector<PrimExpr>({Simplify(VUb[i])});
+            bindings[context_.index_names[i]] = std::vector<PrimExpr>({Simplify(bind_val)});
           }
         }
+
         Array<PrimExpr> conditions;
         // if rows > dims
         for (int i = dims; i < rows; ++i) {
           // must be zeros
           conditions.push_back(EQNode::make(Ub[i], 0));
         }
-
-        std::cout << "check conditions:\n";
-        for (auto it : conditions) {
-          std::cout << it << " ";
-        }
-        std::cout << "\n";
 
         // solve the floor_div/mod substitution
         // e.g. s = i // 8 -> i = s * 8 + r0, r0: [0, 8)
@@ -311,6 +310,12 @@ class GradOp : public ExprMutator {
             ));
           }
         }
+
+        std::cout << "check conditions:\n";
+        for (auto it : conditions) {
+          std::cout << it << " ";
+        }
+        std::cout << "\n";
 
         std::cout << "check bindings:\n";
         for (auto kv : results) {
@@ -427,43 +432,46 @@ class GradOp : public ExprMutator {
 
   PrimExpr VisitExpr_(const MulNode* op) {
     vmap_scope_.clear();
+    PrimExpr sub_a = op->a;
+    PrimExpr sub_b = op->b;
     PrimExpr new_a = grad(op->a);
     if (vmap_scope_.size() != 0) {
-      new_a = MulNode::make(new_a, Substitute(op->b, vmap_scope_.back()));
-    } else {
-      new_a = MulNode::make(new_a, op->b);
+      sub_a = Substitute(sub_a, vmap_scope_.back());
+      sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     vmap_scope_.clear();
     PrimExpr new_b = grad(op->b);
     if (vmap_scope_.size() != 0) {
-      new_b = MulNode::make(Substitute(op->a, vmap_scope_.back()), new_b);
-    } else {
-      new_b = MulNode::make(op->a, new_b);
+      sub_a = Substitute(sub_a, vmap_scope_.back());
+      sub_b = Substitute(sub_b, vmap_scope_.back());
     }
-    return AddNode::make(new_a, new_b);
+
+    return AddNode::make(MulNode::make(new_a, sub_b), MulNode::make(sub_a, new_b));
   }
 
   PrimExpr VisitExpr_(const DivNode* op) {
     vmap_scope_.clear();
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_b = op->b;
+    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
+      sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     vmap_scope_.clear();
     PrimExpr new_b = grad(op->b);
-    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
+      sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     return DivNode::make(
         SubNode::make(
             MulNode::make(new_a, sub_b),
             MulNode::make(sub_a, new_b)),
-        MulNode::make(sub_a, sub_b));
+        MulNode::make(sub_b, sub_b));
   }
 
   PrimExpr VisitExpr_(const ModNode* op) NOT_IMPLEMENTED
@@ -472,22 +480,24 @@ class GradOp : public ExprMutator {
     vmap_scope_.clear();
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_b = op->b;
+    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
+      sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     vmap_scope_.clear();
     PrimExpr new_b = grad(op->b);
-    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
+      sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     return FloorDivNode::make(
         SubNode::make(
             MulNode::make(new_a, sub_b),
             MulNode::make(sub_a, new_b)),
-        MulNode::make(sub_a, sub_b));
+        MulNode::make(sub_b, sub_b));
   }
 
   PrimExpr VisitExpr_(const FloorModNode* op) NOT_IMPLEMENTED
@@ -496,15 +506,17 @@ class GradOp : public ExprMutator {
     vmap_scope_.clear();
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_b = op->b;
+    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
+      sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     vmap_scope_.clear();
     PrimExpr new_b = grad(op->b);
-    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
+      sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     return SelectNode::make(LENode::make(sub_a, sub_b),
@@ -514,16 +526,18 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const MaxNode* op) {
     vmap_scope_.clear();
     PrimExpr new_a = grad(op->a);
+    PrimExpr sub_a = op->a;
     PrimExpr sub_b = op->b;
     if (vmap_scope_.size() != 0) {
+      sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     vmap_scope_.clear();
     PrimExpr new_b = grad(op->b);
-    PrimExpr sub_a = op->a;
     if (vmap_scope_.size() != 0) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
+      sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
     return SelectNode::make(GENode::make(sub_a, sub_b),
