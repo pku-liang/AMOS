@@ -324,6 +324,7 @@ class GradOp : public ExprMutator {
         std::cout << "\n";
 
         // check if any var his no concrete range
+        std::cout << "\ncheck relax ranges:\n";
         for (auto it : relaxes) {
           CHECK(context_.range_map.count(it) != 0) << "Internal error: fail to infer range for: "
                                                     << it << ".\n";
@@ -333,11 +334,6 @@ class GradOp : public ExprMutator {
 
         // form final expr
         PrimExpr result_expr;
-        // prepare condition
-        PrimExpr result_condition = const_true();
-        for (auto val : conditions) {
-          result_condition = AndNode::make(result_condition, val);
-        }
         // prepare source
         result_expr = CallNode::make(op->dtype,
                             doutput_->op->name,
@@ -345,56 +341,127 @@ class GradOp : public ExprMutator {
                             CallNode::Halide,
                             doutput_->op,
                             doutput_->value_index);
+
+        // prepare axis
+        Array<IterVar> new_axis;
+        Map<Var, PrimExpr> pos_vmap;
+        for (auto it : relaxes) {
+          ExtRange range = context_.range_map[it];
+          // use positive range
+          PrimExpr pos_ext = SubNode::make(range.right, range.left);
+          pos_vmap.Set(context_.var_map[it], AddNode::make(context_.var_map[it], range.left));
+          IterVar iv = IterVarNode::make(
+                  Range(0, pos_ext), context_.var_map[it], kCommReduce);
+          new_axis.push_back(iv);
+          context_.range_map[it] = ExtRange(0, pos_ext, false, false);
+        }
+        // prepare condition
+        PrimExpr result_condition = const_true();
+        for (auto val : conditions) {
+          result_condition = AndNode::make(result_condition, val);
+        }
+        result_condition = Substitute(result_condition, pos_vmap);
+
         Map<Var, PrimExpr> vmap;
         for (auto kv : results) {
-          vmap.Set(context_.var_map[kv.first], kv.second);
+          vmap.Set(context_.var_map[kv.first], Substitute(kv.second, pos_vmap));
         }
         // add new vmap
         vmap_scope_.push_back(vmap);
+        
         result_expr = Substitute(result_expr, vmap);
-        result_expr = Simplify(SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
+        // result_expr = Simplify(SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
         // no need to produce a reduce
         if ((int)relaxes.size() == 0) {
           return result_expr;
         }
-
-        // prepare axis
-        Array<IterVar> new_axis;
-        for (auto it : relaxes) {
-          ExtRange range = context_.range_map[it];
-          IterVar iv = IterVarNode::make(
-                  Range(range.left, range.right), context_.var_map[it], kCommReduce);
-          new_axis.push_back(iv);
-        }
-
         // form reduce
-        result_expr = sum(result_expr, new_axis);
-        return result_expr;
+        Var x("x", result_expr.dtype()), y("y", result_expr.dtype());
+        PrimExpr result = tir::AddNode::make(x, y);
+        PrimExpr identity_element = make_zero(result_expr.dtype());
+        tir::CommReducer combiner =
+          tir::CommReducerNode::make({x}, {y}, {result}, {identity_element});
+        return tir::ReduceNode::make(combiner, {result_expr}, new_axis, result_condition, 0);
+        // result_expr = sum(result_expr, new_axis);
+        // return result_expr;
       } else {
         return make_zero(op->dtype);
       }
     } else if (op->call_type == CallNode::CallType::PureIntrinsic) {
       static std::unordered_set<std::string> piecewise_const = {"floor", "ceil", "trunc", "round"};
       if (op->name == "exp") {
-        return MulNode::make(grad(op->args[0]), expr);
+        vmap_scope_.clear();
+        PrimExpr new_arg0 = grad(op->args[0]);
+        PrimExpr new_expr = expr;
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+        }
+        return MulNode::make(new_arg0, new_expr);
       } else if (op->name == "log") {
-        return DivNode::make(grad(op->args[0]), op->args[0]);
+        vmap_scope_.clear();
+        PrimExpr new_arg0 = grad(op->args[0]);
+        PrimExpr new_expr = op->args[0];
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+        }
+        return DivNode::make(new_arg0, new_expr);
       } else if (op->name == "sigmoid") {
-        return MulNode::make(grad(op->args[0]),
-                             MulNode::make(expr, SubNode::make(FloatImm(expr.dtype(), 1.0), expr)));
+        vmap_scope_.clear();
+        PrimExpr new_arg0 = grad(op->args[0]);
+        PrimExpr new_expr = expr;
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+        }
+        return MulNode::make(new_arg0,
+                             MulNode::make(new_expr, SubNode::make(FloatImm(new_expr.dtype(), 1.0), new_expr)));
       } else if (op->name == "sqrt") {
-        return DivNode::make(grad(op->args[0]),
-                             MulNode::make(expr, FloatImm(expr.dtype(), 2.0)));
+        vmap_scope_.clear();
+        PrimExpr new_arg0 = grad(op->args[0]);
+        PrimExpr new_expr = expr;
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+        }
+        return DivNode::make(new_arg0,
+                             MulNode::make(new_expr, FloatImm(new_expr.dtype(), 2.0)));
       } else if (op->name == "tanh") {
-        return MulNode::make(grad(op->args[0]),
-                             SubNode::make(FloatImm(expr.dtype(), 1.0), MulNode::make(expr, expr)));
+        vmap_scope_.clear();
+        PrimExpr new_arg0 = grad(op->args[0]);
+        PrimExpr new_expr = expr;
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+        }
+        return MulNode::make(new_arg0,
+                             SubNode::make(FloatImm(new_expr.dtype(), 1.0), MulNode::make(new_expr, new_expr)));
       } else if (op->name == "pow") {
         auto x = op->args[0], y = op->args[1];
-        return expr * (grad(y)*log(x) + grad(x)*y/x);
+        vmap_scope_.clear();
+        PrimExpr new_x = grad(x);
+        PrimExpr new_expr = expr;
+        PrimExpr sub_x = x;
+        PrimExpr sub_y = y;
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+          sub_x = Substitute(sub_x, vmap_scope_.back());
+          sub_y = Substitute(sub_y, vmap_scope_.back());
+        }
+        vmap_scope_.clear();
+        PrimExpr new_y = grad(y);
+        if (vmap_scope_.size() != 0) {
+          new_expr = Substitute(new_expr, vmap_scope_.back());
+          sub_x = Substitute(sub_x, vmap_scope_.back());
+          sub_y = Substitute(sub_y, vmap_scope_.back());
+        }
+        return new_expr * (new_y*log(sub_x) + new_y*sub_y/sub_x);
       } else if (op->name == "fabs") {
         auto type = op->args[0].dtype();
-        return MulNode::make(grad(op->args[0]),
-                             SelectNode::make(GENode::make(op->args[0], make_zero(type)),
+        vmap_scope_.clear();
+        PrimExpr new_arg0 = grad(op->args[0]);
+        PrimExpr sub_arg0 = op->args[0];
+        if (vmap_scope_.size() != 0) {
+          sub_arg0 = Substitute(sub_arg0, vmap_scope_.back());
+        }
+        return MulNode::make(new_arg0,
+                             SelectNode::make(GENode::make(sub_arg0, make_zero(type)),
                                               FloatImm(type, 1.0), FloatImm(type, -1.0)));
       } else if (op->name == intrinsic::tvm_if_then_else) {
         vmap_scope_.clear();
