@@ -120,17 +120,29 @@ Array<Tensor> myGradient(const Tensor& output,
   get_grad_compute = [&get_grad_compute, &grad_map, &feed_graph]
   (const Tensor &tensor) {
     if (!grad_map.count(tensor)) {
-      // Here the adjoint hasn't been computed yet
+      // Here the gradient hasn't been computed yet
       Tensor tensor_grad;
+      if (!tensor->requires_grad) {
+        LOG(WARNING) << "grad to tensor that doesn't requires grad: " << tensor << ".\n";
+        tensor_grad = zeros_like(tensor);
+        grad_map[tensor] = tensor_grad;
+        return tensor_grad;
+      }
+      // Need to compute gradients
       Array<Tensor> direct_consumers = feed_graph[tensor];
       if (direct_consumers.empty()) {
+        LOG(WARNING) << "grad to tensor that doesn't have consumers.\n";
         tensor_grad = zeros_like(tensor);
       } else {
         Array<Tensor> grad_outputs;
+        Array<Tensor> effective_consumers;
         for (const Tensor& direct_consumer : direct_consumers) {
-          grad_outputs.push_back(get_grad_compute(direct_consumer));
+          if (direct_consumer->requires_grad) {
+            effective_consumers.push_back(direct_consumer);
+            grad_outputs.push_back(get_grad_compute(direct_consumer));
+          }
         }
-        tensor_grad = collect_rule(tensor, direct_consumers, grad_outputs);
+        tensor_grad = collect_rule(tensor, effective_consumers, grad_outputs);
       }
 
       grad_map[tensor] = tensor_grad;

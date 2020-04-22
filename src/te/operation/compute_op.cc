@@ -91,7 +91,8 @@ Tensor compute(Array<PrimExpr> shape,
                FCompute fcompute,
                std::string name,
                std::string tag,
-               Map<std::string, ObjectRef> attrs) {
+               Map<std::string, ObjectRef> attrs,
+               bool requires_grad) {
   auto op_node = make_object<ComputeOpNode>();
   // compute dimension.
   size_t ndim = shape.size();
@@ -106,14 +107,15 @@ Tensor compute(Array<PrimExpr> shape,
   }
 
   return ComputeOpNode::make(
-      name, tag, attrs, axis, {fcompute(args)}).output(0);
+      name, tag, attrs, axis, {fcompute(args)}, requires_grad).output(0);
 }
 
 Array<Tensor> compute(Array<PrimExpr> shape,
                       FBatchCompute fcompute,
                       std::string name,
                       std::string tag,
-                      Map<std::string, ObjectRef> attrs) {
+                      Map<std::string, ObjectRef> attrs,
+                      bool requires_grad) {
   auto op_node = make_object<ComputeOpNode>();
   // compute dimension.
   size_t ndim = shape.size();
@@ -127,7 +129,7 @@ Array<Tensor> compute(Array<PrimExpr> shape,
     args.push_back(axis.back()->var);
   }
 
-  Operation op = ComputeOpNode::make(name, tag, attrs, axis, fcompute(args));
+  Operation op = ComputeOpNode::make(name, tag, attrs, axis, fcompute(args), requires_grad);
   Array<Tensor> outputs;
   for (int idx = 0; idx < op->num_outputs(); ++idx) {
     outputs.push_back(op.output(idx));
@@ -139,7 +141,8 @@ Operation ComputeOpNode::make(std::string name,
                               std::string tag,
                               Map<std::string, ObjectRef> attrs,
                               Array<IterVar> axis,
-                              Array<PrimExpr> body) {
+                              Array<PrimExpr> body,
+                              bool requires_grad) {
   if (!attrs.defined()) {
     attrs = Map<std::string, ObjectRef>();
   }
@@ -149,6 +152,7 @@ Operation ComputeOpNode::make(std::string name,
   n->attrs = std::move(attrs);
   n->axis = std::move(axis);
   n->body = std::move(body);
+  n->requires_grad = std::move(requires_grad);
   if (n->body[0]->IsInstance<tir::ReduceNode>()) {
     const tir::ReduceNode* reduce = n->body[0].as<tir::ReduceNode>();
     n->reduce_axis = reduce->axis;

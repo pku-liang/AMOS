@@ -171,6 +171,8 @@ class TensorNode : public Object {
   Operation op;
   /*! \brief the output index from source operation */
   int value_index{0};
+  /*! \brief whether requires grad */
+  bool requires_grad{false};
   /*! \brief constructor */
   TensorNode() {}
 
@@ -179,11 +181,13 @@ class TensorNode : public Object {
     v->Visit("dtype", &dtype);
     v->Visit("op", &op);
     v->Visit("value_index", &value_index);
+    v->Visit("requires_grad", &requires_grad);
   }
   TVM_DLL static Tensor make(Array<PrimExpr> shape,
                              DataType dtype,
                              Operation op,
-                             int value_index);
+                             int value_index,
+                             bool requires_grad=false);
 
   static constexpr const char* _type_key = "Tensor";
   TVM_DECLARE_FINAL_OBJECT_INFO(TensorNode, Object);

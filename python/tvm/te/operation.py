@@ -30,7 +30,7 @@ from . import tensor as _tensor
 from . import _ffi_api
 
 
-def placeholder(shape, dtype=None, name="placeholder"):
+def placeholder(shape, dtype=None, name="placeholder", requires_grad=False):
     """Construct an empty tensor object.
 
     Parameters
@@ -44,6 +44,9 @@ def placeholder(shape, dtype=None, name="placeholder"):
     name: str, optional
         The name hint of the tensor
 
+    requires_grad: bool, optional
+        Whether the output tensor requires grad
+
     Returns
     -------
     tensor: Tensor
@@ -52,10 +55,10 @@ def placeholder(shape, dtype=None, name="placeholder"):
     shape = (shape,) if isinstance(shape, tvm.tir.PrimExpr) else shape
     dtype = "float32" if dtype is None else dtype
     return _ffi_api.Placeholder(
-        shape, dtype, name)
+        shape, dtype, name, requires_grad)
 
 
-def compute(shape, fcompute, name="compute", tag="", attrs=None):
+def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=False):
     """Construct a new tensor by computing over the shape domain.
 
     The compute rule is result[axis] = fcompute(axis)
@@ -76,6 +79,9 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None):
 
     attrs: dict, optional
         The additional auxiliary attributes about the compute.
+
+    requires_grad: bool, optional
+        Whether the output tensor requires grad.
 
     Returns
     -------
@@ -123,7 +129,7 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None):
             body = [body]
         body = convert(body)
         op_node = _ffi_api.ComputeOp(
-            name, tag, attrs, dim_var, body)
+            name, tag, attrs, dim_var, body, requires_grad)
 
     num = op_node.num_outputs
     outputs = tuple(op_node.output(i) for i in range(num))

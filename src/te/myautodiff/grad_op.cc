@@ -88,8 +88,8 @@ class GradOp : public ExprMutator {
           coeffs.push_back(extractor.coefficient_);
         }
 
-        std::cout << "check context after elimination:\n";
-        std::cout << context_ << "\n";
+        // std::cout << "check context after elimination:\n";
+        // std::cout << context_ << "\n";
 
         // assemble coefficents to Matrix
         int cols = (int)context_.index_names.size();
@@ -110,48 +110,48 @@ class GradOp : public ExprMutator {
           }
         }
 
-        std::cout << "check trans before:\n";
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << trans[i][j] << " ";
-          }
-          std::cout << "\n";
-        }
-        std::cout << "\n";
+        // std::cout << "check trans before:\n";
+        // for (int i = 0; i < rows; ++i) {
+        //   for (int j = 0; j < cols; ++j) {
+        //     std::cout << trans[i][j] << " ";
+        //   }
+        //   std::cout << "\n";
+        // }
+        // std::cout << "\n";
 
         // compute simith normal form
         Matrix<int> U(rows, rows);
         Matrix<int> V(cols, cols);
         int dims = smith_normalize(trans, U, V);
 
-        std::cout << "check dim=" << dims << "\n";
+        // std::cout << "check dim=" << dims << "\n";
 
-        std::cout << "check trans after:\n";
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << trans[i][j] << " ";
-          }
-          std::cout << "\n";
-        }
-        std::cout << "\n";
+        // std::cout << "check trans after:\n";
+        // for (int i = 0; i < rows; ++i) {
+        //   for (int j = 0; j < cols; ++j) {
+        //     std::cout << trans[i][j] << " ";
+        //   }
+        //   std::cout << "\n";
+        // }
+        // std::cout << "\n";
 
-        std::cout << "check U:\n";
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < rows; ++j) {
-            std::cout << U[i][j] << " ";
-          }
-          std::cout << "\n";
-        }
-        std::cout << "\n";
+        // std::cout << "check U:\n";
+        // for (int i = 0; i < rows; ++i) {
+        //   for (int j = 0; j < rows; ++j) {
+        //     std::cout << U[i][j] << " ";
+        //   }
+        //   std::cout << "\n";
+        // }
+        // std::cout << "\n";
 
-        std::cout << "check V:\n";
-        for (int i = 0; i < cols; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << V[i][j] << " ";
-          }
-          std::cout << "\n";
-        }
-        std::cout << "\n";
+        // std::cout << "check V:\n";
+        // for (int i = 0; i < cols; ++i) {
+        //   for (int j = 0; j < cols; ++j) {
+        //     std::cout << V[i][j] << " ";
+        //   }
+        //   std::cout << "\n";
+        // }
+        // std::cout << "\n";
 
         // check if is identity
         // if (!check_identity(trans, dims)) {
@@ -174,22 +174,22 @@ class GradOp : public ExprMutator {
           context_.range_map[new_name] = ExtRange();
         }
 
-        std::cout << "check relaxes:\n";
-        for (auto it : relaxes) {
-          std::cout << it << " ";
-        }
-        std::cout << "\n\n";
+        // std::cout << "check relaxes:\n";
+        // for (auto it : relaxes) {
+        //   std::cout << it << " ";
+        // }
+        // std::cout << "\n\n";
 
         // bindings, transformation from original index to new index
         // one var may have many bindings
         // for example, i = r0, i = r1 * 4 + s0
         std::unordered_map<std::string, std::vector<PrimExpr>> bindings;
         Array<PrimExpr> VUb = relax_matrix_array_product(V, Ub);
-        std::cout << "check VUb:\n";
-        for (auto val : VUb) {
-          std::cout << Simplify(val) << " ";
-        }
-        std::cout << "\n\n";
+        // std::cout << "check VUb:\n";
+        // for (auto val : VUb) {
+        //   std::cout << Simplify(val) << " ";
+        // }
+        // std::cout << "\n\n";
         for (int i = 0; i < cols; ++i) {
           PrimExpr bind_val = VUb[i];
           if (i < dims) {
@@ -248,15 +248,15 @@ class GradOp : public ExprMutator {
           }
         }
 
-        std::cout << "check original bindings:\n";
-        for (auto kv : bindings) {
-          std::cout << kv.first << " : [ ";
-          for (auto val : kv.second) {
-            std::cout << val << " "; 
-          }
-          std::cout << "]\n";
-        }
-        std::cout << "\n";
+        // std::cout << "check original bindings:\n";
+        // for (auto kv : bindings) {
+        //   std::cout << kv.first << " : [ ";
+        //   for (auto val : kv.second) {
+        //     std::cout << val << " "; 
+        //   }
+        //   std::cout << "]\n";
+        // }
+        // std::cout << "\n";
 
         // resolve the bindings
         std::unordered_map<std::string, PrimExpr> results;
@@ -290,9 +290,9 @@ class GradOp : public ExprMutator {
           // }
           RangeInference infer(context_.range_map[kv.first]);
           infer.do_infer(kv.second);
-          std::cout << "check range inference:\n";
+          // std::cout << "check range inference:\n";
           for (auto kkv : infer.range_map) {
-            std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
+            // std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
             if (context_.range_map.count(kkv.first) == 0 ||
                 context_.range_map[kkv.first].range_type() != ExtRangeType::LCRC) {
               if (kkv.second.range_type() == ExtRangeType::LCRC)
@@ -311,20 +311,20 @@ class GradOp : public ExprMutator {
           }
         }
 
-        std::cout << "check conditions:\n";
-        for (auto it : conditions) {
-          std::cout << it << " ";
-        }
-        std::cout << "\n";
+        // std::cout << "check conditions:\n";
+        // for (auto it : conditions) {
+        //   std::cout << it << " ";
+        // }
+        // std::cout << "\n";
 
-        std::cout << "check bindings:\n";
-        for (auto kv : results) {
-          std::cout << kv.first << " = " << kv.second << "\n";
-        }
-        std::cout << "\n";
+        // std::cout << "check bindings:\n";
+        // for (auto kv : results) {
+        //   std::cout << kv.first << " = " << kv.second << "\n";
+        // }
+        // std::cout << "\n";
 
         // check if any var his no concrete range
-        std::cout << "\ncheck relax ranges:\n";
+        // std::cout << "\ncheck relax ranges:\n";
         for (auto it : relaxes) {
           CHECK(context_.range_map.count(it) != 0) << "Internal error: fail to infer range for: "
                                                     << it << ".\n";
@@ -451,7 +451,7 @@ class GradOp : public ExprMutator {
           sub_x = Substitute(sub_x, vmap_scope_.back());
           sub_y = Substitute(sub_y, vmap_scope_.back());
         }
-        return new_expr * (new_y*log(sub_x) + new_y*sub_y/sub_x);
+        return new_expr * (new_y*log(sub_x) + new_x*sub_y/sub_x);
       } else if (op->name == "fabs") {
         auto type = op->args[0].dtype();
         vmap_scope_.clear();
@@ -790,7 +790,7 @@ class LiftReduce : public ExprMutator {
           Map<Var, PrimExpr> vmap;
           size_t i = 0;
           for (auto iv : a_as_red->axis) {
-            std::cout << "check temp b iv=" << b_as_red->axis[pos_map[i]]->var << ", a iv=" << iv->var << "\n";
+            // std::cout << "check temp b iv=" << b_as_red->axis[pos_map[i]]->var << ", a iv=" << iv->var << "\n";
             vmap.Set(b_as_red->axis[pos_map[i]]->var, iv->var);
             ++i;
           }
@@ -1576,8 +1576,8 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
     context.range_map[new_name] = ExtRange(0, input->shape[i], false, false);
   }
 
-  std::cout << "check initial context:\n";
-  std::cout << context << "\n";
+  // std::cout << "check initial context:\n";
+  // std::cout << context << "\n";
 
   Array<PrimExpr> compute_args;
   for (auto val : compute_indices) {
@@ -1602,7 +1602,7 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
       SubstituteContext new_context = context.copy();
       GradOp helper(generator, new_context, input, doutput, call_args, compute_args);
       PrimExpr new_expr = helper.grad(expr);
-      std::cout << "check source: " << Simplify(new_expr) << "\n";
+      // std::cout << "check source: " << Simplify(new_expr) << "\n";
       new_source.push_back(new_expr);
     }
     // only take away the first one
@@ -1611,14 +1611,14 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
     SubstituteContext new_context = context.copy();
     GradOp helper(generator, new_context, input, doutput, call_args, compute_args);
     PrimExpr new_expr = helper.grad(body);
-    std::cout << "check body: " << Simplify(new_expr)  << "\n";
+    // std::cout << "check body: " << Simplify(new_expr)  << "\n";
     grad_body = Simplify(new_expr);
   }
 
-  std::cout << "\nLift ReduceNode:\n";
+  // std::cout << "\nLift ReduceNode:\n";
   LiftReduce lifter;
   grad_body = Simplify(lifter.lift(grad_body));
-  std::cout << "Result:\n" << grad_body << "\n";
+  // std::cout << "Result:\n" << grad_body << "\n";
 
   // std::vector<Tensor> tensor_list;
   // FormCompute(NameGenerator &generator, const std::string &tensor_name,
@@ -1634,14 +1634,14 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   FormCompute former(generator, generator.unique_name("_tensor"), shape, sub_vars);
   former.form_compute(grad_body);
   
-  std::cout << "check form compute:\n";
-  for (auto it : former.tensor_list) {
-    std::cout << "tensor: " << it << "\n";
-    const ComputeOpNode *cop = it->op.as<ComputeOpNode>();
-    CHECK(cop != nullptr);
-    std::cout << "axis: " << cop->axis << "\n";
-    std::cout << "body: " << cop->body << "\n";
-  }
+  // std::cout << "check form compute:\n";
+  // for (auto it : former.tensor_list) {
+  //   std::cout << "tensor: " << it << "\n";
+  //   const ComputeOpNode *cop = it->op.as<ComputeOpNode>();
+  //   CHECK(cop != nullptr);
+  //   std::cout << "axis: " << cop->axis << "\n";
+  //   std::cout << "body: " << cop->body << "\n";
+  // }
   
   return former.tensor_list.back();
 }
