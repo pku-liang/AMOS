@@ -41,7 +41,7 @@ from . import yolo_detection
 from . import temp_op_attr
 
 from .config import ctx_list
-from .init import create_workload
+from .init import create_workload, create_workload_with_label
 from .nat import add_nat_definitions, count, make_nat_value, make_nat_expr
 from .py_converter import to_python, run_as_python
 from ..transform import gradient
