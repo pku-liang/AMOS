@@ -51,7 +51,7 @@ class GradOp : public ExprMutator {
 
   PrimExpr grad(PrimExpr e) {
     if (e.dtype().is_int() || e.dtype().is_uint()) {
-      LOG(FATAL) << "No support for grad on int type.";
+      LOG(FATAL) << "No support for grad on int type." << e << "\n";
       throw;
     } else {
       return ExprMutator::VisitExpr(e);
@@ -248,15 +248,15 @@ class GradOp : public ExprMutator {
           }
         }
 
-        // std::cout << "check original bindings:\n";
-        // for (auto kv : bindings) {
-        //   std::cout << kv.first << " : [ ";
-        //   for (auto val : kv.second) {
-        //     std::cout << val << " "; 
-        //   }
-        //   std::cout << "]\n";
-        // }
-        // std::cout << "\n";
+        std::cout << "check original bindings:\n";
+        for (auto kv : bindings) {
+          std::cout << kv.first << " : [ ";
+          for (auto val : kv.second) {
+            std::cout << val << " "; 
+          }
+          std::cout << "]\n";
+        }
+        std::cout << "\n";
 
         // resolve the bindings
         std::unordered_map<std::string, PrimExpr> results;
@@ -317,11 +317,11 @@ class GradOp : public ExprMutator {
         // }
         // std::cout << "\n";
 
-        // std::cout << "check bindings:\n";
-        // for (auto kv : results) {
-        //   std::cout << kv.first << " = " << kv.second << "\n";
-        // }
-        // std::cout << "\n";
+        std::cout << "check bindings:\n";
+        for (auto kv : results) {
+          std::cout << kv.first << " = " << kv.second << "\n";
+        }
+        std::cout << "\n";
 
         // check if any var his no concrete range
         // std::cout << "\ncheck relax ranges:\n";
@@ -385,102 +385,172 @@ class GradOp : public ExprMutator {
         // result_expr = sum(result_expr, new_axis);
         // return result_expr;
       } else {
+        Map<Var, PrimExpr> vmap;
+        vmap_scope_.push_back(vmap);
         return make_zero(op->dtype);
       }
     } else if (op->call_type == CallNode::CallType::PureIntrinsic) {
       static std::unordered_set<std::string> piecewise_const = {"floor", "ceil", "trunc", "round"};
       if (op->name == "exp") {
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg0 = grad(op->args[0]);
-        PrimExpr new_expr = expr;
-        if (vmap_scope_.size() != 0) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
+        PrimExpr new_expr = expr;
+        if (!vmap.empty()) {
+          new_expr = Substitute(new_expr, vmap);
+        }
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return MulNode::make(new_arg0, new_expr);
       } else if (op->name == "log") {
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg0 = grad(op->args[0]);
         PrimExpr new_expr = op->args[0];
-        if (vmap_scope_.size() != 0) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
+        if (!vmap.empty()) {
+          new_expr = Substitute(new_expr, vmap);
+        }
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return DivNode::make(new_arg0, new_expr);
       } else if (op->name == "sigmoid") {
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg0 = grad(op->args[0]);
         PrimExpr new_expr = expr;
-        if (vmap_scope_.size() != 0) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
+        if (!vmap.empty()) {
+          new_expr = Substitute(new_expr, vmap);
+        }
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return MulNode::make(new_arg0,
                              MulNode::make(new_expr, SubNode::make(FloatImm(new_expr.dtype(), 1.0), new_expr)));
       } else if (op->name == "sqrt") {
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg0 = grad(op->args[0]);
         PrimExpr new_expr = expr;
-        if (vmap_scope_.size() != 0) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
+        if (!vmap.empty()) {
+          new_expr = Substitute(new_expr, vmap);
+        }
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return DivNode::make(new_arg0,
                              MulNode::make(new_expr, FloatImm(new_expr.dtype(), 2.0)));
       } else if (op->name == "tanh") {
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg0 = grad(op->args[0]);
         PrimExpr new_expr = expr;
-        if (vmap_scope_.size() != 0) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
+        if (!vmap.empty()) {
+          new_expr = Substitute(new_expr, vmap);
+        }
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return MulNode::make(new_arg0,
                              SubNode::make(FloatImm(new_expr.dtype(), 1.0), MulNode::make(new_expr, new_expr)));
       } else if (op->name == "pow") {
         auto x = op->args[0], y = op->args[1];
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_x = grad(x);
         PrimExpr new_expr = expr;
         PrimExpr sub_x = x;
         PrimExpr sub_y = y;
-        if (vmap_scope_.size() != 0) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
-          sub_x = Substitute(sub_x, vmap_scope_.back());
-          sub_y = Substitute(sub_y, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
-        vmap_scope_.clear();
+        
+        if (!vmap.empty()) {
+          new_expr = Substitute(new_expr, vmap);
+          sub_x = Substitute(sub_x, vmap);
+          sub_y = Substitute(sub_y, vmap);
+        }
+
+        vmap_scope_.pop_back();
+        
         PrimExpr new_y = grad(y);
-        if (vmap_scope_.size() != 0) {
+        for (auto kv : vmap_scope_.back()) {
+          if (vmap.count(kv.first) != 0) {
+            LOG(WARNING) << "find repeated bindings, but still going ahead"
+                         << "old: " << vmap[kv.first] << "\n"
+                         << "new: " << kv.second << "\n";
+          }
+          vmap.Set(kv.first, kv.second);
+        }
+        
+        if (!vmap_scope_.back().empty()) {
           new_expr = Substitute(new_expr, vmap_scope_.back());
           sub_x = Substitute(sub_x, vmap_scope_.back());
           sub_y = Substitute(sub_y, vmap_scope_.back());
         }
+
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return new_expr * (new_y*log(sub_x) + new_x*sub_y/sub_x);
       } else if (op->name == "fabs") {
         auto type = op->args[0].dtype();
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg0 = grad(op->args[0]);
         PrimExpr sub_arg0 = op->args[0];
-        if (vmap_scope_.size() != 0) {
-          sub_arg0 = Substitute(sub_arg0, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
+        if (!vmap.empty()) {
+          sub_arg0 = Substitute(sub_arg0, vmap);
+        }
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         return MulNode::make(new_arg0,
                              SelectNode::make(GENode::make(sub_arg0, make_zero(type)),
                                               FloatImm(type, 1.0), FloatImm(type, -1.0)));
       } else if (op->name == intrinsic::tvm_if_then_else) {
-        vmap_scope_.clear();
+        Map<Var, PrimExpr> vmap;
         PrimExpr new_arg1 = grad(op->args[1]);
         PrimExpr sub_cond = op->args[0];
-        if (vmap_scope_.size() != 0) {
-          sub_cond = Substitute(sub_cond, vmap_scope_.back());
+        for (auto kv : vmap_scope_.back()) {
+          vmap.Set(kv.first, kv.second);
         }
-        vmap_scope_.clear();
+        if (!vmap.empty()) {
+          sub_cond = Substitute(sub_cond, vmap);
+        }
+
+        vmap_scope_.pop_back();
+        
         PrimExpr new_arg2 = grad(op->args[2]);
-        if (vmap_scope_.size() != 0) {
+
+        for (auto kv : vmap_scope_.back()) {
+          if (vmap.count(kv.first) != 0) {
+            LOG(WARNING) << "find repeated bindings, but still going ahead"
+                         << "old: " << vmap[kv.first] << "\n"
+                         << "new: " << kv.second << "\n";
+          }
+          vmap.Set(kv.first, kv.second);
+        }
+
+        if (!vmap_scope_.back().empty()) {
           sub_cond = Substitute(sub_cond, vmap_scope_.back());
         }
+
+        vmap_scope_.pop_back();
+        vmap_scope_.push_back(vmap);
         Array<PrimExpr> new_args = {sub_cond,
                                     new_arg1,
                                     new_arg2};
         return CallNode::make(op->dtype, op->name, new_args,
                               op->call_type, op->func, op->value_index);
       } else if (piecewise_const.count(op->name)) {
+        Map<Var, PrimExpr> vmap;
+        vmap_scope_.push_back(vmap);
         return FloatImm(expr.dtype(), 0.0);
       } else {
         throw dmlc::Error("Derivative of this intrinsic is not implemented: " + op->name);
@@ -490,50 +560,124 @@ class GradOp : public ExprMutator {
   }
 
   PrimExpr VisitExpr_(const AddNode* op) {
-    return AddNode::make(grad(op->a), grad(op->b));
+    Map<Var, PrimExpr> vmap;
+    PrimExpr new_a = grad(op->a);
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+    vmap_scope_.pop_back();
+    PrimExpr new_b = grad(op->b);
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
+    return AddNode::make(new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const SubNode* op) {
-    return SubNode::make(grad(op->a), grad(op->b));
+    Map<Var, PrimExpr> vmap;
+    PrimExpr new_a = grad(op->a);
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+    vmap_scope_.pop_back();
+    PrimExpr new_b = grad(op->b);
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
+    return SubNode::make(new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const MulNode* op) {
-    vmap_scope_.clear();
+    Map<Var, PrimExpr> vmap;
     PrimExpr sub_a = op->a;
     PrimExpr sub_b = op->b;
     PrimExpr new_a = grad(op->a);
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
-    vmap_scope_.clear();
+    vmap_scope_.pop_back();
+
     PrimExpr new_b = grad(op->b);
-    if (vmap_scope_.size() != 0) {
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
     return AddNode::make(MulNode::make(new_a, sub_b), MulNode::make(sub_a, new_b));
   }
 
   PrimExpr VisitExpr_(const DivNode* op) {
-    vmap_scope_.clear();
+    Map<Var, PrimExpr> vmap;
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_b = op->b;
     PrimExpr sub_a = op->a;
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
-    vmap_scope_.clear();
+    vmap_scope_.pop_back();
+
     PrimExpr new_b = grad(op->b);
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
     return DivNode::make(
         SubNode::make(
             MulNode::make(new_a, sub_b),
@@ -544,22 +688,40 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const ModNode* op) NOT_IMPLEMENTED
 
   PrimExpr VisitExpr_(const FloorDivNode* op) {
-    vmap_scope_.clear();
+    Map<Var, PrimExpr> vmap;
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_b = op->b;
     PrimExpr sub_a = op->a;
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
-    vmap_scope_.clear();
+    vmap_scope_.pop_back();
+
     PrimExpr new_b = grad(op->b);
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
     return FloorDivNode::make(
         SubNode::make(
             MulNode::make(new_a, sub_b),
@@ -570,43 +732,79 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const FloorModNode* op) NOT_IMPLEMENTED
 
   PrimExpr VisitExpr_(const MinNode* op) {
-    vmap_scope_.clear();
+    Map<Var, PrimExpr> vmap;
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_b = op->b;
     PrimExpr sub_a = op->a;
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
-    vmap_scope_.clear();
+    vmap_scope_.pop_back();
+
     PrimExpr new_b = grad(op->b);
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
     return SelectNode::make(LENode::make(sub_a, sub_b),
         new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const MaxNode* op) {
-    vmap_scope_.clear();
+    Map<Var, PrimExpr> vmap;
     PrimExpr new_a = grad(op->a);
     PrimExpr sub_a = op->a;
     PrimExpr sub_b = op->b;
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
-    vmap_scope_.clear();
+    vmap_scope_.pop_back();
+
     PrimExpr new_b = grad(op->b);
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_a = Substitute(sub_a, vmap_scope_.back());
       sub_b = Substitute(sub_b, vmap_scope_.back());
     }
 
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
     return SelectNode::make(GENode::make(sub_a, sub_b),
         new_a, new_b);
   }
@@ -622,9 +820,17 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const ReduceNode* op) NOT_IMPLEMENTED
 
   PrimExpr VisitExpr_(const CastNode* op) {
+    Map<Var, PrimExpr> vmap;
     if (op->dtype.is_float()) {
-      return CastNode::make(op->dtype, grad(op->value));
+      PrimExpr new_value = grad(op->value);
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return CastNode::make(op->dtype, new_value);
     } else {
+      vmap_scope_.push_back(vmap);
       return make_zero(op->dtype);
     }
   }
@@ -632,18 +838,37 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const NotNode* op) NOT_IMPLEMENTED
 
   PrimExpr VisitExpr_(const SelectNode* op) {
-    vmap_scope_.clear();
+    Map<Var, PrimExpr> vmap;
     PrimExpr new_true = grad(op->true_value);
     // TODO: we do not support grad in condition
     PrimExpr sub_cond = op->condition;
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      vmap.Set(kv.first, kv.second);
+    }
+
+    if (!vmap_scope_.back().empty()) {
       sub_cond = Substitute(sub_cond, vmap_scope_.back());
     }
-    vmap_scope_.clear();
+
+    vmap_scope_.pop_back();
+
     PrimExpr new_false = grad(op->false_value);
-    if (vmap_scope_.size() != 0) {
+
+    for (auto kv : vmap_scope_.back()) {
+      if (vmap.count(kv.first) != 0) {
+        LOG(WARNING) << "find repeated bindings, but still going ahead"
+                      << "old: " << vmap[kv.first] << "\n"
+                      << "new: " << kv.second << "\n";
+      }
+      vmap.Set(kv.first, kv.second);
+    }
+    if (!vmap_scope_.back().empty()) {
       sub_cond = Substitute(sub_cond, vmap_scope_.back());
     }
+
+    vmap_scope_.pop_back();
+    vmap_scope_.push_back(vmap);
     return SelectNode::make(sub_cond,
         new_true, new_false);
   }
@@ -653,10 +878,14 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const ShuffleNode* op) NOT_IMPLEMENTED
 
   PrimExpr VisitExpr_(const IntImmNode* op) {
+    Map<Var, PrimExpr> vmap;
+    vmap_scope_.push_back(vmap);
     return IntImm(op->dtype, 0);
   }
 
   PrimExpr VisitExpr_(const FloatImmNode* op) {
+    Map<Var, PrimExpr> vmap;
+    vmap_scope_.push_back(vmap);
     return FloatImm(op->dtype, 0);
   }
 
@@ -684,6 +913,8 @@ class LiftReduce : public ExprMutator {
     PrimExpr new_b = VisitExpr(op->b);
     const ReduceNode *a_as_red = new_a.as<ReduceNode>();
     const ReduceNode *b_as_red = new_b.as<ReduceNode>();
+    const FloatImmNode *a_as_f = new_a.as<FloatImmNode>();
+    const FloatImmNode *b_as_f = new_b.as<FloatImmNode>();
     if (a_as_red != nullptr && b_as_red != nullptr) {
       // see if the reduce axis can be merged
       // only support one source
@@ -742,6 +973,56 @@ class LiftReduce : public ExprMutator {
           );
         }
       }
+    } else if (a_as_red != nullptr && b_as_f != nullptr) {
+      PrimExpr divides = 1;
+      for (auto axis : a_as_red->axis) {
+        divides = MulNode::make(divides, axis->dom->extent);
+      }
+      divides = CastNode::make(b_as_f->dtype, divides);
+      Array<PrimExpr> new_source;
+      for (auto old : a_as_red->source) {
+        new_source.push_back(
+          AddNode::make(
+            old,
+            DivNode::make(
+              make_const(b_as_f->dtype, b_as_f->value),
+              divides
+            )
+          )
+        );
+      }
+      return ReduceNode::make(
+          a_as_red->combiner,
+          new_source,
+          a_as_red->axis,
+          a_as_red->condition,
+          a_as_red->value_index
+        );
+    } else if (a_as_f != nullptr && b_as_red != nullptr) {
+      PrimExpr divides = 1;
+      for (auto axis : b_as_red->axis) {
+        divides = MulNode::make(divides, axis->dom->extent);
+      }
+      divides = CastNode::make(a_as_f->dtype, divides);
+      Array<PrimExpr> new_source;
+      for (auto old : b_as_red->source) {
+        new_source.push_back(
+          AddNode::make(
+            old,
+            DivNode::make(
+              make_const(a_as_f->dtype, a_as_f->value),
+              divides
+            )
+          )
+        );
+      }
+      return ReduceNode::make(
+          b_as_red->combiner,
+          new_source,
+          b_as_red->axis,
+          b_as_red->condition,
+          b_as_red->value_index
+        );
     }
     return Simplify(AddNode::make(new_a, new_b));
   }
@@ -751,6 +1032,8 @@ class LiftReduce : public ExprMutator {
     PrimExpr new_b = VisitExpr(op->b);
     const ReduceNode *a_as_red = new_a.as<ReduceNode>();
     const ReduceNode *b_as_red = new_b.as<ReduceNode>();
+    const FloatImmNode *a_as_f = new_a.as<FloatImmNode>();
+    const FloatImmNode *b_as_f = new_b.as<FloatImmNode>();
     if (a_as_red != nullptr && b_as_red != nullptr) {
       // see if the reduce axis can be merged
       // only support one source
@@ -810,6 +1093,56 @@ class LiftReduce : public ExprMutator {
           );
         }
       }
+    } else if (a_as_red != nullptr && b_as_f != nullptr) {
+      PrimExpr divides = 1;
+      for (auto axis : a_as_red->axis) {
+        divides = MulNode::make(divides, axis->dom->extent);
+      }
+      divides = CastNode::make(b_as_f->dtype, divides);
+      Array<PrimExpr> new_source;
+      for (auto old : a_as_red->source) {
+        new_source.push_back(
+          SubNode::make(
+            old,
+            DivNode::make(
+              make_const(b_as_f->dtype, b_as_f->value),
+              divides
+            )
+          )
+        );
+      }
+      return ReduceNode::make(
+          a_as_red->combiner,
+          new_source,
+          a_as_red->axis,
+          a_as_red->condition,
+          a_as_red->value_index
+        );
+    } else if (a_as_f != nullptr && b_as_red != nullptr) {
+      PrimExpr divides = 1;
+      for (auto axis : b_as_red->axis) {
+        divides = MulNode::make(divides, axis->dom->extent);
+      }
+      divides = CastNode::make(a_as_f->dtype, divides);
+      Array<PrimExpr> new_source;
+      for (auto old : b_as_red->source) {
+        new_source.push_back(
+          SubNode::make(
+            DivNode::make(
+              make_const(a_as_f->dtype, a_as_f->value),
+              divides
+            ),
+            old
+          )
+        );
+      }
+      return ReduceNode::make(
+          b_as_red->combiner,
+          new_source,
+          b_as_red->axis,
+          b_as_red->condition,
+          b_as_red->value_index
+        );
     }
     return Simplify(SubNode::make(new_a, new_b));
   }
@@ -1602,7 +1935,7 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
       SubstituteContext new_context = context.copy();
       GradOp helper(generator, new_context, input, doutput, call_args, compute_args);
       PrimExpr new_expr = helper.grad(expr);
-      // std::cout << "check source: " << Simplify(new_expr) << "\n";
+      std::cout << "check source: " << Simplify(new_expr) << "\n";
       new_source.push_back(new_expr);
     }
     // only take away the first one
@@ -1611,14 +1944,14 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
     SubstituteContext new_context = context.copy();
     GradOp helper(generator, new_context, input, doutput, call_args, compute_args);
     PrimExpr new_expr = helper.grad(body);
-    // std::cout << "check body: " << Simplify(new_expr)  << "\n";
+    std::cout << "check body: " << Simplify(new_expr)  << "\n";
     grad_body = Simplify(new_expr);
   }
 
-  // std::cout << "\nLift ReduceNode:\n";
+  std::cout << "\nLift ReduceNode:\n";
   LiftReduce lifter;
   grad_body = Simplify(lifter.lift(grad_body));
-  // std::cout << "Result:\n" << grad_body << "\n";
+  std::cout << "\nResult:\n" << grad_body << "\n";
 
   // std::vector<Tensor> tensor_list;
   // FormCompute(NameGenerator &generator, const std::string &tensor_name,

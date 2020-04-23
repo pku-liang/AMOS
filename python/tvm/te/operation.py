@@ -30,7 +30,7 @@ from . import tensor as _tensor
 from . import _ffi_api
 
 
-def placeholder(shape, dtype=None, name="placeholder", requires_grad=False):
+def placeholder(shape, dtype=None, name="placeholder", requires_grad=True):
     """Construct an empty tensor object.
 
     Parameters
@@ -58,7 +58,7 @@ def placeholder(shape, dtype=None, name="placeholder", requires_grad=False):
         shape, dtype, name, requires_grad)
 
 
-def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=False):
+def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=True):
     """Construct a new tensor by computing over the shape domain.
 
     The compute rule is result[axis] = fcompute(axis)

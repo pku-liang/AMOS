@@ -187,7 +187,7 @@ class TensorNode : public Object {
                              DataType dtype,
                              Operation op,
                              int value_index,
-                             bool requires_grad=false);
+                             bool requires_grad=true);
 
   static constexpr const char* _type_key = "Tensor";
   TVM_DECLARE_FINAL_OBJECT_INFO(TensorNode, Object);

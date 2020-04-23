@@ -593,7 +593,8 @@ class ComputeVerifier final : protected tir::ExprVisitor {
     // Check for non top level reductions
     CHECK(0 == level_)
         << "Reductions are only allowed at the top level of compute. "
-        << "Please create another tensor for further composition.";
+        << "Please create another tensor for further composition."
+        << GetRef<PrimExpr>(op);
   }
   //@}
 
