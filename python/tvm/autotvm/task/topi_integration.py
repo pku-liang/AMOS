@@ -162,7 +162,7 @@ def register_topi_compute(task_name, func=None):
             attrs['workload'] = workload
             if isinstance(op, tensor.ComputeOp):
                 op = tvm.te._ffi_api.ComputeOp(
-                    op.name, op.tag, attrs, op.axis, op.body)
+                    op.name, op.tag, attrs, op.axis, op.body, node.requires_grad)
             elif isinstance(op, tensor.ExternOp):
                 op = tvm.te._ffi_api.ExternOp(
                     op.name, op.tag, attrs,
