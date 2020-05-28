@@ -1896,7 +1896,7 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   Array<IterVar> compute_indices;
   Array<PrimExpr> call_args;
   PrimExpr body = ensure_unique_var(op, context, generator, call_args, output->value_index);
-  PrimExpr new_body;
+  // PrimExpr new_body;
 
   for (size_t i = 0; i < input->shape.size(); ++i) {
     std::string new_name = generator.unique_name("z");

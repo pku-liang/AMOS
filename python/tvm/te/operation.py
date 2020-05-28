@@ -58,7 +58,7 @@ def placeholder(shape, dtype=None, name="placeholder", requires_grad=True):
         shape, dtype, name, requires_grad)
 
 
-def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=True):
+def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=True, reorder=None):
     """Construct a new tensor by computing over the shape domain.
 
     The compute rule is result[axis] = fcompute(axis)
@@ -109,7 +109,13 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
         raise ValueError("fcompute do not match dimension, ndim=%d" % ndim)
 
     dim_var = [tvm.tir.IterVar((0, s), x, 0) for x, s in zip(arg_names, shape[:out_ndim])]
-    body = fcompute(*[v.var for v in dim_var])
+    reorder_dim_var = [x for x in dim_var]
+    if reorder is not None:
+        assert isinstance(reorder, (list, tuple)) and len(reorder) == out_ndim
+        new_dim_var = [dim_var[reorder[i]] for i in range(out_ndim)]
+        print("check new dim var", new_dim_var)
+        reorder_dim_var = new_dim_var
+    body = fcompute(*[v.var for v in reorder_dim_var])
 
     if isinstance(body, _tensor.TensorIntrinCall):
         for i, s in enumerate(shape[out_ndim:]):

@@ -36,4 +36,5 @@ from .tensor import PlaceholderOp, ComputeOp, TensorComputeOp, ScanOp, ExternOp,
 from .autodiff import gradient
 from .myautodiff import mygradient
 from .myautodiff import expr_equal, grad_op
+from .longtail import get_batch_like_dim, find_axis_in
 from . import hybrid
