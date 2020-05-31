@@ -32,6 +32,10 @@ TVM_DLL Array<IntImm> get_batch_like_dim(const Tensor &output);
 
 TVM_DLL Array<IntImm> find_axis_in(Array<IterVar> axis, const Tensor &tensor, const Tensor &output);
 
+TVM_DLL Map<PrimExpr, IntImm> count_operation(const Operation& op);
+
+TVM_DLL Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& op);
+
 }  // namespace te
 }  // namespace tvm
 

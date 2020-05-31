@@ -58,6 +58,64 @@ class FindAxisPosition : public ExprVisitor {
 };
 
 
+class CountOperationNum : public ExprVisitor {
+ public:
+  using ExprVisitor::VisitExpr;
+  using ExprVisitor::VisitExpr_;
+
+  int num_add;
+  int num_mul;
+  int num_div;
+  int num_branch;
+  int num_logic;
+  int num_special;
+
+  CountOperationNum() {
+    num_add = 0;
+    num_mul = 0;
+    num_div = 0;
+    num_branch = 0;
+    num_logic = 0;
+    num_special = 0;
+  }
+
+  void VisitExpr_(const CallNode* op) override;
+  void VisitExpr_(const AddNode* op) override;
+  void VisitExpr_(const SubNode* op) override;
+  void VisitExpr_(const MulNode* op) override;
+  void VisitExpr_(const DivNode* op) override;
+  void VisitExpr_(const ModNode* op) override;
+  void VisitExpr_(const FloorDivNode* op) override;
+  void VisitExpr_(const FloorModNode* op) override;
+  void VisitExpr_(const MinNode* op) override;
+  void VisitExpr_(const MaxNode* op) override;
+  void VisitExpr_(const AndNode* op) override;
+  void VisitExpr_(const OrNode* op) override;
+  void VisitExpr_(const ReduceNode* op) override;
+  void VisitExpr_(const CastNode* op) override;
+  void VisitExpr_(const NotNode* op) override;
+  void VisitExpr_(const SelectNode* op) override;
+};
+
+
+class CountInputOccur : public ExprVisitor { 
+ private:
+  Array<Tensor> inputs_;
+ public:
+  using ExprVisitor::VisitExpr;
+  using ExprVisitor::VisitExpr_;
+
+  std::vector<int> count_occur;
+
+  CountInputOccur(Array<Tensor> inputs) : inputs_(inputs) {
+    for (auto t : inputs) {
+      count_occur.push_back(0);
+    }
+  }
+  
+  void VisitExpr_(const CallNode* op) override;
+};
+
 }  // namespace tvm
 
 }  // namespace te

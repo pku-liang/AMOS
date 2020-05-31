@@ -41,3 +41,11 @@ def find_axis_in(axis, tensor, output):
   return where the axis occurs in tensor
   """
   return _ffi_api.find_axis_in(axis, tensor, output)
+
+
+def count_operation(op):
+  return _ffi_api.count_operation(op)
+
+
+def count_input_occur(inputs, op):
+  return _ffi_api.count_input_occur(inputs, op)
