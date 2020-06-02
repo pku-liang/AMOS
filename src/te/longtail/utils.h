@@ -1,4 +1,3 @@
-
 #ifndef TVM_TE_LONGTAIL_UTILS_H_
 #define TVM_TE_LONGTAIL_UTILS_H_
 
@@ -112,7 +111,7 @@ class CountInputOccur : public ExprVisitor {
       count_occur.push_back(0);
     }
   }
-  
+
   void VisitExpr_(const CallNode* op) override;
 };
 

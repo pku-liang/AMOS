@@ -36,6 +36,8 @@ TVM_DLL Map<PrimExpr, IntImm> count_operation(const Operation& op);
 
 TVM_DLL Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& op);
 
+TVM_DLL Map<Operation, Operation> subgraph_partition(Map<Operation, IntImm> graph_mark, Array<Operation> outputs);
+
 }  // namespace te
 }  // namespace tvm
 

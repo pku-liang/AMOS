@@ -49,3 +49,7 @@ def count_operation(op):
 
 def count_input_occur(inputs, op):
   return _ffi_api.count_input_occur(inputs, op)
+
+
+def subgraph_partition(graph_mark, outputs):
+  return _ffi_api.subgraph_partition(graph_mark, outputs)
