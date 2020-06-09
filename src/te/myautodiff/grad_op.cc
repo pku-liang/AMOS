@@ -1851,8 +1851,8 @@ PrimExpr ensure_unique_var(const ComputeOpNode *op, SubstituteContext &context,
       std::string name_hint = iv->var->name_hint;
       std::string new_name = generator.unique_name(name_hint);
       if (name_hint != new_name) {
-        LOG(WARNING) << "Find repeat axis iter_var name: " << name_hint << "\n"
-                     << "change to new name: " << new_name;
+        // LOG(WARNING) << "Find repeat axis iter_var name: " << name_hint << "\n"
+        //              << "change to new name: " << new_name;
       }
       // new_iter_vars.push_back(IterVarNode::make(iv->dom,
       //   Var(new_name, iv->var->dtype), iv->iter_type, iv->thread_tag));
