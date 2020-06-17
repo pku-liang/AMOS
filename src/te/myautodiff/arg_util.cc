@@ -10,15 +10,19 @@ bool NameGenerator::has_name(std::string &name) {
 }
 
 
-std::string NameGenerator::unique_name(const std::string &hint) {
+std::string NameGenerator::unique_name(const std::string hint) {
   std::ostringstream oss;
-  if (!name_map_.count(hint)) {
+  oss.str("");
+  if (name_map_.find(hint) == name_map_.end()) {
     name_map_[hint] = 0;
   } else {
     name_map_[hint]++;
   }
-  oss << hint << name_map_[hint];
-  return oss.str();
+  
+  oss << hint.c_str();
+  oss << name_map_[hint];
+  std::string ret = oss.str();
+  return ret;
 }
 
 

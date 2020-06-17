@@ -286,7 +286,7 @@ class NameGenerator {
 
   bool has_name(std::string &name);
 
-  std::string unique_name(const std::string &hint);
+  std::string unique_name(const std::string hint);
 };
 
 

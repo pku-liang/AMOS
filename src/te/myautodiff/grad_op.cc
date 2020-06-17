@@ -1320,14 +1320,15 @@ class LiftReduce : public ExprMutator {
 class FormCompute : public ExprVisitor {
  private:
   NameGenerator &generator_;
-  const std::string &tensor_name_key_;
+  std::string tensor_name_key_;
   Array<PrimExpr> &shape_;
   Array<Var> &sub_vars_;
  public:
   std::vector<Tensor> tensor_list;
   FormCompute(NameGenerator &generator, const std::string &tensor_name,
     Array<PrimExpr> &shape, Array<Var> &sub_vars) :
-    generator_(generator), tensor_name_key_(tensor_name), shape_(shape), sub_vars_(sub_vars) {}
+    generator_(generator), tensor_name_key_(tensor_name), shape_(shape), sub_vars_(sub_vars) {
+    }
 
   void form_compute(const PrimExpr &expr) {
     VisitExpr(expr);
@@ -1586,7 +1587,8 @@ class FormCompute : public ExprVisitor {
                 op->condition,
                 op->value_index), vmap);
       };
-    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+    std::string name = generator_.unique_name(tensor_name_key_);
+    tensor_list.push_back(te::compute(shape_, func, name));
   }
 
   void VisitExpr_(const CastNode* op) override {
