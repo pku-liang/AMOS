@@ -161,7 +161,7 @@ Array<Tensor> myGradient(const Tensor& output,
 
 TVM_REGISTER_GLOBAL("te.myGradient")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
-    LOG(WARNING) << "te.myGradient is an experimental feature.";
+    // LOG(WARNING) << "te.myGradient is an experimental feature.";
     if (args.size() == 2) {
       *ret = myGradient(args[0], args[1]);
     } else if (args.size() == 3) {

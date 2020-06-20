@@ -249,13 +249,13 @@ class GradOp : public ExprMutator {
         }
 
         // std::cout << "check original bindings:\n";
-        for (auto kv : bindings) {
+        // for (auto kv : bindings) {
           // std::cout << kv.first << " : [ ";
-          for (auto val : kv.second) {
+          // for (auto val : kv.second) {
             // std::cout << val << " "; 
-          }
+          // }
           // std::cout << "]\n";
-        }
+        // }
         // std::cout << "\n";
 
         // resolve the bindings
@@ -318,9 +318,9 @@ class GradOp : public ExprMutator {
         // // std::cout << "\n";
 
         // std::cout << "check bindings:\n";
-        for (auto kv : results) {
+        // for (auto kv : results) {
           // std::cout << kv.first << " = " << kv.second << "\n";
-        }
+        // }
         // std::cout << "\n";
 
         // check if any var his no concrete range

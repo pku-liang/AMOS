@@ -113,7 +113,7 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
     if reorder is not None:
         assert isinstance(reorder, (list, tuple)) and len(reorder) == out_ndim
         new_dim_var = [dim_var[reorder[i]] for i in range(out_ndim)]
-        print("check new dim var", new_dim_var)
+        # print("check new dim var", new_dim_var)
         reorder_dim_var = new_dim_var
     body = fcompute(*[v.var for v in reorder_dim_var])
 

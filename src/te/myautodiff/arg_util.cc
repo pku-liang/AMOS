@@ -396,11 +396,11 @@ void solve_substitutions(SubstituteContext &context,
     PrimExpr unique_binding = solve_multi_bindings(context, bindings[sub_var_name], unused, conditions);
     Map<Var, PrimExpr> vmap;
     vmap.Set(context.var_map[sub_var_name], unique_binding);
-    std::cout << "check solve sub var: " << sub_var_name << "\n";
+    // std::cout << "check solve sub var: " << sub_var_name << "\n";
     for (int j = i - 1; j >= 0; --j) {
       std::vector<PrimExpr> new_bindings;
       for (auto expr : bindings[context.index_names[j]]) {
-        std::cout << "target expr: " << expr << "\n";
+        // std::cout << "target expr: " << expr << "\n";
         new_bindings.push_back(Simplify(Substitute(expr, vmap)));
       }
       // replace bindings
@@ -427,29 +427,29 @@ bool expr_equal(const PrimExpr &a, const PrimExpr &b) {
   std::string subname_hint = "_s";
   EliminateFloorDivAndMod efdam(generator, subname_hint, context);
   PrimExpr new_expr_a = efdam.eliminate(a);
-  std::cout << "check:\n" << new_expr_a << "\n";
+  // std::cout << "check:\n" << new_expr_a << "\n";
   // std::cout << context << "\n";
   PrimExpr new_expr_b = efdam.eliminate(b);
-  std::cout << "check:\n" << new_expr_b << "\n";
+  // std::cout << "check:\n" << new_expr_b << "\n";
   // std::cout << context << "\n";
   // efdam.eliminate(a);
   // std::cout << context << "\n";
   // efdam.eliminate(b);
   // std::cout << context << "\n";
 
-  std::cout << "check get coefficients:\n";
+  // std::cout << "check get coefficients:\n";
   std::string const_tag = "const";
   ExtractCoefficient ec1(const_tag);
   ec1.do_extract(new_expr_a);
-  for (auto kv : ec1.coefficient_) {
-    std::cout << kv.first << " : " << kv.second << "\n";
-  }
-  std::cout << "check get coefficients:\n";
+  // for (auto kv : ec1.coefficient_) {
+  //   std::cout << kv.first << " : " << kv.second << "\n";
+  // }
+  // std::cout << "check get coefficients:\n";
   ExtractCoefficient ec2(const_tag);
   ec2.do_extract(new_expr_b);
-  for (auto kv : ec2.coefficient_) {
-    std::cout << kv.first << " : " << kv.second << "\n";
-  }
+  // for (auto kv : ec2.coefficient_) {
+  //   std::cout << kv.first << " : " << kv.second << "\n";
+  // }
 
 
   int M = 4;
@@ -469,41 +469,41 @@ bool expr_equal(const PrimExpr &a, const PrimExpr &b) {
   trans[3][3] = 1;
   trans[3][6] = 1;
 
-  std::cout << "trans before:\n";
-  for (int i = 0; i < M; ++i) {
-    for (int j = 0; j < N; ++j) {
-      std::cout << trans[i][j] << " ";
-    }
-    std::cout << "\n";
-  }
+  // std::cout << "trans before:\n";
+  // for (int i = 0; i < M; ++i) {
+  //   for (int j = 0; j < N; ++j) {
+  //     std::cout << trans[i][j] << " ";
+  //   }
+  //   std::cout << "\n";
+  // }
 
   int dim = smith_normalize(trans, U, V);
 
-  std::cout << "trans after:\n";
-  for (int i = 0; i < M; ++i) {
-    for (int j = 0; j < N; ++j) {
-      std::cout << trans[i][j] << " ";
-    }
-    std::cout << "\n";
-  }
+  // std::cout << "trans after:\n";
+  // for (int i = 0; i < M; ++i) {
+  //   for (int j = 0; j < N; ++j) {
+  //     std::cout << trans[i][j] << " ";
+  //   }
+  //   std::cout << "\n";
+  // }
 
-  std::cout << "U after:\n";
-  for (int i = 0; i < M; ++i) {
-    for (int j = 0; j < M; ++j) {
-      std::cout << U[i][j] << " ";
-    }
-    std::cout << "\n";
-  }
+  // std::cout << "U after:\n";
+  // for (int i = 0; i < M; ++i) {
+  //   for (int j = 0; j < M; ++j) {
+  //     std::cout << U[i][j] << " ";
+  //   }
+  //   std::cout << "\n";
+  // }
 
-  std::cout << "V after:\n";
-  for (int i = 0; i < N; ++i) {
-    for (int j = 0; j < N; ++j) {
-      std::cout << V[i][j] << " ";
-    }
-    std::cout << "\n";
-  }
+  // std::cout << "V after:\n";
+  // for (int i = 0; i < N; ++i) {
+  //   for (int j = 0; j < N; ++j) {
+  //     std::cout << V[i][j] << " ";
+  //   }
+  //   std::cout << "\n";
+  // }
 
-  std::cout << "dim= " << dim << "\n";
+  // std::cout << "dim= " << dim << "\n";
   
   return res;
 }
@@ -511,7 +511,7 @@ bool expr_equal(const PrimExpr &a, const PrimExpr &b) {
 
 TVM_REGISTER_GLOBAL("te.expr_equal")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
-  LOG(WARNING) << "te.expr_equal is an experimental feature.";
+  // LOG(WARNING) << "te.expr_equal is an experimental feature.";
   *ret = expr_equal(args[0], args[1]);
 });
 
