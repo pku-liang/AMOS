@@ -50,7 +50,7 @@ namespace runtime {
 #define CUDA_CALL(func)                                            \
   {                                                                \
     cudaError_t e = (func);                                        \
-    if (e == cudaSuccess || e == cudaErrorCudartUnloading) {       \
+    if (!(e == cudaSuccess || e == cudaErrorCudartUnloading)) {       \
       LOG(WARNING) << "CUDA: " << cudaGetErrorString(e);           \
     }                                                              \
   }
