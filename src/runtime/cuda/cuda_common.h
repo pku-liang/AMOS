@@ -43,11 +43,16 @@ namespace runtime {
     }                                                                   \
   }
 
+// do not abort here
+// just emit error message
 #define CUDA_CALL(func)                                            \
   {                                                                \
     cudaError_t e = (func);                                        \
-    CHECK(e == cudaSuccess || e == cudaErrorCudartUnloading)       \
-        << "CUDA: " << cudaGetErrorString(e);                      \
+    if (e == cudaSuccess || e == cudaErrorCudartUnloading) {       \
+      LOG(WARNING) << "CUDA: " << cudaGetErrorString(e);           \
+    }                                                              \
+    // CHECK(e == cudaSuccess || e == cudaErrorCudartUnloading)
+    //     << "CUDA: " << cudaGetErrorString(e);
   }
 
 /*! \brief Thread local workspace */
