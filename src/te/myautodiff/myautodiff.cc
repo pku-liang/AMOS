@@ -50,7 +50,7 @@ Tensor ones_like(const Tensor &tensor) {
   func = [&tensor](const Array<Var> &input_indices){
     return make_const(tensor->dtype, 1);
   };
-  return te::compute(shape, func, "ones_" + tensor->op->name);
+  return te::compute(shape, func, "ones_" + tensor->op->name, "ones_" + tensor->op->tag, {}, false);
 }
 
 
@@ -60,7 +60,7 @@ Tensor zeros_like(const Tensor &tensor) {
   func = [&tensor](const Array<Var> &input_indices) {
     return make_const(tensor->dtype, 0);
   };
-  return te::compute(shape, func, "zeros_" + tensor->op->name);
+  return te::compute(shape, func, "zeros_" + tensor->op->name, "zeros_" + tensor->op->tag, {}, false);
 }
 
 
@@ -75,6 +75,9 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
   for (size_t i = 0; i < num_outputs; ++i) {
     partial_grads.push_back(grad_intra_op(input, outputs[i], grad_outputs[i]));
   }
+  if (num_outputs == 1U) {
+    return partial_grads[0];
+  }
   Array<PrimExpr> shape = input->shape;
   std::function<PrimExpr(const Array<Var> &input_indices)> func;
   func = [&partial_grads, &num_outputs](const Array<Var> &input_indices) {
@@ -85,7 +88,9 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
     }
     return res;
   };
-  return te::compute(shape, func, "collect_" + input->op->name);
+  std::string dim = std::to_string(input->shape.size());
+  std::string num = std::to_string(num_outputs);
+  return te::compute(shape, func, "collect_" + input->op->name, "collect_" + num + "_dim" + dim, {}, true);
 }
 
 

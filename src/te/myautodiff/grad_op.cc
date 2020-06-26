@@ -1323,11 +1323,14 @@ class FormCompute : public ExprVisitor {
   std::string tensor_name_key_;
   Array<PrimExpr> &shape_;
   Array<Var> &sub_vars_;
+  std::string tag_;
+  int count_tag_;
  public:
   std::vector<Tensor> tensor_list;
   FormCompute(NameGenerator &generator, const std::string &tensor_name,
-    Array<PrimExpr> &shape, Array<Var> &sub_vars) :
-    generator_(generator), tensor_name_key_(tensor_name), shape_(shape), sub_vars_(sub_vars) {
+    Array<PrimExpr> &shape, Array<Var> &sub_vars, std::string tag) :
+    generator_(generator), tensor_name_key_(tensor_name),
+    shape_(shape), sub_vars_(sub_vars), tag_(tag), count_tag_(0) {
     }
 
   void form_compute(const PrimExpr &expr) {
@@ -1345,7 +1348,8 @@ class FormCompute : public ExprVisitor {
         }
         return Substitute(Var(op->name_hint, op->dtype), vmap);
       };
-    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+    std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
   void VisitExpr_(const SizeVarNode* op) override UNEXPECTED
@@ -1369,7 +1373,8 @@ class FormCompute : public ExprVisitor {
                 op->func,
                 op->value_index), vmap);
       };
-    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+    std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
   template<typename T>
@@ -1416,7 +1421,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.push_back(new_tensor);
     } else if (a_red == nullptr && b_red != nullptr) {
       auto func =
@@ -1450,7 +1456,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
       tensor_list.push_back(tb);
@@ -1487,7 +1494,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
       tensor_list.push_back(ta);
@@ -1520,7 +1528,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
       tensor_list.push_back(new_tensor);
@@ -1588,7 +1597,8 @@ class FormCompute : public ExprVisitor {
                 op->value_index), vmap);
       };
     std::string name = generator_.unique_name(tensor_name_key_);
-    tensor_list.push_back(te::compute(shape_, func, name));
+    std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+    tensor_list.push_back(te::compute(shape_, func, name, tag, {}, true));
   }
 
   void VisitExpr_(const CastNode* op) override {
@@ -1609,7 +1619,8 @@ class FormCompute : public ExprVisitor {
           body = CastNode::make(op->dtype, body);
           return body;
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.push_back(new_tensor);
     } else {
       auto func =
@@ -1626,7 +1637,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(body, vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.push_back(new_tensor);
     }
@@ -1678,7 +1690,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.push_back(new_tensor);
     } else if (t_as_red == nullptr && f_as_red != nullptr) {
       auto func =
@@ -1712,7 +1725,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
       tensor_list.push_back(false_tensor);
@@ -1749,7 +1763,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
       tensor_list.push_back(true_tensor);
@@ -1782,7 +1797,8 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_));
+      std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
       tensor_list.push_back(new_tensor);
@@ -1798,7 +1814,8 @@ class FormCompute : public ExprVisitor {
       [=](const Array<Var> &input_indices) {
         return make_const(op->dtype, op->value);
       };
-    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+    std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
   void VisitExpr_(const FloatImmNode* op) override {
@@ -1807,7 +1824,8 @@ class FormCompute : public ExprVisitor {
         PrimExpr ret = make_const(op->dtype, op->value);
         return ret;
       };
-    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_)));
+    std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+    tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
   void VisitExpr_(const StringImmNode* op) override UNEXPECTED
@@ -1966,7 +1984,8 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   for (auto iv : compute_indices) {
     sub_vars.push_back(iv->var);
   }
-  FormCompute former(generator, generator.unique_name("_tensor"), shape, sub_vars);
+  std::string new_tag = "grad_" + op->tag;
+  FormCompute former(generator, generator.unique_name("_tensor"), shape, sub_vars, new_tag);
   former.form_compute(grad_body);
   
   // // std::cout << "check form compute:\n";
