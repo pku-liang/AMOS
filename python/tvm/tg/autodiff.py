@@ -6,7 +6,7 @@ Author: size zheng
 from . import _ffi_api
 
 
-def mygradient(output, inputs, head=None):
+def gradient(output, inputs, head=None):
     """Perform reverse-mode automatic differentiation.
 
     Parameters
@@ -51,7 +51,7 @@ def mygradient(output, inputs, head=None):
     """
     if not isinstance(inputs, list):
         inputs = [inputs]
-    return _ffi_api.myGradient(output, inputs, head)
+    return _ffi_api.Gradient(output, inputs, head)
 
 
 def expr_equal(a, b):

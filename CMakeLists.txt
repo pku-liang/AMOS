@@ -132,6 +132,7 @@ file(GLOB_RECURSE COMPILER_SRCS
     src/ir/*.cc
     src/arith/*.cc
     src/te/*.cc
+    src/tg/*.cc
     src/autotvm/*.cc
     src/tir/*.cc
     src/driver/*.cc

@@ -1,0 +1,130 @@
+
+#ifndef TVM_TE_LONGTAIL_CONCRETE_GRAPH_H_
+#define TVM_TE_LONGTAIL_CONCRETE_GRAPH_H_
+
+#include <tvm/ir/expr.h>
+#include <tvm/tg/graph.h>
+
+#include "utils.h"
+
+
+namespace tvm {
+
+namespace tg {
+
+
+class OperationKeyNode : public Object {
+ public:
+  std::string key;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("key", &key);
+  }
+
+  static constexpr const char* _type_key = "te.operation_key";
+  TVM_DECLARE_FINAL_OBJECT_INFO(OperationKeyNode, Object);
+};
+
+
+class OperationKey : public ObjectRef {
+ public:
+  OperationKey(std::string key);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(OperationKey, ObjectRef, OperationKeyNode);
+};
+
+
+class TIRGraphNode : public Object {
+ public:
+ // first level attributes
+ // from inputs
+  Array<Tensor> inputs_;
+  Array<Tensor> labels_;
+  Array<Tensor> outputs_;
+  Array<Tensor> weights_;
+  Tensor loss_;
+  Array<Tensor> gradients_;
+  Tensor lr_;
+  Array<Tensor> updates_;
+  
+  // secondary attributes
+  // inferred from inputs
+  Array<Operation> root_ops_;
+  Array<Operation> operation_list_;
+  Map<Tensor, Array<Operation> > down_graph_;
+  Map<Operation, OperationKey> operation_key_dict_;
+
+
+  // these are caches
+  
+  
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("inputs", &inputs_);
+    v->Visit("labels", &labels_);
+    v->Visit("outputs", &outputs_);
+    v->Visit("weights", &weights_);
+    v->Visit("loss", &loss_);
+    v->Visit("gradients", &gradients_);
+    v->Visit("lr", &lr_);
+    v->Visit("updates", &updates_);
+  }
+
+  TIRGraphNode(
+    Array<Tensor> inputs,
+    Array<Tensor> labels,
+    Array<Tensor> outputs,
+    Array<Tensor> weights,
+    Tensor loss,
+    Array<Tensor> gradients,
+    Tensor lr,
+    Array<Tensor> updates
+  ) : inputs_(inputs), labels_(labels), outputs_(outputs),
+      weights_(weights), loss_(loss), gradients_(gradients),
+      lr_(lr), updates_(updates) {
+
+      if (loss_.defined()) {
+        for (auto t : outputs_) {
+          root_ops_.push_back(t->op);
+        }
+        root_ops_.push_back(loss_->op);
+        for (auto t : gradients_) {
+          root_ops_.push_back(t->op);
+        }
+        for (auto t : updates_) {
+          root_ops_.push_back(t->op);
+        }
+      } else {
+        for (auto t : outputs_) {
+          root_ops_.push_back(t->op);
+        }
+        for (auto t : gradients_) {
+          root_ops_.push_back(t->op);
+        }
+        for (auto t : updates_) {
+          root_ops_.push_back(t->op);
+        }
+      }
+
+      if ((int)updates_.size() > 0) {
+        CHECK(updates_.size() == weights_.size()) << "Expect update operations match weights.";
+      }
+
+      // get serialize all operation list
+      // and feed graph, tensor to its consumer operations
+      std::tie(operation_list_, down_graph_) = serialize_compute_dag(root_ops_);
+  }
+
+  size_t num_ops() {
+    return operation_list_.size();
+  }
+
+  static constexpr const char* _type_key = "te.concrete_graph";
+  TVM_DECLARE_FINAL_OBJECT_INFO(TIRGraphNode, Object);
+};
+
+}  // namespace tvm
+
+}  // namespace te
+
+#endif // TVM_TE_LONGTAIL_CONCRETE_GRAPH_H_

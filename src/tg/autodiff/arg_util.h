@@ -1,6 +1,6 @@
 
-#ifndef TVM_TE_AUTODIFF_ARG_UTIL_H_
-#define TVM_TE_AUTODIFF_ARG_UTIL_H_
+#ifndef TVM_TG_AUTODIFF_ARG_UTIL_H_
+#define TVM_TG_AUTODIFF_ARG_UTIL_H_
 
 #include <tvm/runtime/registry.h>
 #include <tvm/node/structural_equal.h>
@@ -10,7 +10,7 @@
 #include <tvm/tir/ir_pass.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/te/operation.h>
-#include <tvm/te/myautodiff.h>
+#include <tvm/tg/autodiff.h>
 #include <vector>
 #include <unordered_map>
 #include <sstream>
@@ -20,7 +20,8 @@
 
 
 namespace tvm {
-namespace te {
+using namespace te;
+namespace tg {
 
 class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)> {
  private:
@@ -521,9 +522,9 @@ void solve_substitutions(SubstituteContext &context,
   Array<PrimExpr> &conditions, std::unordered_map<std::string, PrimExpr> &result);
 
 
-bool expr_equal(const PrimExpr &a, const PrimExpr &b);
+// bool expr_equal(const PrimExpr &a, const PrimExpr &b);
 
 
-}  // namespace te
+}  // namespace tg
 }  // namespace tvm
-#endif  // TVM_TE_AUTODIFF_ARG_UTIL_H_
+#endif  // TVM_TG_AUTODIFF_ARG_UTIL_H_

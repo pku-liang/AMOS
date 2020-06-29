@@ -1,6 +1,6 @@
 
-#ifndef TVM_TE_LONGTAIL_SUBGRAPH_H_
-#define TVM_TE_LONGTAIL_SUBGRAPH_H_
+#ifndef TVM_TG_GRAPH_SUBGRAPH_H_
+#define TVM_TG_GRAPH_SUBGRAPH_H_
 
 #include <tvm/runtime/registry.h>
 #include <tvm/node/container.h>
@@ -9,12 +9,12 @@
 #include <tvm/tir/ir_pass.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/te/operation.h>
-#include <tvm/te/longtail.h>
+#include <tvm/tg/graph.h>
 
 
 namespace tvm {
-
-namespace te {
+using namespace te;
+namespace tg {
 
 class RewriteSubgraphInput : public ExprMutator {
  public:
@@ -30,8 +30,8 @@ class RewriteSubgraphInput : public ExprMutator {
   PrimExpr VisitExpr_(const CallNode* op) override;
 };
 
+}  // namespace tg
+
 }  // namespace tvm
 
-}  // namespace te
-
-#endif // TVM_TE_LONGTAIL_SUBGRAPH_H_
+#endif // TVM_TG_GRAPH_SUBGRAPH_H_

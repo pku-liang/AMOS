@@ -34,8 +34,4 @@ from .operation import thread_axis, reduce_axis
 
 from .tensor import PlaceholderOp, ComputeOp, TensorComputeOp, ScanOp, ExternOp, HybridOp
 from .autodiff import gradient
-from .myautodiff import mygradient
-from .myautodiff import expr_equal, grad_op
-from .longtail import get_batch_like_dim, find_axis_in, count_operation, count_input_occur, \
-                      subgraph_partition
 from . import hybrid

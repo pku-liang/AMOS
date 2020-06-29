@@ -1,6 +1,6 @@
 
-#ifndef TVM_TE_AUTODIFF_ARITH_H_
-#define TVM_TE_AUTODIFF_ARITH_H_
+#ifndef TVM_TG_AUTODIFF_ARITH_H_
+#define TVM_TG_AUTODIFF_ARITH_H_
 
 #include <tvm/tir/expr.h>
 #include <tvm/te/operation.h>
@@ -9,7 +9,8 @@
 #include <utility>
 
 namespace tvm {
-namespace te {
+using namespace te;
+namespace tg {
 
 template<typename T>
 class Matrix {
@@ -212,6 +213,6 @@ int ext_euclidean(int a, int b, int &x, int &y);
 int smith_normalize(Matrix<int> &trans, Matrix<int> &U, Matrix<int> &V);
 
 
-}  // namespace te
+}  // namespace tg
 }  // namespace tvm
-#endif  // TVM_TE_AUTODIFF_ARITH_H_
+#endif  // TVM_TG_AUTODIFF_ARITH_H_

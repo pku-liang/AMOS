@@ -2,7 +2,7 @@
 
 namespace tvm {
 
-namespace te {
+namespace tg {
 
 template<typename T>
 void Matrix<T>::swap_row(int i, int j) {
@@ -510,6 +510,6 @@ int smith_normalize(Matrix<int> &trans, Matrix<int> &U, Matrix<int> &V) {
 }
 
 
-}  // namespace te
+}  // namespace tg
 
 }  // namespace tvm

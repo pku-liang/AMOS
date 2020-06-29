@@ -6,7 +6,7 @@
 
 namespace tvm {
 
-namespace te {
+namespace tg {
 
 
 void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
@@ -292,30 +292,79 @@ Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& op) {
 }
 
 
-TVM_REGISTER_GLOBAL("te.get_batch_like_dim")
+std::pair<Array<Operation>, Map<Tensor, Array<Operation> > >
+  serialize_compute_dag(Array<Operation> root_ops, bool output_first) {
+  
+  std::unordered_set<Operation> visited;
+  std::vector<Operation> ret;
+  std::unordered_map<Tensor, Array<Operation> > down_graph;
+  std::deque<Operation> q;
+
+  for (auto op : root_ops) {
+    q.push_back(op);
+    visited.insert(op);
+  }
+
+  while (!q.empty()) {
+    Operation cur = q.front();
+    q.pop_front();
+    const ComputeOpNode *as_compute = cur.as<ComputeOpNode>();
+    if (as_compute != nullptr) {
+      ret.push_back(cur);
+      for (auto t : as_compute->InputTensors()) {
+        if (visited.find(t->op) == visited.end()) {
+          visited.insert(t->op);
+          q.push_back(t->op);
+        }
+        if (down_graph.find(t) == down_graph.end()) {
+           Array<Operation> tmp;
+           down_graph[t] = tmp;
+        }
+        down_graph[t].push_back(cur);
+      }
+    }
+  }
+
+  if (!output_first) {
+    std::reverse(std::begin(ret), std::end(ret));
+  }
+  return std::make_pair(Array<Operation>(ret), Map<Tensor, Array<Operation> >(down_graph));
+}
+
+
+TVM_REGISTER_GLOBAL("tg.get_batch_like_dim")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   *ret = get_batch_like_dim(args[0]);
 });
 
 
-TVM_REGISTER_GLOBAL("te.find_axis_in")
+TVM_REGISTER_GLOBAL("tg.find_axis_in")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   *ret = find_axis_in(args[0], args[1], args[2]);
 });
 
 
-TVM_REGISTER_GLOBAL("te.count_operation")
+TVM_REGISTER_GLOBAL("tg.count_operation")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   *ret = count_operation(args[0]);
 });
 
 
-TVM_REGISTER_GLOBAL("te.count_input_occur")
+TVM_REGISTER_GLOBAL("tg.count_input_occur")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   *ret = count_input_occur(args[0], args[1]);
 });
 
 
-}  // namespace tvm
+TVM_REGISTER_GLOBAL("tg.flatten_tir_graph")
+.set_body_typed([](Array<Operation> root_ops, bool output_first){
+  Array<Operation> op_list;
+  Map<Tensor, Array<Operation> > down_graph;
+  std::tie(op_list, down_graph) = serialize_compute_dag(root_ops, output_first);
+  return Array<ObjectRef>{op_list, down_graph};
+});
 
-}  // namespace te
+
+}  // namespace tg
+
+}  // namespace tvm

@@ -3,7 +3,7 @@
 
 namespace tvm {
 
-namespace te {
+namespace tg {
 
 PrimExpr RewriteSubgraphInput::VisitExpr_(const CallNode* op) {
   if (op->call_type == CallNode::CallType::Halide) {
@@ -127,11 +127,11 @@ Map<Operation, Operation> subgraph_partition(Map<Operation, IntImm> graph_mark, 
 }
 
 
-TVM_REGISTER_GLOBAL("te.subgraph_partition")
+TVM_REGISTER_GLOBAL("tg.subgraph_partition")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   *ret = subgraph_partition(args[0], args[1]);
 });
 
-}
+}  // namespace tg
 
-}
+}  // namespace tvm

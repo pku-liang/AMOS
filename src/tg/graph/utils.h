@@ -1,5 +1,5 @@
-#ifndef TVM_TE_LONGTAIL_UTILS_H_
-#define TVM_TE_LONGTAIL_UTILS_H_
+#ifndef TVM_TG_GRAPH_UTILS_H_
+#define TVM_TG_GRAPH_UTILS_H_
 
 #include <tvm/runtime/registry.h>
 #include <tvm/node/container.h>
@@ -8,15 +8,17 @@
 #include <tvm/tir/ir_pass.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/te/operation.h>
-#include <tvm/te/longtail.h>
+#include <tvm/tg/graph.h>
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#include <deque>
 
 
 namespace tvm {
-
-namespace te {
+using namespace te;
+namespace tg {
 
 
 class FindBatchLikeDim : public ExprVisitor {
@@ -115,7 +117,12 @@ class CountInputOccur : public ExprVisitor {
   void VisitExpr_(const CallNode* op) override;
 };
 
-}  // namespace tvm
 
-}  // namespace te
-#endif  // TVM_TE_LONGTAIL_UTILS_H_
+std::pair<Array<Operation>, Map<Tensor, Array<Operation> > >
+  serialize_compute_dag(Array<Operation> root_ops, bool output_first=false);
+
+
+}  // namespace tg
+
+}  // namespace tvm
+#endif  // TVM_TG_GRAPH_UTILS_H_

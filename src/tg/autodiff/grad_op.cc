@@ -1,4 +1,4 @@
-#include <tvm/te/myautodiff.h>
+#include <tvm/tg/autodiff.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/tir/stmt_functor.h>
 #include <topi/transform.h>
@@ -9,7 +9,7 @@
 
 
 namespace tvm {
-namespace te {
+namespace tg {
 
 #define NOT_IMPLEMENTED \
   { LOG(FATAL) << "Grad of this expr is not implemented: " << GetRef<PrimExpr>(op); throw; }
@@ -2007,12 +2007,12 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
 }
 
 
-TVM_REGISTER_GLOBAL("te.grad_op")
+TVM_REGISTER_GLOBAL("tg.grad_op")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
-  LOG(WARNING) << "te.grad_op is an experimental feature.";
+  // LOG(WARNING) << "tg.grad_op is an experimental feature.";
   *ret = grad_op(args[0], args[1], args[2]);
 });
 
 
-}  // namespace te
+}  // namespace tg
 }  // namespace tvm

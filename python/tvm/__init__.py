@@ -51,6 +51,9 @@ from . import target
 # tvm.te
 from . import te
 
+# tvm.tg
+from . import tg
+
 # tvm.testing
 from . import testing
 

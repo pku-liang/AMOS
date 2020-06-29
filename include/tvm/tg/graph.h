@@ -1,20 +1,20 @@
 /*!
- * \file tvm/te/longtail.h
+ * \file tvm/tg/graph.h
  * \brief Automatic differentiation of tensor expressions.
  */
 
-#ifndef TVM_TE_LONGTAIL_H_
-#define TVM_TE_LONGTAIL_H_
+#ifndef TVM_TG_GRAPH_H_
+#define TVM_TG_GRAPH_H_
 
 #include <vector>
 
 #include <tvm/runtime/object.h>
 #include <tvm/tir/expr.h>
-#include "tensor.h"
+#include <tvm/te/tensor.h>
 
 namespace tvm {
-/*! \brief Tensor expression language DSL. */
-namespace te {
+using namespace te;
+namespace tg {
 
 #define UNEXPECTED \
   { LOG(FATAL) << "Unexpected visit: " << GetRef<PrimExpr>(op); throw; }
@@ -38,7 +38,7 @@ TVM_DLL Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& o
 
 TVM_DLL Map<Operation, Operation> subgraph_partition(Map<Operation, IntImm> graph_mark, Array<Operation> outputs);
 
-}  // namespace te
+}  // namespace tg
 }  // namespace tvm
 
-#endif  // TVM_TE_LONGTAIL_H_
+#endif  // TVM_TG_GRAPH_H_

@@ -1,37 +1,6 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- */
 
-/*!
- * \file adjoint.cc
- * \brief Perform reverse-mode autodiff.
- *        Suppose we have f(x) = g(h1(x), h2(x), ..., hn(x)),
- *        df/dx = \sum_i df/dhi * dhi/dx
- *        We call df/dx as adjoint(x), df/dhi as adjoint(hi), dhi/dx is the Jacobian
- *        The idea is to first construct the reverse-dependency {input->outputs} between tensors,
- *        start from one input,
- *        (1) collect adjoints from all its dependencies (outputs),
- *        (2) multiply the Jacobian (PartialAdjoint),
- *        (3) and sum them together to get the adjoint of the input itself.
- *        The three steps are computed recursively.
- */
 #include <tvm/runtime/registry.h>
-#include <tvm/te/myautodiff.h>
+#include <tvm/tg/autodiff.h>
 #include <tvm/tir/stmt_functor.h>
 #include <topi/transform.h>
 #include <topi/elemwise.h>
@@ -40,7 +9,7 @@
 #include <string>
 
 namespace tvm {
-namespace te {
+namespace tg {
 
 namespace {
 
@@ -97,7 +66,7 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
 }  // anonymous namespace
 
 
-Array<Tensor> myGradient(const Tensor& output,
+Array<Tensor> Gradient(const Tensor& output,
                        const Array<Tensor>& weights,
                        const Tensor& doutput_or_null) {
   Tensor doutput = doutput_or_null.get() ? doutput_or_null : ones_like(output);
@@ -164,15 +133,15 @@ Array<Tensor> myGradient(const Tensor& output,
   return result;
 }
 
-TVM_REGISTER_GLOBAL("te.myGradient")
+TVM_REGISTER_GLOBAL("tg.Gradient")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
-    // LOG(WARNING) << "te.myGradient is an experimental feature.";
+    // LOG(WARNING) << "tg.Gradient is an experimental feature.";
     if (args.size() == 2) {
-      *ret = myGradient(args[0], args[1]);
+      *ret = Gradient(args[0], args[1]);
     } else if (args.size() == 3) {
-      *ret = myGradient(args[0], args[1], args[2]);
+      *ret = Gradient(args[0], args[1], args[2]);
     }
   });
 
-}  // namespace te
+}  // namespace tg
 }  // namespace tvm

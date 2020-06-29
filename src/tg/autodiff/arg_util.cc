@@ -3,7 +3,7 @@
 
 namespace tvm {
 
-namespace te {
+namespace tg {
 
 bool NameGenerator::has_name(std::string &name) {
   return name_map_.count(name) != 0;
@@ -477,7 +477,7 @@ bool expr_equal(const PrimExpr &a, const PrimExpr &b) {
   //   std::cout << "\n";
   // }
 
-  int dim = smith_normalize(trans, U, V);
+  // int dim = smith_normalize(trans, U, V);
 
   // std::cout << "trans after:\n";
   // for (int i = 0; i < M; ++i) {
@@ -509,13 +509,13 @@ bool expr_equal(const PrimExpr &a, const PrimExpr &b) {
 }
 
 
-TVM_REGISTER_GLOBAL("te.expr_equal")
+TVM_REGISTER_GLOBAL("tg.expr_equal")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   // LOG(WARNING) << "te.expr_equal is an experimental feature.";
   *ret = expr_equal(args[0], args[1]);
 });
 
 
-}  // namespace te
+}  // namespace tg
 
 }  // namespace tvm
