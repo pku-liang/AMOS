@@ -1984,7 +1984,13 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   for (auto iv : compute_indices) {
     sub_vars.push_back(iv->var);
   }
-  std::string new_tag = "grad_" + op->tag;
+  std::string new_tag = "";
+  if (input->op->tag == "") {
+    // this is weight
+    new_tag = "grad_" + op->tag + "_to_" + input->op->name;
+  } else {
+    new_tag = "grad_" + op->tag + "_to_" + input->op->tag;
+  }
   FormCompute former(generator, generator.unique_name("_tensor"), shape, sub_vars, new_tag);
   former.form_compute(grad_body);
   
