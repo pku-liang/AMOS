@@ -53,3 +53,15 @@ def count_input_occur(inputs, op):
 
 def subgraph_partition(graph_mark, outputs):
   return _ffi_api.subgraph_partition(graph_mark, outputs)
+
+
+def make_tir_graph_inference(inputs, outputs, weights):
+  return _ffi_api.make_tir_graph_inference(inputs, outputs, weights)
+
+
+def make_tir_graph_training(inputs, labels, outputs, weights, loss, gradients, lr, updates):
+  return _ffi_api.make_tir_graph_training(inputs, labels, outputs, weights, loss, gradients, lr, updates)
+
+
+def make_tir_multi_graph(graph):
+  return _ffi_api.make_tir_multi_graph(graph)

@@ -9,6 +9,24 @@ namespace tvm {
 namespace tg {
 
 
+IntKey::IntKey(int value) {
+  auto node = make_object<IntKeyNode>();
+
+  node->value = value;
+
+  data_ = std::move(node);
+}
+
+
+StringKey::StringKey(std::string value) {
+  auto node = make_object<StringKeyNode>();
+
+  node->value = value;
+
+  data_ = std::move(node);
+}
+
+
 void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
   ExprVisitor::VisitExpr_(op);
   if (op->call_type == CallNode::CallType::Halide) {
@@ -292,12 +310,12 @@ Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& op) {
 }
 
 
-std::pair<Array<Operation>, Map<Tensor, Array<Operation> > >
+std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   serialize_compute_dag(Array<Operation> root_ops, bool output_first) {
   
   std::unordered_set<Operation> visited;
   std::vector<Operation> ret;
-  std::unordered_map<Tensor, Array<Operation> > down_graph;
+  std::unordered_map<Operation, Array<Operation> > down_graph;
   std::deque<Operation> q;
 
   for (auto op : root_ops) {
@@ -316,11 +334,11 @@ std::pair<Array<Operation>, Map<Tensor, Array<Operation> > >
           visited.insert(t->op);
           q.push_back(t->op);
         }
-        if (down_graph.find(t) == down_graph.end()) {
+        if (down_graph.find(t->op) == down_graph.end()) {
            Array<Operation> tmp;
-           down_graph[t] = tmp;
+           down_graph[t->op] = tmp;
         }
-        down_graph[t].push_back(cur);
+        down_graph[t->op].push_back(cur);
       }
     }
   }
@@ -328,8 +346,56 @@ std::pair<Array<Operation>, Map<Tensor, Array<Operation> > >
   if (!output_first) {
     std::reverse(std::begin(ret), std::end(ret));
   }
-  return std::make_pair(Array<Operation>(ret), Map<Tensor, Array<Operation> >(down_graph));
+  return std::make_pair(Array<Operation>(ret), Map<Operation, Array<Operation> >(down_graph));
 }
+
+
+int get_const_int(PrimExpr value) {
+  const IntImmNode *as_int = value.as<IntImmNode>();
+  if (as_int == nullptr) {
+    value = Simplify(value);
+    const IntImmNode *as_int = value.as<IntImmNode>();
+    CHECK(as_int != nullptr) << "Can't get const int from " << value << ".";
+    return as_int->value;
+  } else {
+    return as_int->value;
+  }
+}
+
+
+std::string get_const_shape_string(Array<IterVar> axis) {
+  std::string ret;
+  ret += "(";
+  size_t dim = axis.size();
+  for (size_t i = 0; i < dim; ++i) {
+    int value = get_const_int(axis[i]->dom->extent);
+    ret += std::to_string(value);
+    if (i != (dim - 1)) {
+      ret += ", ";
+    }
+  }
+  ret += ")";
+  return ret;
+}
+
+
+std::string get_const_shape_string(Array<PrimExpr> shape) {
+  std::string ret = "(";
+  size_t dim = shape.size();
+  for (size_t i = 0; i < dim; ++i) {
+    int value = get_const_int(shape[i]);
+    ret += std::to_string(value);
+    if (i != dim - 1) {
+      ret += ", ";
+    }
+  }
+  ret += ")";
+  return ret;
+}
+
+
+TVM_REGISTER_NODE_TYPE(IntKeyNode);
+TVM_REGISTER_NODE_TYPE(StringKeyNode);
 
 
 TVM_REGISTER_GLOBAL("tg.get_batch_like_dim")
@@ -359,7 +425,7 @@ TVM_REGISTER_GLOBAL("tg.count_input_occur")
 TVM_REGISTER_GLOBAL("tg.flatten_tir_graph")
 .set_body_typed([](Array<Operation> root_ops, bool output_first){
   Array<Operation> op_list;
-  Map<Tensor, Array<Operation> > down_graph;
+  Map<Operation, Array<Operation> > down_graph;
   std::tie(op_list, down_graph) = serialize_compute_dag(root_ops, output_first);
   return Array<ObjectRef>{op_list, down_graph};
 });
