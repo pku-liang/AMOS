@@ -1,4 +1,4 @@
-#include "op_space.h"
+#include "param_space.h"
 #include "utils.h"
 
 
@@ -71,6 +71,12 @@ UnrollSpace::UnrollSpace(int max_depth) {
 }
 
 
+TVM_REGISTER_NODE_TYPE(SplitEntityNode);
+TVM_REGISTER_NODE_TYPE(ReorderEntityNode);
+TVM_REGISTER_NODE_TYPE(CacheReadParamEntityNode);
+TVM_REGISTER_NODE_TYPE(CacheWriteParamEntityNode);
+TVM_REGISTER_NODE_TYPE(AllreduceFactorEntityNode);
+TVM_REGISTER_NODE_TYPE(UnrollParamEntityNode);
 TVM_REGISTER_NODE_TYPE(SplitSpaceNode);
 TVM_REGISTER_NODE_TYPE(ReorderSpaceNode);
 TVM_REGISTER_NODE_TYPE(CacheReadSpaceNode);

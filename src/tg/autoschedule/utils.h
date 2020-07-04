@@ -14,6 +14,13 @@ namespace tvm {
 
 namespace tg {
 
+#define TG_DEFINE_OBJECT_SELF_METHOD(ObjectName)         \
+  ObjectName* Self() {                                   \
+    CHECK(data_ != nullptr);                             \
+    return static_cast<ObjectName*>(data_.get());        \
+  }
+
+
 void any_part_split(
   PrimExpr extent,
   int nparts,
