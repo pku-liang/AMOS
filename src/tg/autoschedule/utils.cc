@@ -8,6 +8,36 @@ namespace tvm {
 
 namespace tg {
 
+
+int randint(int low, int high) {
+  CHECK(low <= high) << "Randint only accepts [low, high] with high > low.";
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_real_distribution<> distrib(0.0, 1.0);
+  double number = distrib(gen);
+  number = number * (double(high) - double(low)) + double(low);
+  return static_cast<int>(number);
+}
+
+
+bool able_inline(
+  const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph) {
+  
+  const te::ComputeOpNode *as_compute = op.as<te::ComputeOpNode>();
+  if (as_compute == nullptr) return false;
+
+  if (as_compute->reduce_axis.size() != 0U) {
+    return false;
+  }
+
+  if (down_graph.find(op) == down_graph.end()) {
+    return false;
+  }
+
+  return true;
+}
+
+
 void any_part_split(
   PrimExpr extent,
   int nparts,
@@ -65,8 +95,8 @@ void any_part_split(
           // when x > 16, log2(x) < sqrt(x)
           if (beg <= cur_value) {
             factors.insert(beg);
+            beg *= 2;
           }
-          beg *= 2;
         }
       } else {
         for (int i = 1; i <= bound; ++i) {

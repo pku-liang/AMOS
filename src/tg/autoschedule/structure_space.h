@@ -1,11 +1,14 @@
 #ifndef TVM_TG_AUTOSCHEDULE_SUBGRAPH_SPACE_H_
 #define TVM_TG_AUTOSCHEDULE_SUBGRAPH_SPACE_H_
 
+#include <random>
+
 #include <tvm/node/container.h>
 #include <tvm/tir/expr.h>
 #include <tvm/target/target.h>
 
 #include "param_space.h"
+#include "utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
 #include "../graph/utils.h"
@@ -166,6 +169,106 @@ class UnrollEntityNode : public StructureEntityNode {
 };
 
 
+template<typename FType>
+class StructureEntityFunctor;
+
+
+#define STRUCTURE_ENTITY_FUNCTOR_DEFAULT {                              \
+    return VisitEntityDefault_(node, std::forward<Args>(args)...);      \
+  }
+
+#define STRUCTURE_ENTITY_FUNCTOR_DISPATCH(NODE)                         \
+  vtable.template set_dispatch<NODE>(                                  \
+      [](const ObjectRef& n, TSelf* self, Args... args) {              \
+        return self->VisitEntity_(static_cast<const NODE*>(n.get()),    \
+                                std::forward<Args>(args)...);          \
+      });                                                              \
+
+template<typename R, typename ...Args>
+class StructureEntityFunctor<R(const StructureEntity& n, Args...)> {
+ private:
+  using TSelf = StructureEntityFunctor<R(const StructureEntity& n, Args...)>;
+  using FType = NodeFunctor<R(const ObjectRef& n, TSelf* self, Args...)>;
+
+ public:
+  /*! \brief the result type of this functor */
+  using result_type = R;
+  /*! \brief virtual destructor */
+  virtual ~StructureEntityFunctor() {}
+  /*!
+   * \brief Same as call.
+   * \param n The space node.
+   * \param args Additional arguments.
+   * \return The result of the call
+   */
+  R operator()(const StructureEntity& n, Args... args) {
+    return VisitEntity(n, std::forward<Args>(args)...);
+  }
+  /*!
+   * \brief The functor call.
+   * \param n The space node.
+   * \param args Additional arguments.
+   * \return The result of the call
+   */
+  virtual R VisitEntity(const StructureEntity& n, Args... args) {
+    static FType vtable = InitVTable();
+    return vtable(n, this, std::forward<Args>(args)...);
+  }
+  // Functions that can be overriden by subclass
+  virtual R VisitEntity_(const InlineEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const DecomposeSpatialEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const DecomposeReduceEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const DecomposeAllreduceEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const AllreduceEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const CacheReadEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const CacheWriteEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntity_(const UnrollEntityNode* node, Args... args) STRUCTURE_ENTITY_FUNCTOR_DEFAULT;
+  virtual R VisitEntityDefault_(const Object* node, Args ...) {
+    LOG(FATAL) << "Do not have a default for " << node->GetTypeKey();
+    return R();
+  }
+
+ private:
+  // initialize the vtable.
+  static FType InitVTable() {
+    FType vtable;
+    // Set dispatch
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(InlineEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(DecomposeSpatialEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(DecomposeReduceEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(DecomposeAllreduceEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(AllreduceEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(CacheReadEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(CacheWriteEntityNode);
+    STRUCTURE_ENTITY_FUNCTOR_DISPATCH(UnrollEntityNode);
+    return vtable;
+  }
+};
+
+#undef STRUCTURE_ENTITY_FUNCTOR_DISPATCH
+#undef STRUCTURE_ENTITY_FUNCTOR_DEFAULT
+
+
+class StructureEntityEqual :
+  public StructureEntityFunctor<bool(const StructureEntity&, const StructureEntity&)> {
+ public:
+  #define MATCH(T)                    \
+    const T* another = other.as<T>(); \
+    if (another == nullptr) {         \
+      return false;                   \
+    }
+
+  bool VisitEntity_(const InlineEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const DecomposeSpatialEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const DecomposeReduceEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const DecomposeAllreduceEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const AllreduceEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const CacheReadEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const CacheWriteEntityNode* node, const StructureEntity& other) override;
+  bool VisitEntity_(const UnrollEntityNode* node, const StructureEntity& other) override;
+};
+
+
 
 /* The space definition for subgraph */
 // currently we allow empty space
@@ -173,29 +276,44 @@ class UnrollEntityNode : public StructureEntityNode {
 class StructureSpaceBaseNode : public Object {
  public:
 
-  static constexpr const char* _type_key = "tg.structure_space.SubGraphSpaceBase";
-  TVM_DECLARE_FINAL_OBJECT_INFO(StructureSpaceBaseNode, Object);
+  static constexpr const char* _type_key = "tg.structure_space.StructureSpaceBase";
+  TVM_DECLARE_BASE_OBJECT_INFO(StructureSpaceBaseNode, Object);
 };
 
 
-class StructureSpace : public ObjectRef {
+class StructureSpaceBase : public ObjectRef {
  public:
 
-  TVM_DEFINE_OBJECT_REF_METHODS(StructureSpace, ObjectRef, StructureSpaceBaseNode);
+  TVM_DEFINE_OBJECT_REF_METHODS(StructureSpaceBase, ObjectRef, StructureSpaceBaseNode);
 };
 
 
 class StructureSpaceNode : public StructureSpaceBaseNode {
  public:
-  Array<StructureSpace> next;
 
   static constexpr const char* _type_key = "tg.structure_space.StructureSpace";
-  TVM_DECLARE_FINAL_OBJECT_INFO(StructureSpaceNode, Object);
+  TVM_DECLARE_BASE_OBJECT_INFO(StructureSpaceNode, StructureSpaceBaseNode);
+};
+
+
+class StructureSpace : public StructureSpaceBase {
+ public:
+
+  TVM_DEFINE_OBJECT_REF_METHODS(StructureSpace, StructureSpaceBase, StructureSpaceNode);
+
+ private:
+  // Internal function for conversion.
+  friend class runtime::TVMPODValue_;
+  TVM_DLL static StructureSpace FromObject_(ObjectPtr<Object> ptr);
 };
 
 
 class EndNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+  }
 
   TVM_DLL static StructureSpace make() {
     auto node = make_object<EndNode>();
@@ -203,13 +321,17 @@ class EndNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.End";
-  TVM_DECLARE_FINAL_OBJECT_INFO(EndNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(EndNode, StructureSpaceNode);
 };
 
 
 /* Inline */
 class InlineNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<InlineNode>();
@@ -226,15 +348,21 @@ class InlineNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.Inline";
-  TVM_DECLARE_FINAL_OBJECT_INFO(InlineNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(InlineNode, StructureSpaceNode);
 };
 
 
 /* Decompose Spatial */
 class DecomposeSpatialNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
   Map<IntKey, SplitSpace> splits;
   ReorderSpace reorder;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("splits", &splits);
+    v->Visit("reorder", &reorder);
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<DecomposeSpatialNode>();
@@ -251,15 +379,21 @@ class DecomposeSpatialNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.DecomposeSpatial";
-  TVM_DECLARE_FINAL_OBJECT_INFO(DecomposeSpatialNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(DecomposeSpatialNode, StructureSpaceNode);
 };
 
 
 /* Decompose Reduce */
 class DecomposeReduceNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
   Map<IntKey, SplitSpace> splits;
   ReorderSpace reorder;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("splits", &splits);
+    v->Visit("reorder", &reorder);
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<DecomposeReduceNode>();
@@ -276,15 +410,21 @@ class DecomposeReduceNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.DecomposeReduce";
-  TVM_DECLARE_FINAL_OBJECT_INFO(DecomposeReduceNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(DecomposeReduceNode, StructureSpaceNode);
 };
 
 
 /* Decompose Allreduce */
 class DecomposeAllreduceNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
   Map<IntKey, SplitSpace> splits;
   AllreduceFactorSpace use_factor;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("splits", &splits);
+    v->Visit("use_factor", &use_factor);
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<DecomposeAllreduceNode>();
@@ -301,13 +441,17 @@ class DecomposeAllreduceNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.DecomposeAllreduce";
-  TVM_DECLARE_FINAL_OBJECT_INFO(DecomposeAllreduceNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(DecomposeAllreduceNode, StructureSpaceNode);
 };
 
 
 /* Allreduce */
 class AllreduceNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<AllreduceNode>();
@@ -324,14 +468,19 @@ class AllreduceNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.Allreduce";
-  TVM_DECLARE_FINAL_OBJECT_INFO(AllreduceNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(AllreduceNode, StructureSpaceNode);
 };
 
 
 /* Cache read */
 class CacheReadNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
   Map<IntKey, CacheReadSpace> cache_config;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("cache_config", &cache_config);
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<CacheReadNode>();
@@ -347,14 +496,19 @@ class CacheReadNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.CacheRead";
-  TVM_DECLARE_FINAL_OBJECT_INFO(CacheReadNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(CacheReadNode, StructureSpaceNode);
 };
 
 
 /* Cache write */
 class CacheWriteNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
   CacheWriteSpace cache_write;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("cache_write", &cache_write);
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<CacheWriteNode>();
@@ -370,14 +524,19 @@ class CacheWriteNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.CacheWrite";
-  TVM_DECLARE_FINAL_OBJECT_INFO(CacheWriteNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(CacheWriteNode, StructureSpaceNode);
 };
 
 
 /* Unroll */
 class UnrollNode : public StructureSpaceNode {
  public:
+  Array<StructureSpace> next;
   UnrollSpace unroll;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("unroll", &unroll);
+  }
 
   TVM_DLL static StructureSpace make_empty() {
     auto node = make_object<UnrollNode>();
@@ -393,19 +552,19 @@ class UnrollNode : public StructureSpaceNode {
   }
 
   static constexpr const char* _type_key = "tg.structure_space.Unroll";
-  TVM_DECLARE_FINAL_OBJECT_INFO(UnrollNode, Object);
+  TVM_DECLARE_FINAL_OBJECT_INFO(UnrollNode, StructureSpaceNode);
 };
 
 
 template<typename FType>
-class SubGraphSpaceFunctor;
+class StructureSpaceFunctor;
 
 // functions to be overriden.
-#define SUBGRAPHSPACE_FUNCTOR_DEFAULT {                                \
+#define STRUCTURE_SPACE_FUNCTOR_DEFAULT {                              \
     return VisitSpaceDefault_(node, std::forward<Args>(args)...);      \
   }
 
-#define SUBGRAPHSPACE_FUNCTOR_DISPATCH(NODE)                           \
+#define STRUCTURE_SPACE_FUNCTOR_DISPATCH(NODE)                         \
   vtable.template set_dispatch<NODE>(                                  \
       [](const ObjectRef& n, TSelf* self, Args... args) {              \
         return self->VisitSpace_(static_cast<const NODE*>(n.get()),    \
@@ -413,16 +572,16 @@ class SubGraphSpaceFunctor;
       });                                                              \
 
 template<typename R, typename ...Args>
-class SubGraphSpaceFunctor<R(const StructureSpace& n, Args...)> {
+class StructureSpaceFunctor<R(const StructureSpace& n, Args...)> {
  private:
-  using TSelf = SubGraphSpaceFunctor<R(const StructureSpace& n, Args...)>;
+  using TSelf = StructureSpaceFunctor<R(const StructureSpace& n, Args...)>;
   using FType = NodeFunctor<R(const ObjectRef& n, TSelf* self, Args...)>;
 
  public:
   /*! \brief the result type of this functor */
   using result_type = R;
   /*! \brief virtual destructor */
-  virtual ~SubGraphSpaceFunctor() {}
+  virtual ~StructureSpaceFunctor() {}
   /*!
    * \brief Same as call.
    * \param n The space node.
@@ -443,15 +602,15 @@ class SubGraphSpaceFunctor<R(const StructureSpace& n, Args...)> {
     return vtable(n, this, std::forward<Args>(args)...);
   }
   // Functions that can be overriden by subclass
-  virtual R VisitSpace_(const EndNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const InlineNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const DecomposeSpatialNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const DecomposeReduceNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const DecomposeAllreduceNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const AllreduceNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const CacheReadNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const CacheWriteNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
-  virtual R VisitSpace_(const UnrollNode* node, Args... args) SUBGRAPHSPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const EndNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const InlineNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const DecomposeSpatialNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const DecomposeReduceNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const DecomposeAllreduceNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const AllreduceNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const CacheReadNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const CacheWriteNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
+  virtual R VisitSpace_(const UnrollNode* node, Args... args) STRUCTURE_SPACE_FUNCTOR_DEFAULT;
   virtual R VisitSpaceDefault_(const Object* node, Args ...) {
     LOG(FATAL) << "Do not have a default for " << node->GetTypeKey();
     return R();
@@ -462,24 +621,24 @@ class SubGraphSpaceFunctor<R(const StructureSpace& n, Args...)> {
   static FType InitVTable() {
     FType vtable;
     // Set dispatch
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(EndNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(InlineNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(DecomposeSpatialNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(DecomposeReduceNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(DecomposeAllreduceNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(AllreduceNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(CacheReadNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(CacheWriteNode);
-    SUBGRAPHSPACE_FUNCTOR_DISPATCH(UnrollNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(EndNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(InlineNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(DecomposeSpatialNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(DecomposeReduceNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(DecomposeAllreduceNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(AllreduceNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(CacheReadNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(CacheWriteNode);
+    STRUCTURE_SPACE_FUNCTOR_DISPATCH(UnrollNode);
     return vtable;
   }
 };
 
-#undef SUBGRAPHSPACE_FUNCTOR_DISPATCH
-#undef SUBGRAPHSPACE_FUNCTOR_DEFAULT
+#undef STRUCTURE_SPACE_FUNCTOR_DISPATCH
+#undef STRUCTURE_SPACE_FUNCTOR_DEFAULT
 
 
-class SubGraphSpaceDAGMaker : public SubGraphSpaceFunctor<StructureSpace(const StructureSpace &)> {
+class SubGraphSpaceDAGMaker : public StructureSpaceFunctor<StructureSpace(const StructureSpace &)> {
  private:
 
  protected:
@@ -503,6 +662,7 @@ class SubGraphSpaceDAGMaker : public SubGraphSpaceFunctor<StructureSpace(const S
 /* Injective SpaceDAG */
 class InjectiveSpaceDAGMaker : public SubGraphSpaceDAGMaker {
  private:
+  bool can_inline;
   int nparts;
   std::string split_policy;
   int max_unroll_depth;
@@ -520,10 +680,11 @@ class InjectiveSpaceDAGMaker : public SubGraphSpaceDAGMaker {
 
   InjectiveSpaceDAGMaker(
     te::Operation op,
+    bool can_inline,
     int nparts=4,
     std::string split_policy="power2",
     int max_unroll_depth=1024) : 
-      SubGraphSpaceDAGMaker(op), nparts(nparts),
+      SubGraphSpaceDAGMaker(op), can_inline(can_inline), nparts(nparts),
       split_policy(split_policy), max_unroll_depth(max_unroll_depth) {
     const ComputeOpNode *as_compute = op.as<ComputeOpNode>();
     CHECK(as_compute != nullptr) << "Expect compute op.";
@@ -551,7 +712,8 @@ class ReductiveSpaceTreeMaker : public SubGraphSpaceDAGMaker {
  public:
   StructureSpace make() {
     StructureSpace start = CacheWriteNode::make_empty();
-    return VisitSpace(start);
+    auto ret = VisitSpace(start);
+    return ret;
   }
 
   ReductiveSpaceTreeMaker(te::Operation op, int spatial_nparts=4, int reduce_nparts=3,
@@ -564,7 +726,21 @@ class ReductiveSpaceTreeMaker : public SubGraphSpaceDAGMaker {
 };
 
 
-Array<StructureSpace> make_space_tree(TIRGraph subgraph, Target target);
+class StructureSpaceRandomProposer :
+  public StructureSpaceFunctor<StructureEntity(const StructureSpace&)> {
+
+ public:  
+
+  StructureEntity VisitSpace_(const DecomposeSpatialNode* node) override;
+  StructureEntity VisitSpace_(const DecomposeReduceNode* node) override;
+  StructureEntity VisitSpace_(const DecomposeAllreduceNode* node) override;
+  StructureEntity VisitSpace_(const CacheReadNode* node) override;
+  StructureEntity VisitSpace_(const CacheWriteNode* node) override;
+  StructureEntity VisitSpace_(const UnrollNode* node) override;
+};
+
+
+Array<StructureSpace> get_structure_spaces(TIRGraph subgraph, Target target);
 
 
 }  // namespace tg

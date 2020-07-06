@@ -5,6 +5,7 @@
 #include <tvm/runtime/object.h>
 #include <tvm/runtime/container.h>
 
+#include "proposer.h"
 #include "structure_space.h"
 #include "config.h"
 #include "utils.h"
@@ -49,24 +50,34 @@ enum SearchTreeNodeState {
 };
 
 
+class TuneRecord {
+ public:
+  Config config;
+  float gflops;
+
+  TuneRecord(Config config, float gflops) : config(config), gflops(gflops) {}
+};
+
+
 class SearchTreeNode {
  public:
   SearchTreeNodeState state;
-  std::shared_ptr<SearchTreeNode> parent;
-  int child_id;
+  std::shared_ptr<SearchTreeNode> parent = nullptr;
+  int child_id = -1;
   std::vector<std::shared_ptr<SearchTreeNode> > children;
   std::vector<SearchHistory> history;
   // only for leaf node
   bool is_leaf;
   std::vector<PartialConfig> leaf_configs;
+  std::vector<std::unordered_map<Config, FloatImm, ObjectHash> > propose_records;
   
   SearchTreeNode(SearchTreeNodeState state=SearchTreeNodeState::NotExpanded,
       std::shared_ptr<SearchTreeNode> parent=nullptr, int child_id=-1) :
-      state(state), child_id(child_id), parent(parent), is_leaf(false) {}
+      state(state), parent(parent), child_id(child_id), is_leaf(false) {}
 
   SearchTreeNode(SearchTreeNodeState state, std::shared_ptr<SearchTreeNode> parent,
     int child_id, std::vector<std::shared_ptr<SearchTreeNode> > children) :
-      state(state), child_id(child_id), parent(parent), children(children), is_leaf(false) {
+      state(state), parent(parent), child_id(child_id), children(children), is_leaf(false) {
     
     for (auto v : children) {
       history.push_back(SearchHistory(0));
@@ -77,7 +88,9 @@ class SearchTreeNode {
   void change_state(SearchTreeNodeState state);
   void update_state();
   void update_reward(float reward);
+  void update_reward(Array<Config> configs, float reward);
   void set_leaf_node(std::vector<PartialConfig> leaf_configs);
+  void random_leaf_propose(LeafProposer &proposer, std::vector<std::vector<Config> > &results);
 };
 
 
@@ -86,6 +99,24 @@ class SearchTree {
   std::shared_ptr<SearchTreeNode> root;
 
   SearchTree() : root(std::make_shared<SearchTreeNode>()) {}
+
+  SearchTree(SearchTree &another) {
+    root = another.root;
+  }
+
+  SearchTree(SearchTree &&another) {
+    root = std::move(another.root);
+  }
+
+  SearchTree& operator=(SearchTree &another) {
+    root = another.root;
+    return *this;
+  }
+
+  SearchTree& operator=(SearchTree &&another) {
+    root = std::move(another.root);
+    return *this;
+  }
   
   SearchTree(std::shared_ptr<SearchTreeNode> root) : root(root) {}
 };
@@ -110,13 +141,13 @@ class ExpandPolicy {
 };
 
 
-class SearchTreeExpander : public SubGraphSpaceFunctor<void(const StructureSpace&)> {
+class SearchTreeExpander : public StructureSpaceFunctor<void(const StructureSpace&)> {
  private:
   TIRGraph subgraph;
   int op_id;
   std::shared_ptr<SearchTreeNode> current;
-  ExpandPolicy expand_policy;
   PartialConfig partial_config;
+  ExpandPolicy expand_policy;
 
  public:
   void VisitSpace_(const EndNode* node) override;
@@ -146,7 +177,8 @@ class SearchTreeExpander : public SubGraphSpaceFunctor<void(const StructureSpace
 };
 
 
-SearchTree make_tree(TIRGraph subgraph, Array<StructureSpace> space_dag, bool expand_all=false);
+std::shared_ptr<SearchTreeNode> expand_tree(
+  TIRGraph subgraph, Array<StructureSpace> space_dags, SearchTree &tree);
 
 
 }  // namespace tg

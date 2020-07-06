@@ -44,6 +44,10 @@ Config::Config(Map<IntKey, StructureEntity> structure_entities) {
 }
 
 
+TVM_REGISTER_NODE_TYPE(PartialConfigNode);
+TVM_REGISTER_NODE_TYPE(ConfigNode);
+
+
 }  // namespace tg
 
 }  // namespace tvm

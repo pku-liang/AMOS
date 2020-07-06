@@ -6,18 +6,130 @@ namespace tvm {
 
 namespace tg {
 
+bool StructureEntityEqual::VisitEntity_(
+  const InlineEntityNode* node, const StructureEntity& other) {
+
+  MATCH(InlineEntityNode)
+  return node->use_inline == another->use_inline;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const DecomposeSpatialEntityNode* node, const StructureEntity& other) {
+
+  MATCH(DecomposeSpatialEntityNode)
+  for (auto& kv : node->splits) {
+    if (another->splits.find(kv.first) == another->splits.end()) {
+      return false;
+    }
+    if (another->splits[kv.first] != kv.second) {
+      return false;
+    }
+  }
+  return node->reorder == another->reorder;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const DecomposeReduceEntityNode* node, const StructureEntity& other) {
+  
+  MATCH(DecomposeReduceEntityNode)
+  for (auto& kv : node->splits) {
+    if (another->splits.find(kv.first) == another->splits.end()) {
+      return false;
+    }
+    if (another->splits[kv.first] != kv.second) {
+      return false;
+    }
+  }
+  return node->reorder == another->reorder;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const DecomposeAllreduceEntityNode* node, const StructureEntity& other) {
+
+  MATCH(DecomposeAllreduceEntityNode)
+  for (auto& kv : node->splits) {
+    if (another->splits.find(kv.first) == another->splits.end()) {
+      return false;
+    }
+    if (another->splits[kv.first] != kv.second) {
+      return false;
+    }
+  }
+  return node->use_factor == another->use_factor;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const AllreduceEntityNode* node, const StructureEntity& other) {
+
+  MATCH(AllreduceEntityNode)
+  return node->use_allreduce == another->use_allreduce;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const CacheReadEntityNode* node, const StructureEntity& other) {
+
+  MATCH(CacheReadEntityNode)
+  for (auto& kv : node->cache_config) {
+    if (another->cache_config.find(kv.first) == another->cache_config.end()) {
+      return false;
+    }
+    if (kv.second != another->cache_config[kv.first]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const CacheWriteEntityNode* node, const StructureEntity& other) {
+  
+  MATCH(CacheWriteEntityNode)
+  return node->cache_write == another->cache_write;
+}
+
+
+bool StructureEntityEqual::VisitEntity_(
+  const UnrollEntityNode* node, const StructureEntity& other) {
+
+  MATCH(UnrollEntityNode)
+  return node->unroll == another->unroll;
+}
+
+
+StructureSpace StructureSpace::FromObject_(ObjectPtr<Object> ptr) {
+  using runtime::ObjectTypeChecker;
+  CHECK(ObjectTypeChecker<StructureSpace>::Check(ptr.get()))
+      << "Expect type " << ObjectTypeChecker<StructureSpace>::TypeName()
+      << " but get " << ptr->GetTypeKey();
+  return StructureSpace(ptr);
+}
+
+
 /* Injective */
 // inline
 StructureSpace InjectiveSpaceDAGMaker::VisitSpace_(const InlineNode *node) {
   if (cache.find("inline") != cache.end()) {
     return cache["inline"];
   }
-  StructureSpace false_branch = DecomposeSpatialNode::make_empty();
-  false_branch = VisitSpace(false_branch);
-  StructureSpace true_branch = make_end();
-  auto ret = InlineNode::make(true_branch, false_branch);
-  cache["inline"] = ret;
-  return ret;
+
+  if (can_inline) {
+    StructureSpace false_branch = DecomposeSpatialNode::make_empty();
+    false_branch = VisitSpace(false_branch);
+    StructureSpace true_branch = make_end();
+    auto ret = InlineNode::make(true_branch, false_branch);
+    cache["inline"] = ret;
+    return ret;
+  } else {
+    auto ret = VisitSpace(DecomposeSpatialNode::make_empty());
+    cache["inline"] = ret;
+    return ret;
+  }
 }
 
 
@@ -186,7 +298,8 @@ StructureSpace ReductiveSpaceTreeMaker::VisitSpace_(const DecomposeAllreduceNode
 // unroll
 StructureSpace ReductiveSpaceTreeMaker::VisitSpace_(const UnrollNode *node) {
   if (cache.find("unroll") != cache.end()) {
-    return cache["unroll"];
+    auto ret = cache["unroll"];
+    return ret;
   }
 
   StructureSpace next = make_end();
@@ -197,15 +310,79 @@ StructureSpace ReductiveSpaceTreeMaker::VisitSpace_(const UnrollNode *node) {
 }
 
 
-Array<StructureSpace> make_space_tree(TIRGraph subgraph, Target target) {
+StructureEntity StructureSpaceRandomProposer::VisitSpace_(const DecomposeSpatialNode* node) {
+  Map<IntKey, SplitEntity> splits;
+  for (auto kv : node->splits) {
+    int choice = randint(0, (int)kv.second->factor_lists.size());
+    CHECK(choice < (int)kv.second->factor_lists.size()) << "Wrong random int number.";
+    splits.Set(kv.first, kv.second->factor_lists[choice]);
+  }
+  int choice = randint(0, (int)node->reorder->new_orders.size());
+  CHECK(choice < (int)node->reorder->new_orders.size()) << "Wrong random int number.";
+  return DecomposeSpatialEntityNode::make(splits, node->reorder->new_orders[choice]);
+}
+
+
+StructureEntity StructureSpaceRandomProposer::VisitSpace_(const DecomposeReduceNode* node) {
+  Map<IntKey, SplitEntity> splits;
+  for (auto kv : node->splits) {
+    int choice = randint(0, (int)kv.second->factor_lists.size());
+    CHECK(choice < (int)kv.second->factor_lists.size()) << "Wrong random int number.";
+    splits.Set(kv.first, kv.second->factor_lists[choice]);
+  }
+  int choice = randint(0, (int)node->reorder->new_orders.size());
+  CHECK(choice < (int)node->reorder->new_orders.size()) << "Wrong random int number.";
+  return DecomposeReduceEntityNode::make(splits, node->reorder->new_orders[choice]);
+}
+
+
+StructureEntity StructureSpaceRandomProposer::VisitSpace_(const DecomposeAllreduceNode* node) {
+  Map<IntKey, SplitEntity> splits;
+  for (auto kv : node->splits) {
+    int choice = randint(0, (int)kv.second->factor_lists.size());
+    CHECK(choice < (int)kv.second->factor_lists.size()) << "Wrong random int number.";
+    splits.Set(kv.first, kv.second->factor_lists[choice]);
+  }
+  int choice = randint(0, (int)node->use_factor->choices.size());
+  CHECK(choice < (int)node->use_factor->choices.size()) << "Wrong random int number.";
+  return DecomposeAllreduceEntityNode::make(splits, node->use_factor->choices[choice]);
+}
+
+
+StructureEntity StructureSpaceRandomProposer::VisitSpace_(const CacheReadNode* node) {
+  Map<IntKey, CacheReadParamEntity> cache_read;
+  for (auto kv : node->cache_config) {
+    int choice = randint(0, (int)kv.second->positions.size());
+    CHECK(choice < (int)kv.second->positions.size()) << "Wrong random int number.";
+    cache_read.Set(kv.first, kv.second->positions[choice]);
+  }
+  return CacheReadEntityNode::make(cache_read);
+}
+
+
+StructureEntity StructureSpaceRandomProposer::VisitSpace_(const CacheWriteNode* node) {
+  int choice = randint(0, (int)node->cache_write->choices.size());
+  CHECK(choice < (int)node->cache_write->choices.size()) << "Wrong random int number.";
+  return CacheWriteEntityNode::make(node->cache_write->choices[choice]);
+}
+
+
+StructureEntity StructureSpaceRandomProposer::VisitSpace_(const UnrollNode* node) {
+  int choice = randint(0, (int)node->unroll->choices.size());
+  CHECK(choice < (int)node->unroll->choices.size()) << "Wrong random int number.";
+  return UnrollEntityNode::make(node->unroll->choices[choice]);
+}
+
+
+Array<StructureSpace> get_structure_spaces(TIRGraph subgraph, Target target) {
   Array<StructureSpace> ret;
-  if (target->device_name == "cuda") {
+  if (target->target_name == "cuda") {
     for (auto op : subgraph->operation_list) {
       // from inputs to outputs
       // all compute ops
       if (subgraph->operation_stat_dict[op]->injective) {
         // for injective op
-        InjectiveSpaceDAGMaker maker(op);
+        InjectiveSpaceDAGMaker maker(op, able_inline(op, subgraph->down_graph));
         ret.push_back(maker.make());
       } else {
         // for reductive op
@@ -219,6 +396,22 @@ Array<StructureSpace> make_space_tree(TIRGraph subgraph, Target target) {
     throw;
   }
 }
+
+
+TVM_REGISTER_NODE_TYPE(EndNode);
+TVM_REGISTER_NODE_TYPE(InlineNode);
+TVM_REGISTER_NODE_TYPE(DecomposeSpatialNode);
+TVM_REGISTER_NODE_TYPE(DecomposeReduceNode);
+TVM_REGISTER_NODE_TYPE(DecomposeAllreduceNode);
+TVM_REGISTER_NODE_TYPE(CacheReadNode);
+TVM_REGISTER_NODE_TYPE(CacheWriteNode);
+TVM_REGISTER_NODE_TYPE(UnrollNode);
+
+
+// TVM_REGISTER_GLOBAL("tg.make_space_tree")
+// .set_body([](TVMArgs args, TVMRetValue* rv) {
+//   *rv = make_space_tree(args[0], args[1]);
+// });
 
 
 }  // namespace tg

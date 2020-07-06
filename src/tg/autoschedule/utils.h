@@ -1,11 +1,14 @@
 #ifndef TVM_TG_AUTOSCHEDULE_UTILS_H_
 #define TVM_TG_AUTOSCHEDULE_UTILS_H_
 
+#include <random>
+#include <climits>
 #include <unordered_map>
 #include <unordered_set>
 
 #include <tvm/tir/expr.h>
 #include <tvm/tir/ir_pass.h>
+#include <tvm/te/operation.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/node/container.h>
 
@@ -14,11 +17,19 @@ namespace tvm {
 
 namespace tg {
 
+
+int randint(int low=INT_MIN, int high=INT_MAX);
+
+
 #define TG_DEFINE_OBJECT_SELF_METHOD(ObjectName)         \
   ObjectName* Self() {                                   \
     CHECK(data_ != nullptr);                             \
     return static_cast<ObjectName*>(data_.get());        \
   }
+
+
+bool able_inline(
+  const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph);
 
 
 void any_part_split(
