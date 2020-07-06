@@ -109,6 +109,28 @@ class FindBatchLikeDim : public ExprVisitor {
 };
 
 
+// TODO: 实现FindBatchLikeDimv2
+class FindBatchLikeDimv2 : public ExprVisitor {
+private:
+    Array<Var> spatial_indices_;
+public:
+    std::unordered_map<int, std::vector<int>> records;
+    using ExprVisitor::VisitExpr;
+
+    FindBatchLikeDimv2(Array<Var> spatial_indices) : spatial_indices_(spatial_indices) {
+        for (int i = 0; i < (int) spatial_indices_.size(); ++i) {
+            std::vector<int> tmp;
+            records[i] = tmp;
+        }
+    }
+
+protected:
+    using ExprVisitor::VisitExpr_;
+
+    void VisitExpr_(const CallNode *op) override;
+};
+
+
 class FindAxisPosition : public ExprVisitor {
  private:
   Array<Var> spatial_indices_;

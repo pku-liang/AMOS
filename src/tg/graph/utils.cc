@@ -49,6 +49,12 @@ void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
 }
 
 
+// TODO: implement FindBatchLikeDimv2::VisitExpr_
+void FindBatchLikeDimv2::VisitExpr_(const CallNode *op) {
+    ExprVisitor::VisitExpr_(op);
+}
+
+
 void FindAxisPosition::VisitExpr_(const CallNode* op) {
   ExprVisitor::VisitExpr_(op);
   if (op->call_type == CallNode::CallType::Halide &&
@@ -242,6 +248,41 @@ Array<IntImm> get_batch_like_dim(const Tensor &output) {
 }
 
 
+// TODO: implement get_batch_like_dim_v2
+Array<IntImm> get_batch_like_dim_v2(const Tensor &output) {
+    Array<IntImm> ret;
+    std::vector<bool> is_batch;
+
+    const ComputeOpNode* op = output->op.as<ComputeOpNode>();
+    CHECK(op != nullptr);
+
+    Array<Var> spatial_indices;
+    for (auto iv : op->axis) {
+        is_batch.push_back(true);
+        spatial_indices.push_back(iv->var);
+    }
+
+    for (auto b : op->body) {
+        FindBatchLikeDim fbld(spatial_indices);
+        fbld.VisitExpr(b);
+        for (auto kv : fbld.records) {
+            if ((int)kv.second.size() == 0) {
+                // this is not a batch like dim
+                is_batch[kv.first] = false;
+            }
+        }
+    }
+
+    for (int i = 0; i < (int)is_batch.size(); ++i) {
+        if (is_batch[i]) {
+            ret.push_back(IntImm(DataType::Int(32), i));
+        }
+    }
+
+    return ret;
+}
+
+
 Array<IntImm> find_axis_in(Array<IterVar> axis, const Tensor &tensor, const Tensor &output) {
   Array<Var> vars;
   for (auto iv : axis) {
@@ -396,6 +437,12 @@ std::string get_const_shape_string(Array<PrimExpr> shape) {
 
 TVM_REGISTER_NODE_TYPE(IntKeyNode);
 TVM_REGISTER_NODE_TYPE(StringKeyNode);
+
+
+TVM_REGISTER_GLOBAL("tg.get_batch_like_dim_v2")
+.set_body([](TVMArgs args, TVMRetValue *ret) {
+    *ret = get_batch_like_dim_v2(args[0]);
+});
 
 
 TVM_REGISTER_GLOBAL("tg.get_batch_like_dim")
