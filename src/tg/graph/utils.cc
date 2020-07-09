@@ -49,9 +49,30 @@ void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
 }
 
 
-// TODO: implement FindBatchLikeDimv2::VisitExpr_
-void FindBatchLikeDimv2::VisitExpr_(const CallNode *op) {
+/* 可以被 fuse 的 dimension: 出现在 weight 中, 不出现在 input 中, 在 output 中 spatial, 单独出现 */
+void FindFusibleDim::VisitExpr_(const CallNode *op) {  // 对于 X 和 W 的访存都会调用
     ExprVisitor::VisitExpr_(op);
+    if (op->call_type == CallNode::CallType::Halide) {  // 访存: placeholder / input
+        const PlaceholderOpNode * op_as_plhd = op->func.as<PlaceholderOpNode>();
+        bool is_weight = (op_as_plhd != nullptr);
+        int pos = 0;  // X[i, j, k] 的第 pos 个 axis
+        for (auto e : op->args) {
+            const VarNode* e_as_var = e.as<VarNode>(); // 将 PrimExpr 转换成 VarNode
+            if (e_as_var != nullptr) {  // X[i, j+1, k] 中 j+1 无法转成 VarNode, 会返回 nullptr
+                int spatial_id = 0;
+                for (auto v : this->spatial_indices_) {
+                    if (e_as_var == v.get()) { // 第 pos 个 axis 是第 spatial_id 各个 spatial_indices
+//                        records[spatial_id].push_back(pos);
+                        if (is_weight) spatial_indices_in_weight[spatial_id] = true;
+                        else spatial_indices_in_input[spatial_id] = true;
+                    }
+                    spatial_id += 1;
+                }
+            }
+
+            pos += 1;
+        }
+    }
 }
 
 
@@ -213,25 +234,24 @@ void CountInputOccur::VisitExpr_(const CallNode *op) {
 }
 
 
-
 Array<IntImm> get_batch_like_dim(const Tensor &output) {
   Array<IntImm> ret;
   std::vector<bool> is_batch;
 
-  const ComputeOpNode* op = output->op.as<ComputeOpNode>();
+  const ComputeOpNode* op = output->op.as<ComputeOpNode>();  // 不是 PlaceHolder 或 Tensor
   CHECK(op != nullptr);
 
   Array<Var> spatial_indices;
-  for (auto iv : op->axis) {
-    is_batch.push_back(true);
+  for (auto iv : op->axis) {  // op->axis 返回所有 spatial axis
+    is_batch.push_back(true);  // 一开始将所有 axis 都标记成
     spatial_indices.push_back(iv->var);
   }
   
-  for (auto b : op->body) {
+  for (auto b : op->body) { // op->body 即用户提供的 lambda 表达式
     FindBatchLikeDim fbld(spatial_indices);
     fbld.VisitExpr(b);
     for (auto kv : fbld.records) {
-      if ((int)kv.second.size() == 0) {
+      if ((int)kv.second.size() == 0) {  // 该 spatial axis 没有单独出现在任何访存中
         // this is not a batch like dim
         is_batch[kv.first] = false;
       }
@@ -248,33 +268,33 @@ Array<IntImm> get_batch_like_dim(const Tensor &output) {
 }
 
 
-// TODO: implement get_batch_like_dim_v2
-Array<IntImm> get_batch_like_dim_v2(const Tensor &output) {
+Array<IntImm> find_fusible_dim(const Tensor &output) {
     Array<IntImm> ret;
-    std::vector<bool> is_batch;
+    std::vector<bool> is_fusible;
 
     const ComputeOpNode* op = output->op.as<ComputeOpNode>();
     CHECK(op != nullptr);
 
     Array<Var> spatial_indices;
-    for (auto iv : op->axis) {
-        is_batch.push_back(true);
+    for (auto iv : op->axis) {  // op->axis 是 spatial axis
+        is_fusible.push_back(true);
         spatial_indices.push_back(iv->var);
     }
 
     for (auto b : op->body) {
-        FindBatchLikeDim fbld(spatial_indices);
+        FindFusibleDim fbld(spatial_indices);
         fbld.VisitExpr(b);
-        for (auto kv : fbld.records) {
-            if ((int)kv.second.size() == 0) {
-                // this is not a batch like dim
-                is_batch[kv.first] = false;
-            }
+        int num_spatial_indices = (int)fbld.spatial_indices_in_weight.size();
+        for (int i = 0; i < num_spatial_indices; ++i) {
+            if (!fbld.spatial_indices_in_weight[i])
+                is_fusible[i] = false;
+            if (fbld.spatial_indices_in_input[i])
+                is_fusible[i] = false;
         }
     }
 
-    for (int i = 0; i < (int)is_batch.size(); ++i) {
-        if (is_batch[i]) {
+    for (int i = 0; i < (int)is_fusible.size(); ++i) {
+        if (is_fusible[i]) {
             ret.push_back(IntImm(DataType::Int(32), i));
         }
     }
@@ -439,9 +459,9 @@ TVM_REGISTER_NODE_TYPE(IntKeyNode);
 TVM_REGISTER_NODE_TYPE(StringKeyNode);
 
 
-TVM_REGISTER_GLOBAL("tg.get_batch_like_dim_v2")
+TVM_REGISTER_GLOBAL("tg.find_fusible_dim")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
-    *ret = get_batch_like_dim_v2(args[0]);
+    *ret = find_fusible_dim(args[0]);
 });
 
 
