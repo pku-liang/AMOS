@@ -102,13 +102,12 @@ class TIRMultiGraphNode : public Object {
  public:
   Map<IntKey, TIRGraph> graphs;
   Map<Operation, Operation> operation_index;
-  Map<Tensor, Tensor> tensor_index;
+  std::unordered_map<Tensor, Tensor> tensor_index;
   Map<IntKey, GraphAttr> graph_attrs;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("graphs", &graphs);
     v->Visit("operation_index", &operation_index);
-    v->Visit("tensor_index", &tensor_index);
     v->Visit("graph_attrs", &graph_attrs);
   }
 
@@ -123,6 +122,7 @@ class TIRMultiGraph : public ObjectRef {
   TIRMultiGraph(TIRGraph graph, FType partition_func);
 
   TVM_DEFINE_OBJECT_REF_METHODS(TIRMultiGraph, ObjectRef, TIRMultiGraphNode);
+  TG_DEFINE_OBJECT_SELF_METHOD(TIRMultiGraphNode);
 };
 
 

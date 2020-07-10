@@ -2,6 +2,7 @@
 #define TVM_TG_AUTOSCHEDULE_AUTO_SCHEDULE_H_
 
 #include <unordered_map>
+#include <queue>
 
 #include <tvm/te/schedule.h>
 #include <tvm/node/container.h>
@@ -12,6 +13,7 @@
 #include "interpreter.h"
 #include "structure_space.h"
 #include "search_tree.h"
+#include "../utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
 
@@ -25,6 +27,7 @@ class ScheduleResultNode : public Object {
  public:
   te::Schedule schedule;
   Array<te::Tensor> tensors;
+  std::shared_ptr<SearchTreeNode> leaf;
   Array<Config> configs;
 
   static constexpr const char* _type_key = "tg.ScheduleResult";
@@ -34,15 +37,49 @@ class ScheduleResultNode : public Object {
 
 class ScheduleResult : public ObjectRef {
  public:
-  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors, Array<Config> configs) {
+  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors,
+                 std::shared_ptr<SearchTreeNode> leaf, Array<Config> configs) {
     auto node = make_object<ScheduleResultNode>();
     node->schedule = sch;
     node->tensors = tensors;
+    node->leaf = leaf;
     node->configs = configs;
     data_ = std::move(node);
   }
 
+  std::shared_ptr<SearchTreeNode> get_leaf() {
+    return Self()->leaf;
+  }
+
   TVM_DEFINE_OBJECT_REF_METHODS(ScheduleResult, ObjectRef, ScheduleResultNode);
+  TG_DEFINE_OBJECT_SELF_METHOD(ScheduleResultNode);
+};
+
+
+class EvaluatedScheduleResultNode : public Object {
+ public:
+  ScheduleResult schedule_result;
+  float evaluation;
+
+  static constexpr const char* _type_key = "tg.EvaluatedScheduleResult";
+  TVM_DECLARE_FINAL_OBJECT_INFO(ScheduleResultNode, Object);
+};
+
+
+class EvaluatedScheduleResult : public ObjectRef {
+ public:
+  EvaluatedScheduleResult(ScheduleResult result, float evaluation) {
+    auto node = make_object<EvaluatedScheduleResultNode>();
+    node->schedule_result = result;
+    node->evaluation = evaluation;
+    data_ = std::move(node);
+  }
+
+  bool operator< (const EvaluatedScheduleResult &other) const {
+    return (*this)->evaluation > other->evaluation;
+  }
+
+  TVM_DEFINE_OBJECT_REF_METHODS(EvaluatedScheduleResult, ObjectRef, EvaluatedScheduleResultNode);
 };
 
 
@@ -82,6 +119,29 @@ bool auto_schedule(
     TIRGraph subgraph,
     AutoScheduleContext &context,
     std::vector<ScheduleResult> &results);
+
+
+class AutoScheduler {
+ private:
+  const static int num_topk = 10;
+  const static int schedule_trials_for_one = 100;
+
+  std::unordered_map<IntKey, AutoScheduleContext> contexts;
+  std::unordered_map<IntKey, std::priority_queue<EvaluatedScheduleResult> > topk_schedules;
+
+  ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
+  tvm::runtime::Module schedule_and_build_func(IntKey key, TIRGraph subgraph, Target target);
+ public:
+
+  std::future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
+  std::future<tvm::runtime::Module> schedule_and_build_for(
+    IntKey key, TIRGraph subgraph, Target target, int priority=0);
+  
+  void feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback);
+  static AutoScheduler& Global();
+};
+
+
 
 }  // namespace tg
 

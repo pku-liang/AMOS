@@ -12,6 +12,8 @@
 #include <tvm/runtime/registry.h>
 #include <tvm/node/container.h>
 
+#include "../utils.h"
+
 
 namespace tvm {
 
@@ -19,13 +21,6 @@ namespace tg {
 
 
 int randint(int low=INT_MIN, int high=INT_MAX);
-
-
-#define TG_DEFINE_OBJECT_SELF_METHOD(ObjectName)         \
-  ObjectName* Self() {                                   \
-    CHECK(data_ != nullptr);                             \
-    return static_cast<ObjectName*>(data_.get());        \
-  }
 
 
 bool able_inline(

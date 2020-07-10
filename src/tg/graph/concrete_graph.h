@@ -128,6 +128,9 @@ class TIRGraph : public ObjectRef {
 };
 
 
+float get_gflop(TIRGraph subgraph);
+
+
 }  // namespace tg
 
 }  // namespace tvm

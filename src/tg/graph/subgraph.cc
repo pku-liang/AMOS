@@ -159,7 +159,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
   // new_op -> old_op
   Map<Operation, Operation> operation_index;
   // new_tensor -> old_tensor
-  Map<Tensor, Tensor> tensor_index;
+  std::unordered_map<Tensor, Tensor> tensor_index;
 
   // we collect every subgraph
   // use unordered_map to store intermediate value
@@ -217,22 +217,22 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
 
       if (inputs_lookup.find(inp) != inputs_lookup.end()) {
         graphs_inputs[mark].push_back(new_input_tensors[i]);
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       if (labels_lookup.find(inp) != labels_lookup.end()) {
         graphs_labels[mark].push_back(new_input_tensors[i]);
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       if (weights_lookup.find(inp) != weights_lookup.end()) {
         graphs_weights[mark].push_back(new_input_tensors[i]);
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       if (inp == graph->lr) {
         graphs_lr[mark] = new_input_tensors[i];
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       // when "new input" is in the index,
@@ -243,7 +243,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
         graphs_inputs[mark].push_back(new_input_tensors[i]);
         Tensor old_output_tensor = \
           reverse_operation_index[new_input_tensors[i]->op].output(inp->value_index);
-        tensor_index.Set(new_input_tensors[i], old_output_tensor);
+        tensor_index[new_input_tensors[i]] = old_output_tensor;
 
         IntKey another_mark = IntKey(
           get_const_int(graph_mark[reverse_operation_index[new_input_tensors[i]->op]]));
@@ -264,7 +264,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
                                   reverse_operation_index[
                                     new_input_tensors[i]->op]].output(inp->value_index);
         graphs_outputs[another_mark].push_back(output_tensor);
-        tensor_index.Set(output_tensor, old_output_tensor);
+        tensor_index[output_tensor] = old_output_tensor;
       }
     }
 
@@ -273,22 +273,22 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
       Tensor out = kv.first.output(i);
       if (outputs_lookup.find(out) != outputs_lookup.end()) {
         graphs_outputs[mark].push_back(new_op.output(i));
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
 
       if (gradients_lookup.find(out) != gradients_lookup.end()) {
         graphs_gradients[mark].push_back(new_op.output(i));
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
 
       if (updates_lookup.find(out) != updates_lookup.end()) {
         graphs_updates[mark].push_back(new_op.output(i));
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
 
       if (out == graph->loss) {
         graphs_loss[mark] = new_op.output(i);
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
     }
   }

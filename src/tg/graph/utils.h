@@ -15,6 +15,8 @@
 #include <vector>
 #include <deque>
 
+#include "../utils.h"
+
 
 namespace tvm {
 using namespace te;
