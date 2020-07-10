@@ -75,6 +75,23 @@ class Config : public ObjectRef {
  public:
   Config(Map<IntKey, StructureEntity> structure_entities);
 
+  bool operator=(const Config &other) const {
+    StructureEntityEqual equal;
+    for (auto& kv : (*this)->structure_entities) {
+      if (other->structure_entities.find(kv.first) == other->structure_entities.end()) {
+        return false;
+      }
+      if (!equal(kv.second, other->structure_entities[kv.first])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool operator!=(const Config &other) const {
+    return !((*this) == other);
+  }
+
   TVM_DEFINE_OBJECT_REF_METHODS(Config, ObjectRef, ConfigNode);
   TG_DEFINE_OBJECT_SELF_METHOD(ConfigNode);
 };

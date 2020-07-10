@@ -196,7 +196,7 @@ class SplitSpaceNode : public ParamSpaceNode {
  public:
   PrimExpr extent;
   int nparts;
-  Array<Array<PrimExpr> > factor_lists;
+  Array<SplitEntity> factor_lists;
   std::string policy;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
@@ -223,7 +223,7 @@ class SplitSpace : public ParamSpace {
 class ReorderSpaceNode : public ParamSpaceNode {
  public:
   int num_axis;
-  Array<Array<IntImm> > new_orders;
+  Array<ReorderEntity> new_orders;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("num_axis", &num_axis);
@@ -248,7 +248,7 @@ class CacheReadSpaceNode : public ParamSpaceNode {
  public:
   int num_position;
   int num_want;
-  Array<Array<IntImm> > positions;
+  Array<CacheReadParamEntity> positions;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("num_position", &num_position);
@@ -272,7 +272,7 @@ class CacheReadSpace : public ParamSpace {
 
 class CacheWriteSpaceNode : public ParamSpaceNode {
  public:
-  Array<IntImm> choices;
+  Array<CacheWriteParamEntity> choices;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("choices", &choices);
@@ -294,7 +294,7 @@ class CacheWriteSpace : public ParamSpace {
 
 class AllreduceFactorSpaceNode : public ParamSpaceNode {
  public:
-  Array<IntImm> choices;
+  Array<AllreduceFactorEntity> choices;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("choices", &choices);
@@ -317,7 +317,7 @@ class AllreduceFactorSpace : public ParamSpace {
 class UnrollSpaceNode : public ParamSpaceNode {
  public:
   int max_depth;
-  Array<Array<IntImm> > choices;
+  Array<UnrollParamEntity> choices;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("max_depth", &max_depth);

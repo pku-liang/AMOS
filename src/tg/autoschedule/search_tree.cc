@@ -68,9 +68,31 @@ void SearchTreeNode::update_reward(float reward) {
 }
 
 
+
+void SearchTreeNode::update_reward(Array<Config> configs, float reward) {
+  if (is_leaf) {
+    size_t num_config = configs.size();
+    CHECK(num_config == propose_records.size()) << "Config size mismatch.";
+    for (size_t i = 0; i < num_config; ++i) {
+      propose_records[i][configs[i]] = FloatImm(DataType::Float(32), reward);
+    }
+  }
+  if (parent != nullptr && child_id >= 0) {
+    parent->history[child_id].update(1, {FloatImm(DataType::Float(32), reward)});
+    parent->update_reward(reward);
+  }
+}
+
+
 void SearchTreeNode::set_leaf_node(std::vector<PartialConfig> leaf_configs) {
   this->leaf_configs = leaf_configs;
   this->is_leaf = true;
+}
+
+
+void SearchTreeNode::random_leaf_propose(LeafProposer &proposer, std::vector<std::vector<Config> > &results) {
+  CHECK(is_leaf) << "Only leaf node provides random_leaf_propose method.";
+  proposer.propose(leaf_configs, propose_records, results);
 }
 
 
@@ -180,10 +202,8 @@ void SearchTreeExpander::VisitSpace_(const EndNode* node) {
 /* inline */
 void SearchTreeExpander::VisitSpace_(const InlineNode* node) {
   int num_child = prepare_expand(node);
-
   int child_id = expand_policy(subgraph, op_id, node, current->history);
   CHECK(child_id < num_child) << "Expand policy exceeds children limit.";
-
   current = current->children[child_id];
   if (child_id == 0) {
     // use inline
@@ -199,8 +219,7 @@ void SearchTreeExpander::VisitSpace_(const InlineNode* node) {
 
 /* decompose spatial */
 void SearchTreeExpander::VisitSpace_(const DecomposeSpatialNode* node) {
-  int num_child = prepare_expand(node);
-
+  prepare_expand(node);
   int child_id = 0;
 
   current = current->children[child_id];
@@ -214,8 +233,7 @@ void SearchTreeExpander::VisitSpace_(const DecomposeSpatialNode* node) {
 
 /* decompose reduce */
 void SearchTreeExpander::VisitSpace_(const DecomposeReduceNode* node) {
-  int num_child = prepare_expand(node);
-
+  prepare_expand(node);
   int child_id = 0;
 
   current = current->children[child_id];
@@ -229,8 +247,7 @@ void SearchTreeExpander::VisitSpace_(const DecomposeReduceNode* node) {
 
 /* decompose allredcue */
 void SearchTreeExpander::VisitSpace_(const DecomposeAllreduceNode* node) {
-  int num_child = prepare_expand(node);
-
+  prepare_expand(node);
   int child_id = 0;
 
   current = current->children[child_id];
@@ -264,8 +281,7 @@ void SearchTreeExpander::VisitSpace_(const AllreduceNode* node) {
 
 /* cache read */
 void SearchTreeExpander::VisitSpace_(const CacheReadNode* node) {
-  int num_child = prepare_expand(node);
-
+  prepare_expand(node);
   int child_id = 0;
 
   current = current->children[child_id];
@@ -279,8 +295,7 @@ void SearchTreeExpander::VisitSpace_(const CacheReadNode* node) {
 
 /* cache write */
 void SearchTreeExpander::VisitSpace_(const CacheWriteNode* node) {
-  int num_child = prepare_expand(node);
-
+  prepare_expand(node);
   int child_id = 0;
 
   current = current->children[child_id];
@@ -294,8 +309,7 @@ void SearchTreeExpander::VisitSpace_(const CacheWriteNode* node) {
 
 /* unroll */
 void SearchTreeExpander::VisitSpace_(const UnrollNode* node) {
-  int num_child = prepare_expand(node);
-
+  prepare_expand(node);
   int child_id = 0;
 
   current = current->children[child_id];
@@ -307,8 +321,8 @@ void SearchTreeExpander::VisitSpace_(const UnrollNode* node) {
 }
 
 
-SearchTree make_tree(TIRGraph subgraph, Array<StructureSpace> space_dags, bool expand_all) {
-  SearchTree tree;
+std::shared_ptr<SearchTreeNode> expand_tree(
+  TIRGraph subgraph, Array<StructureSpace> space_dags, SearchTree &tree) {
   std::shared_ptr<SearchTreeNode> current = tree.root;
   ExpandPolicy policy;
   std::vector<PartialConfig> partial_configs;
@@ -324,10 +338,21 @@ SearchTree make_tree(TIRGraph subgraph, Array<StructureSpace> space_dags, bool e
 
   // record the partial configs in tree leaf node
   current->set_leaf_node(partial_configs);
-  // propagate reward to root
+  // propagate state chagne to root
   current->update_state();
-  return tree;
+  return current;
 }
+
+
+// TVM_REGISTER_GLOBAL("tg.get_partial_config")
+// .set_body([](TVMArgs args, TVMRetValue* rv) {
+//   auto leaf = make_tree(args[0], args[1]);
+//   Array<PartialConfig> partial_configs;
+//   for (auto v : leaf->leaf_configs) {
+//     partial_configs.push_back(v);
+//   }
+//   *rv = partial_configs;
+// });
 
 }  // namespace tg
 
