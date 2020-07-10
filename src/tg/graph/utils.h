@@ -113,17 +113,11 @@ class FindFusibleDim : public ExprVisitor {
 private:
     Array<Var> spatial_indices_;
 public:
-//    std::unordered_map<int, std::vector<int>> records;
-   // size(is_fusible) == size(spatial_indices)
     std::vector<bool> spatial_indices_in_weight;
     std::vector<bool> spatial_indices_in_input;
     using ExprVisitor::VisitExpr;
 
     FindFusibleDim(Array<Var> spatial_indices) : spatial_indices_(spatial_indices) {
-//        for (int i = 0; i < (int) spatial_indices_.size(); ++i) {
-//            std::vector<int> tmp;
-//            records[i] = tmp;
-//        }
         int num_spatial_indices = (int) spatial_indices_.size();
         spatial_indices_in_weight.resize(num_spatial_indices, false);
         spatial_indices_in_input.resize(num_spatial_indices, false);

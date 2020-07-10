@@ -13,6 +13,13 @@ def get_batch_like_dim(tensor):
   return _ffi_api.get_batch_like_dim(tensor)
 
 
+def find_fusible_dim(tensor):
+  """
+  return the fusible dim of a tensor
+  """
+  return _ffi_api.find_fusible_dim(tensor)
+
+
 def find_axis_in(axis, tensor, output):
   """
   return where the axis occurs in tensor
