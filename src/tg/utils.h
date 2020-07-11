@@ -10,6 +10,8 @@
 #include <future>
 #include <functional>
 #include <stdexcept>
+#include <utility>
+#include <tuple>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
@@ -36,8 +38,9 @@ class UnpackVec {
  public:
 	UnpackVec(const std::vector<ELE>& vec) : vec(vec), index(0) {}
 
+  template<typename T>
 	ELE unpack()	{
-		return vec[index++];
+		return  vec[index++];
 	}
 
  private:
@@ -45,11 +48,10 @@ class UnpackVec {
 	int index;
 };
 
-
-template <typename ELE, typename FType>
-void call_function(FType f, const std::vector<ELE>& args) {
-	UnpackVec unpacker(args);
-	func(unpacker.unpack()...);
+template<typename R, typename... Args, typename ELE>
+auto call_function(std::function<R(Args...)> f, std::vector<ELE> &v) {
+    UnpackVec<ELE> unpackvec(v);
+    return f(unpackvec.unpack<Args>()...);
 }
 
 
@@ -58,10 +60,10 @@ public:
     ThreadPool(size_t);
 
     template<typename FType, typename... Args>
-    auto push_front(FType&& f, Args&&... args) ->std::future<decltype(f(args...))>;
+    auto push_front(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type>;
 
     template<typename FType, typename... Args>
-    auto push_back(FType&& f, Args&&... args) ->std::future<decltype(f(args...))>;
+    auto push_back(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type>;
 
     void clear_threads();
 
@@ -97,5 +99,7 @@ class Queue {
 }  // namespace tg
 
 }  // namespace tvm
+
+#include "utils.tpp"
 
 #endif  //  TVM_TG_UTILS_H_

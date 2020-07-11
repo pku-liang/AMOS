@@ -30,7 +30,7 @@ inline ThreadPool::ThreadPool(size_t threads=std::thread::hardware_concurrency()
 
 
 template<typename FType, typename... Args>
-auto ThreadPool::push_front(FType&& f, Args&&... args) ->std::future<decltype(f(args...))> {
+auto ThreadPool::push_front(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
     using return_type = decltype(f(args...));
 
     auto task = std::make_shared< std::packaged_task<return_type()> >(
@@ -52,7 +52,7 @@ auto ThreadPool::push_front(FType&& f, Args&&... args) ->std::future<decltype(f(
 
 
 template<typename FType, typename... Args>
-auto ThreadPool::push_back(FType&& f, Args&&... args) ->std::future<decltype(f(args...))> {
+auto ThreadPool::push_back(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
     using return_type = decltype(f(args...));
 
     auto task = std::make_shared< std::packaged_task<return_type()> >(
