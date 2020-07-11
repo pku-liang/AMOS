@@ -26,7 +26,7 @@ class Session {
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;
   std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
-  std::unordered_map<IntKey, std::vector<std::future<std::pair<ScheduleResult, tvm::runtime::Module> > > > functions;
+  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::future<tvm::runtime::Module> > > > functions;
   std::unordered_map<IntKey, std::pair<tvm::runtime::Module, float> > best_functions;
   Queue<IntKey> emergency_queue;
   bool finish;
@@ -37,7 +37,11 @@ class Session {
   void initialize_weights(TIRGraph graph, std::unordered_map<te::Tensor, tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
   std::string get_func_name(IntKey key);
-  void run_functions(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+
+  void run_functions(
+    TIRMultiGraph multi_graph,
+    std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+  
   void run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
 };
 

@@ -6,7 +6,7 @@ namespace tvm {
 namespace tg {
 
 inline ThreadPool::ThreadPool(size_t threads=std::thread::hardware_concurrency()) : stop(false) {
-    for(size_t i = 0;i<threads;++i)
+    for(size_t i = 0;i<threads;++i) {
         workers.emplace_back(
             [this] {
                 for(;;) {
@@ -26,50 +26,7 @@ inline ThreadPool::ThreadPool(size_t threads=std::thread::hardware_concurrency()
                 }
             }
         );
-}
-
-
-template<typename FType, typename... Args>
-auto ThreadPool::push_front(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
-    using return_type = decltype(f(args...));
-
-    auto task = std::make_shared< std::packaged_task<return_type()> >(
-            std::bind(f, std::forward<Args>(args)...)
-        );
-        
-    std::future<return_type> res = task->get_future();
-    {
-        std::unique_lock<std::mutex> lock(deque_mutex);
-
-        if(stop)
-            throw std::runtime_error("push_front on stopped ThreadPool");
-
-        tasks.emplace_front([task](){ (*task)(); });
     }
-    condition.notify_one();
-    return res;
-}
-
-
-template<typename FType, typename... Args>
-auto ThreadPool::push_back(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
-    using return_type = decltype(f(args...));
-
-    auto task = std::make_shared< std::packaged_task<return_type()> >(
-            std::bind(f, std::forward<Args>(args)...)
-        );
-        
-    std::future<return_type> res = task->get_future();
-    {
-        std::unique_lock<std::mutex> lock(deque_mutex);
-
-        if(stop)
-            throw std::runtime_error("push_back on stopped ThreadPool");
-
-        tasks.emplace_back([task](){ (*task)(); });
-    }
-    condition.notify_one();
-    return res;
 }
 
 

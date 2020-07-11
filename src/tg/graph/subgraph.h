@@ -83,7 +83,7 @@ class SubGraphPartitionEngine {
   std::tuple<
     Map<IntKey, TIRGraph>,
     Map<Operation, Operation>,
-    Map<Tensor, Tensor>,
+    std::unordered_map<Tensor, Tensor>,
     Map<IntKey, GraphAttr> >
     operator()(TIRGraph graph);
 

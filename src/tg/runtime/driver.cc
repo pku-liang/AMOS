@@ -80,6 +80,10 @@ std::string Session::get_func_name(IntKey key) {
 void Session::run_functions(
   TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
   
+  // prepare the call_unpack
+  const auto* call_unpack = runtime::Registry::Get("tg.runtime.call_unpack");
+  CHECK(call_unpack != nullptr) << "Should prepare call_unpack function.";
+
   int advance_number = (int)bindings.size();
   for (int ad = 0; ad < advance_number; ++ad) {
     std::unordered_map<IntKey, int> call_order;
@@ -95,14 +99,14 @@ void Session::run_functions(
       IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set)> run_helper;
-    run_helper = [this, ad, &multi_graph, &call_order, &bindings]
+    run_helper = [this, ad, &multi_graph, &call_order, &bindings, call_unpack]
       (IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set) {
 
       bool succ = false;
       auto subgraph = multi_graph->graphs[key];
-      std::vector<tvm::runtime::NDArray> arrays;
+      Array<tvm::runtime::NDArray> arrays;
       for (auto tt : subgraph->inputs) {
         te::Tensor t = multi_graph.Self()->tensor_index[tt];
         if (bindings[ad].find(t) != bindings[ad].end()) {
@@ -162,113 +166,108 @@ void Session::run_functions(
         }
         arrays.push_back(this->persistent_tensors[t]);
       }
-      // first, try to get new function
-      if (this->func_mutex.find(key) == this->func_mutex.end()) {
-        func_mutex[key] = std::make_unique<std::mutex>();
-      }
-      std::unique_lock<std::mutex> lock(*(this->func_mutex[key]));
-      if (this->functions.find(key) != this->functions.end()) {
-        int num_f = (int)this->functions[key].size();
-        // record the position
-        int count_f = 0;
-        for (count_f = 0; count_f < num_f; ++count_f) {
-          auto& f = this->functions[key][count_f];
+      
+      succ = false;
+      while (!succ) {
+        bool taken = false;  // record taken a value
+        // first, try to get new function
+        if (!this->functions[key].empty()) {
+          taken = true;
+          auto sch_func = this->functions[key].pop();
+          auto schedule_result = sch_func.first;
+          auto& func = sch_func.second;
           // these are parameters
           int milliseconds = 1000;
           int max_wait_times = 10;
 
           // first get schedule & function
-          auto status = f.wait_for(std::chrono::milliseconds(milliseconds));
+          auto status = func.wait_for(std::chrono::milliseconds(milliseconds));
           int count_wait = 0;
           while (status == std::future_status::deferred) {
-            status = f.wait_for(std::chrono::milliseconds(milliseconds));
+            status = func.wait_for(std::chrono::milliseconds(milliseconds));
             count_wait += 1;
             if (count_wait >= max_wait_times) {
               break;
             }
           }
-          status = f.wait_for(std::chrono::milliseconds(milliseconds));
-          // fail to get schedule and function
-          if (status != std::future_status::ready) {
-            continue;
-          }
-
-          try {
-            auto sch_func = f.get();
-            auto func = sch_func.second->GetFunction(get_func_name(key));
-
-            // call_function(func, arrays);
-            auto future = ThreadPool::Global().push_back(
-              [](tvm::runtime::PackedFunc& f, std::vector<tvm::runtime::NDArray>& v) {
-                auto start = std::chrono::steady_clock::now();
-                call_function(f, v);
-                auto end = std::chrono::steady_clock::now();
-                float elapsed_time = (float)((end - start).count());
-                return elapsed_time;
-              }, func, arrays);
-            
-            // wait for 1s
-            status = future.wait_for(std::chrono::milliseconds(milliseconds));
-            int count_wait = 0;
-            while (status == std::future_status::deferred) {
-              status = future.wait_for(std::chrono::milliseconds(milliseconds));
-              count_wait += 1;
-              if (count_wait >= max_wait_times) {
-                break;
-              }
-            }
-            status = future.wait_for(std::chrono::milliseconds(milliseconds));
-            // fail to run this function
-            if (status != std::future_status::ready) {
-              continue;
-            }
-
+          status = func.wait_for(std::chrono::milliseconds(milliseconds));
+          // get schedule and function if ready
+          // else pass this one
+          if (status == std::future_status::ready) {
             try {
-              float elapsed_time = future.get();
-              // feedback
-              float gflops = get_gflop(subgraph) / elapsed_time;
-              sch_func.first.Self()->leaf->update_reward(sch_func.first->configs, gflops);
-              // store function
-              if (best_functions.find(key) == best_functions.end()) {
-                best_functions[key] = std::make_pair(sch_func.second, gflops);
-              } else {
-                if (gflops > best_functions[key].second) {
-                  best_functions[key] = std::make_pair(sch_func.second, gflops);
+              auto module = func.get();
+              auto mod_func = module->GetFunction(get_func_name(key));
+
+              // call_function(func, arrays);
+              auto future = ThreadPool::Global().push_back(
+                [call_unpack](tvm::runtime::PackedFunc& f, Array<tvm::runtime::NDArray>& v) {
+                  auto start = std::chrono::steady_clock::now();
+                  (*call_unpack)(f, v);
+                  auto end = std::chrono::steady_clock::now();
+                  float elapsed_time = (float)((end - start).count());
+                  return elapsed_time;
+                }, mod_func, arrays);
+              
+              // wait for 1s
+              status = future.wait_for(std::chrono::milliseconds(milliseconds));
+              int count_wait = 0;
+              while (status == std::future_status::deferred) {
+                status = future.wait_for(std::chrono::milliseconds(milliseconds));
+                count_wait += 1;
+                if (count_wait >= max_wait_times) {
+                  break;
                 }
               }
+              status = future.wait_for(std::chrono::milliseconds(milliseconds));
+              // run this function
+              // if not ready, pass
+              if (status == std::future_status::ready) {
+                try {
+                  float elapsed_time = future.get();
+                  // feedback
+                  float gflops = get_gflop(subgraph) / elapsed_time;
+                  sch_func.first.Self()->leaf->update_reward(sch_func.first->configs, gflops);
+                  // store function
+                  if (best_functions.find(key) == best_functions.end()) {
+                    best_functions[key] = std::make_pair(module, gflops);
+                  } else {
+                    if (gflops > best_functions[key].second) {
+                      best_functions[key] = std::make_pair(module, gflops);
+                    }
+                  }
 
-              // success
-              succ = true;
-              // only run one
-              break;
-            } catch (const std::exception &e) {
-              // can't run the function
-              continue;
+                  // success
+                  succ = true;
+                } catch (const std::exception &e) {
+                  // can't run the function
+                  // pass
+                }
+              }
+            } catch (const std::exception& e) {
+              // can't get schedule & function
+              // pass
             }
-          } catch (const std::exception& e) {
-            // can't get schedule & function
-            continue;
           }
+        }
 
-        }
-        // success
-        if (succ) {
-          // remove the schedule & functions that are evaluated
-          std::vector<std::future<std::pair<ScheduleResult, tvm::runtime::Module> > > tmp;
-          for (int tmp_f = count_f + 1; tmp_f < num_f; ++tmp_f) {
-            tmp.push_back(std::move(this->functions[key][tmp_f]));
+        // then, try to use old function
+        if (!succ) {
+          if (best_functions.find(key) != best_functions.end()) {
+            auto func = best_functions[key].first->GetFunction(get_func_name(key));
+            (*call_unpack)(func, arrays);
+            succ = true;
           }
-          this->functions[key] = tmp;
         }
-      }
-      lock.unlock();
-      // then, try to use old function
-      if (!succ) {
-        if (best_functions.find(key) != best_functions.end()) {
-          auto func = best_functions[key].first->GetFunction(get_func_name(key));
-          call_function(func, arrays);
-          succ = true;
+
+        // must check taken because chance is that
+        // the scheduler is not ready
+        if (!succ && this->functions[key].empty() && taken) {
+          // there is no way to run this subgraph
+          // report error
+          this->emergency_queue.push(key);
+          break;
         }
+
       }
 
       if (succ) {
@@ -280,10 +279,8 @@ void Session::run_functions(
             update_set.insert(v);
           }
         }
-      } else {
-        // must re-schedule and re-build
-        this->emergency_queue.push(key);
       }
+
     };
 
     while (!free_set.empty()) {
@@ -344,54 +341,85 @@ void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm
     int schedule_count = 0;
     int num_subgraphs = (int)multi_graph->graphs.size();
     while (!free_set.empty()) {
-      std::unordered_set<IntKey> new_set;
+      std::unordered_set<IntKey> update_set;
+      std::unordered_set<IntKey> delete_set;
 
       for (auto cand : free_set) {
         // get future schedule
-        std::future<ScheduleResult> result = AutoScheduler::Global().schedule_for(
+        std::future<ScheduleResult> schedule_result = AutoScheduler::Global().schedule_for(
           cand, multi_graph->graphs[cand], target, 0);
-        
-        // get future func
-        std::future<std::pair<ScheduleResult, tvm::runtime::Module> > sch_func = \
-        FunctionBuilder::Global().build_for_future(
-          result,
-          target,
-          Target::Create("llvm"),
-          get_func_name(cand),
-          std::unordered_map<te::Tensor, tir::Buffer>(),
-          tvm::BuildConfig::Create()
-        );
 
-        // store the future func
-        if (func_mutex.find(cand) == func_mutex.end()) {
-          func_mutex[cand] = std::make_unique<std::mutex>();
-        }
-        std::unique_lock<std::mutex> lock(*func_mutex[cand]);
-        if (functions.find(cand) != functions.end()) {
-          functions[cand] = std::vector<std::future<std::pair<ScheduleResult, tvm::runtime::Module> > >();
-        }
-        functions[cand].push_back(std::move(sch_func));
-        lock.unlock();
+        int max_wait_times = 10;
+        int milliseconds = 1000;
 
-        // update free set
-        for (auto succ : multi_graph->graph_attrs[cand]->successors) {
-          schedule_order[succ] -= 1;
-          if (schedule_order[succ] == 0) {
-            new_set.insert(succ);
+        std::future_status status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
+        int count_wait = 0;
+        while (status == std::future_status::deferred) {
+          count_wait += 1;
+          status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
+          if (count_wait > max_wait_times) {
+            throw std::runtime_error("Long time still deferred.");
           }
         }
-        
-        // this subgraph is done
-        schedule_count += 1;
+        status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
+        if (status == std::future_status::timeout) {
+          continue;
+        }
+
+        try {
+          ScheduleResult result = schedule_result.get();
+          
+          // get future func
+          std::pair<ScheduleResult, std::future<tvm::runtime::Module> > sch_func = \
+          FunctionBuilder::Global().build_for(
+            result,
+            target,
+            Target::Create("llvm"),
+            get_func_name(cand),
+            std::unordered_map<te::Tensor, tir::Buffer>(),
+            tvm::BuildConfig::Create()
+          );
+
+          // store the future func
+          // if (func_mutex.find(cand) == func_mutex.end()) {
+          //   func_mutex[cand] = std::make_unique<std::mutex>();
+          // }
+          // std::unique_lock<std::mutex> lock(*func_mutex[cand]);
+          // if (functions.find(cand) != functions.end()) {
+          //   functions[cand] = std::move(Queue<std::pair<ScheduleResult, std::future<tvm::runtime::Module> > >());
+          // }
+          // unordered_set should insert a new queue if the key doesn't exist
+          functions[cand].push(std::move(sch_func));
+          // lock.unlock();
+
+          // update delete_set
+          delete_set.insert(cand);
+
+          // update free set
+          for (auto succ : multi_graph->graph_attrs[cand]->successors) {
+            schedule_order[succ] -= 1;
+            if (schedule_order[succ] == 0) {
+              update_set.insert(succ);
+            }
+          }
+          
+          // this subgraph is done
+          schedule_count += 1;
+        } catch (const std::exception& e) {
+          continue;
+        }
       }
 
-      free_set.clear();
-      for (auto new_cand : new_set) {
+      for (auto deleted : delete_set) {
+        free_set.erase(deleted);
+      }
+      for (auto new_cand : update_set) {
         free_set.insert(new_cand);
       }
     }
     
     // make sure that every subgraph is handled
+    // double check
     if (schedule_count != num_subgraphs) {
       throw std::runtime_error("Schedule graph number mismatch");
     }
@@ -399,41 +427,66 @@ void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm
 
   while (1) {
     // see if not done
+    bool peek_finish = false;
     std::unique_lock<std::mutex> lock(this->finish_mutex);
-    if (!this->finish) {
-      lock.unlock();
+    peek_finish = this->finish;
+    lock.unlock();
+    if (!peek_finish) {
       if (!this->emergency_queue.empty()) {
         auto key = this->emergency_queue.pop();
         // handle emergency
         // get future schedule
-        std::future<ScheduleResult> result = AutoScheduler::Global().schedule_for(
+        std::future<ScheduleResult> schedule_result = AutoScheduler::Global().schedule_for(
           key, multi_graph->graphs[key], target, 1);  // priority 1
-        
-        // get future func
-        std::future<std::pair<ScheduleResult, tvm::runtime::Module> > sch_func = \
-        FunctionBuilder::Global().build_for_future(
-          result,
-          target,
-          Target::Create("llvm"),
-          get_func_name(key),
-          std::unordered_map<te::Tensor, tir::Buffer>(),
-          tvm::BuildConfig::Create(),
-          1
-        );  // priority 1
 
-        // store the future func
-        if (func_mutex.find(key) == func_mutex.end()) {
-          func_mutex[key] = std::make_unique<std::mutex>();
+        int max_wait_times = 10;
+        int milliseconds = 1000;
+
+        std::future_status status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
+        int count_wait = 0;
+        while (status == std::future_status::deferred) {
+          count_wait += 1;
+          status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
+          if (count_wait > max_wait_times) {
+            throw std::runtime_error("Long time still deferred.");
+          }
         }
-        std::unique_lock<std::mutex> lock(*func_mutex[key]);
-        if (functions.find(key) != functions.end()) {
-          functions[key] = std::vector<std::future<std::pair<ScheduleResult, tvm::runtime::Module> > >();
+        status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
+        if (status == std::future_status::timeout) {
+          continue;
         }
-        functions[key].push_back(std::move(sch_func));
-        lock.unlock();
+
+        try {
+          ScheduleResult result = schedule_result.get();
+          
+          // get future func
+          std::pair<ScheduleResult, std::future<tvm::runtime::Module> > sch_func = \
+          FunctionBuilder::Global().build_for(
+            result,
+            target,
+            Target::Create("llvm"),
+            get_func_name(key),
+            std::unordered_map<te::Tensor, tir::Buffer>(),
+            tvm::BuildConfig::Create(),
+            1  // priority 1
+          );
+
+          // store the future func
+          // if (func_mutex.find(cand) == func_mutex.end()) {
+          //   func_mutex[cand] = std::make_unique<std::mutex>();
+          // }
+          // std::unique_lock<std::mutex> lock(*func_mutex[cand]);
+          // if (functions.find(cand) != functions.end()) {
+          //   functions[cand] = std::move(Queue<std::pair<ScheduleResult, std::future<tvm::runtime::Module> > >());
+          // }
+          // unordered_set should insert a new queue if the key doesn't exist
+          functions[key].push(std::move(sch_func));
+          // lock.unlock();
+        } catch (const std::exception& e) {
+          continue;
+        }
       }
     } else {
-      lock.unlock();
       break;
     }
   }

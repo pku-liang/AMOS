@@ -133,6 +133,7 @@ std::future<ScheduleResult> AutoScheduler::schedule_for(
         }, key, subgraph, target);
   } else {
     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
+    throw;
   }
 }
 
@@ -152,6 +153,7 @@ std::future<tvm::runtime::Module> AutoScheduler::schedule_and_build_for(
         }, key, subgraph, target);
   } else {
     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
+    throw;
   }
 }
 

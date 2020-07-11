@@ -143,7 +143,7 @@ Map<Operation, Operation> subgraph_partition(
 }
 
 
-std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>, Map<IntKey, GraphAttr> >
+std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, std::unordered_map<Tensor, Tensor>, Map<IntKey, GraphAttr> >
   SubGraphPartitionEngine::operator()(TIRGraph graph) {
   
   // only marks graph

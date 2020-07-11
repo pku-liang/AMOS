@@ -33,26 +33,26 @@ namespace tg {
   }
 
 
-template<typename ELE>
-class UnpackVec {
- public:
-	UnpackVec(const std::vector<ELE>& vec) : vec(vec), index(0) {}
+// template<typename ELE>
+// class UnpackVec {
+//  public:
+// 	UnpackVec(const std::vector<ELE>& vec) : vec(vec), index(0) {}
 
-  template<typename T>
-	ELE unpack()	{
-		return  vec[index++];
-	}
+//   template<typename T>
+// 	ELE unpack()	{
+// 		return  vec[index++];
+// 	}
 
- private:
-	const std::vector<ELE>& vec;
-	int index;
-};
+//  private:
+// 	const std::vector<ELE>& vec;
+// 	int index;
+// };
 
-template<typename R, typename... Args, typename ELE>
-auto call_function(std::function<R(Args...)> f, std::vector<ELE> &v) {
-    UnpackVec<ELE> unpackvec(v);
-    return f(unpackvec.unpack<Args>()...);
-}
+// template<typename R, typename... Args, typename ELE>
+// auto call_function(std::function<R(Args...)> f, std::vector<ELE> &v) {
+//     UnpackVec<ELE> unpackvec(v);
+//     return f(unpackvec.unpack<Args>()...);
+// }
 
 
 class ThreadPool {
@@ -60,10 +60,46 @@ public:
     ThreadPool(size_t);
 
     template<typename FType, typename... Args>
-    auto push_front(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type>;
+    auto push_front(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
+      using return_type = decltype(f(args...));
+
+      auto task = std::make_shared< std::packaged_task<return_type()> >(
+              std::bind(f, std::forward<Args>(args)...)
+          );
+          
+      std::future<return_type> res = task->get_future();
+      {
+          std::unique_lock<std::mutex> lock(deque_mutex);
+
+          if(stop)
+              throw std::runtime_error("push_front on stopped ThreadPool");
+
+          tasks.emplace_front([task](){ (*task)(); });
+      }
+      condition.notify_one();
+      return res;
+    }
 
     template<typename FType, typename... Args>
-    auto push_back(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type>;
+    auto push_back(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
+      using return_type = decltype(f(args...));
+
+      auto task = std::make_shared< std::packaged_task<return_type()> >(
+              std::bind(f, std::forward<Args>(args)...)
+          );
+          
+      std::future<return_type> res = task->get_future();
+      {
+          std::unique_lock<std::mutex> lock(deque_mutex);
+
+          if(stop)
+              throw std::runtime_error("push_back on stopped ThreadPool");
+
+          tasks.emplace_back([task](){ (*task)(); });
+      }
+      condition.notify_one();
+      return res;
+    }
 
     void clear_threads();
 
@@ -99,7 +135,5 @@ class Queue {
 }  // namespace tg
 
 }  // namespace tvm
-
-#include "utils.tpp"
 
 #endif  //  TVM_TG_UTILS_H_

@@ -37,23 +37,22 @@ tvm::runtime::Module build_func(
   const tvm::BuildConfig& config);
 
 
-std::pair<ScheduleResult, tvm::runtime::Module>  build_func_for_future(
-  std::future<ScheduleResult> &schedule_result,
-  const tvm::Target& target,
-  const tvm::Target& target_host,
-  const std::string& name,
-  const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-  const tvm::BuildConfig& config,
-  int milliseconds=1000);
+// std::pair<ScheduleResult, tvm::runtime::Module>  build_func_for_future(
+//   std::future<ScheduleResult> &schedule_result,
+//   const tvm::Target& target,
+//   const tvm::Target& target_host,
+//   const std::string& name,
+//   const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
+//   const tvm::BuildConfig& config,
+//   int milliseconds=1000);
 
 
 class FunctionBuilder {
  private:
 
  public:
-  std::future<tvm::runtime::Module> build_for(
-    tvm::te::Schedule sch,
-    const tvm::Array<tvm::te::Tensor>& args,
+  std::pair<ScheduleResult, std::future<tvm::runtime::Module> >  build_for(
+    tvm::tg::ScheduleResult sch_res,
     const tvm::Target& target,
     const tvm::Target& target_host,
     const std::string& name,
@@ -61,14 +60,14 @@ class FunctionBuilder {
     const tvm::BuildConfig& config,
     int priority=0);
 
-  std::future<std::pair<ScheduleResult, tvm::runtime::Module> > build_for_future(
-    std::future<ScheduleResult> &schedule_result,
-    const tvm::Target& target,
-    const tvm::Target& target_host,
-    const std::string& name,
-    const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-    const tvm::BuildConfig& config,
-    int priority=0);
+  // std::future<std::pair<ScheduleResult, tvm::runtime::Module> > build_for_future(
+  //   std::future<ScheduleResult> &schedule_result,
+  //   const tvm::Target& target,
+  //   const tvm::Target& target_host,
+  //   const std::string& name,
+  //   const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
+  //   const tvm::BuildConfig& config,
+  //   int priority=0);
 
   static FunctionBuilder& Global();
 };
