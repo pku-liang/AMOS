@@ -40,7 +40,7 @@ class IntKey : public ObjectRef {
  public:
   IntKey(int value);
 
-  inline bool operator== (const ObjectRef& other) const final {
+  inline bool operator== (const ObjectRef& other) const {
     if (get() == nullptr) return false;
     const IntKeyNode* another = other.as<IntKeyNode>();
     if (another == nullptr) {
@@ -76,7 +76,7 @@ class StringKey : public ObjectRef {
  public:
   StringKey(std::string value);
 
-  inline bool operator== (const ObjectRef& other) const final {
+  inline bool operator== (const ObjectRef& other) const {
     if (get() == nullptr) return false;
     const StringKeyNode* another = other.as<StringKeyNode>();
     if (another == nullptr) {

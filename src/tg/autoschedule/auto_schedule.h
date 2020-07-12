@@ -9,10 +9,10 @@
 #include <tvm/tir/expr.h>
 #include <tvm/target/target.h>
 
-#include "utils.h"
-#include "interpreter.h"
-#include "structure_space.h"
-#include "search_tree.h"
+// #include "utils.h"
+// #include "interpreter.h"
+// #include "structure_space.h"
+// #include "search_tree.h"
 #include "../utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
@@ -27,8 +27,8 @@ class ScheduleResultNode : public Object {
  public:
   te::Schedule schedule;
   Array<te::Tensor> tensors;
-  std::shared_ptr<SearchTreeNode> leaf;
-  Array<Config> configs;
+  // std::shared_ptr<SearchTreeNode> leaf;
+  // Array<Config> configs;
 
   static constexpr const char* _type_key = "tg.ScheduleResult";
   TVM_DECLARE_FINAL_OBJECT_INFO(ScheduleResultNode, Object);
@@ -37,19 +37,19 @@ class ScheduleResultNode : public Object {
 
 class ScheduleResult : public ObjectRef {
  public:
-  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors,
-                 std::shared_ptr<SearchTreeNode> leaf, Array<Config> configs) {
+  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors/*,
+                 std::shared_ptr<SearchTreeNode> leaf, Array<Config> configs*/) {
     auto node = make_object<ScheduleResultNode>();
     node->schedule = sch;
     node->tensors = tensors;
-    node->leaf = leaf;
-    node->configs = configs;
+    // node->leaf = leaf;
+    // node->configs = configs;
     data_ = std::move(node);
   }
 
-  std::shared_ptr<SearchTreeNode> get_leaf() {
-    return Self()->leaf;
-  }
+  // std::shared_ptr<SearchTreeNode> get_leaf() {
+  //   return Self()->leaf;
+  // }
 
   TVM_DEFINE_OBJECT_REF_METHODS(ScheduleResult, ObjectRef, ScheduleResultNode);
   TG_DEFINE_OBJECT_SELF_METHOD(ScheduleResultNode);
@@ -87,7 +87,7 @@ class AutoScheduleContextNode : public Object {
  public:
   Target target;
   IntKey task_id;
-  SearchTree search_tree;
+  // SearchTree search_tree;
 
   static constexpr const char* _type_key = "tg.AutoScheduleContext";
   TVM_DECLARE_FINAL_OBJECT_INFO(AutoScheduleContextNode, Object);
@@ -100,14 +100,14 @@ class AutoScheduleContext : public ObjectRef {
     auto node = make_object<AutoScheduleContextNode>();
     node->target = target;
     node->task_id = task_id;
-    node->search_tree = SearchTree();
+    // node->search_tree = SearchTree();
     data_ = std::move(node);
   }
 
-  SearchTree& get_search_tree() {
-    auto self = Self();
-    return self->search_tree;
-  }
+  // SearchTree& get_search_tree() {
+  //   auto self = Self();
+  //   return self->search_tree;
+  // }
 
   TVM_DEFINE_OBJECT_REF_METHODS(AutoScheduleContext, ObjectRef, AutoScheduleContextNode);
   TG_DEFINE_OBJECT_SELF_METHOD(AutoScheduleContextNode);
@@ -137,7 +137,7 @@ class AutoScheduler {
   std::future<tvm::runtime::Module> schedule_and_build_for(
     IntKey key, TIRGraph subgraph, Target target, int priority=0);
   
-  void feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback);
+  // void feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback);
   static AutoScheduler& Global();
 };
 

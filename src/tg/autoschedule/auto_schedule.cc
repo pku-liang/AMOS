@@ -49,7 +49,7 @@ bool auto_schedule(
   // one structure space for one operation
   // contains the structured schedule possibilities
   // mainly considers inline and use allreduce
-  Array<StructureSpace> spaces = get_structure_spaces(subgraph, context->target);
+  // Array<StructureSpace> spaces = get_structure_spaces(subgraph, context->target);
 
   // all the structure space together define a search tree
   // the nodes of the search tree may contain parameters to tune
@@ -84,6 +84,7 @@ bool auto_schedule(
   te::Schedule sch;
   Array<te::Tensor> tensors;
   std::tie(sch, tensors) = empty_schedule(subgraph);
+  results.push_back(ScheduleResult(sch, tensors));
   
   return true;
 }
@@ -199,22 +200,22 @@ std::future<tvm::runtime::Module> AutoScheduler::schedule_and_build_for(
 }
 
 
-void AutoScheduler::feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback) {
-  schedule_result.get_leaf()->update_reward(schedule_result->configs, feedback);
+// void AutoScheduler::feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback) {
+//   schedule_result.get_leaf()->update_reward(schedule_result->configs, feedback);
 
-  if (topk_schedules.find(key) == topk_schedules.end()) {
-    topk_schedules[key] = std::priority_queue<EvaluatedScheduleResult>();
-  }
-  if ((int)topk_schedules[key].size() < AutoScheduler::num_topk) {
-    topk_schedules[key].push(EvaluatedScheduleResult(schedule_result, feedback));
-  } else {
-    if (feedback > topk_schedules[key].top()->evaluation) {
-      // better feedback
-      topk_schedules[key].pop();
-      topk_schedules[key].push(EvaluatedScheduleResult(schedule_result, feedback));
-    }
-  }
-}
+//   if (topk_schedules.find(key) == topk_schedules.end()) {
+//     topk_schedules[key] = std::priority_queue<EvaluatedScheduleResult>();
+//   }
+//   if ((int)topk_schedules[key].size() < AutoScheduler::num_topk) {
+//     topk_schedules[key].push(EvaluatedScheduleResult(schedule_result, feedback));
+//   } else {
+//     if (feedback > topk_schedules[key].top()->evaluation) {
+//       // better feedback
+//       topk_schedules[key].pop();
+//       topk_schedules[key].push(EvaluatedScheduleResult(schedule_result, feedback));
+//     }
+//   }
+// }
 
 
 AutoScheduler& AutoScheduler::Global() {
