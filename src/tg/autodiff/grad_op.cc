@@ -311,11 +311,11 @@ class GradOp : public ExprMutator {
           }
         }
 
-        // // std::cout << "check conditions:\n";
+        // std::cout << "check conditions:\n";
         // for (auto it : conditions) {
-        //   // std::cout << it << " ";
+        //   std::cout << it << " ";
         // }
-        // // std::cout << "\n";
+        // std::cout << "\n";
 
         // std::cout << "check bindings:\n";
         // for (auto kv : results) {
@@ -373,6 +373,7 @@ class GradOp : public ExprMutator {
         // result_expr = Simplify(SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
         // no need to produce a reduce
         if ((int)relaxes.size() == 0) {
+          result_expr = Simplify(SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
           return result_expr;
         }
         // form reduce
