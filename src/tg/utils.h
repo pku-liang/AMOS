@@ -126,9 +126,30 @@ class Queue {
   std::mutex mutex;
 
  public:
-  void push(T value);
-  T pop();
-  bool empty();
+  void push(T& value) {
+    std::unique_lock<std::mutex> lock(mutex);
+    q.push(value);
+  }
+
+  void push(T&& value) {
+    std::unique_lock<std::mutex> lock(mutex);
+    q.push(std::move(value));
+  }
+  
+  T& front() {
+    std::unique_lock<std::mutex> lock(mutex);
+    return q.front();
+  }
+
+  void pop() {
+    std::unique_lock<std::mutex> lock(mutex);
+    q.pop();
+  }
+
+  bool empty() {
+    std::unique_lock<std::mutex> lock(mutex);
+    return q.empty();
+  }
 };
 
  

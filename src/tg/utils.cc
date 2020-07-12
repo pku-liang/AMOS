@@ -47,31 +47,6 @@ inline ThreadPool::~ThreadPool() {
         worker.join();
 }
 
-
-template<typename T>
-void Queue<T>::push(T value) {
-  std::unique_lock<std::mutex> lock(mutex);
-  q.push(value);
-}
-
-
-template<typename T>
-T Queue<T>::pop() {
-  std::unique_lock<std::mutex> lock(mutex);
-  T ret = q.front();
-  q.pop();
-  return ret;
-}
-
-
-template<typename T>
-bool Queue<T>::empty() {
-  std::unique_lock<std::mutex> lock(mutex);
-  return q.empty();
-}
-
-
-
 }  // namespace tg
 
 

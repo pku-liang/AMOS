@@ -143,7 +143,8 @@ Map<Operation, Operation> subgraph_partition(
 }
 
 
-std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, std::unordered_map<Tensor, Tensor>, Map<IntKey, GraphAttr> >
+std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>,
+           std::unordered_map<Tensor, Tensor>, Map<IntKey, GraphAttr> >
   SubGraphPartitionEngine::operator()(TIRGraph graph) {
   
   // only marks graph
@@ -296,7 +297,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, std::unordered_map<
   // assemble all the subgraphs
   Map<IntKey, TIRGraph> graphs;
   for (auto mark : marks) {
-    graphs.Set(mark, TIRGraph(
+    graphs.Set(IntKey(mark->value), TIRGraph(
       graphs_inputs[mark],
       graphs_labels[mark],
       graphs_outputs[mark],
@@ -419,7 +420,7 @@ Map<IntKey, GraphAttr> SubGraphPartitionEngine::validate_subgraph_dependency(
     for (auto v : graph_successor[mark]) {
       val.push_back(IntKey(v));
     }
-    graph_attr.Set(key, GraphAttr(graph_num_predecessor[mark], val));
+    graph_attr.Set(IntKey(key->value), GraphAttr(graph_num_predecessor[mark], val));
   }
 
   // validate

@@ -46,6 +46,22 @@ class Session {
 };
 
 
+std::shared_ptr<Session> create_or_get_session(Target target, int dev_id, int& session_id, bool get_session=false);
+
+
+int create_session(Target target, int dev_id);
+
+std::shared_ptr<Session> get_session(int session_id);
+
+
+void initialize_weights(
+  int session_id, TIRGraph graph, std::unordered_map<te::Tensor, tvm::runtime::NDArray> bindings);
+
+
+void run_graph(
+  int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+
+
 
 }  // namespace tg
 
