@@ -125,6 +125,7 @@ class AutoScheduler {
  private:
   const static int num_topk = 10;
   const static int schedule_trials_for_one = 100;
+  ThreadPool *thread_pool = nullptr;
 
   std::unordered_map<IntKey, AutoScheduleContext> contexts;
   std::unordered_map<IntKey, std::priority_queue<EvaluatedScheduleResult> > topk_schedules;
@@ -132,13 +133,15 @@ class AutoScheduler {
   ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
   tvm::runtime::Module schedule_and_build_func(IntKey key, TIRGraph subgraph, Target target);
  public:
-
-  std::future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
-  std::future<tvm::runtime::Module> schedule_and_build_for(
+  AutoScheduler() { thread_pool = new ThreadPool(1); }
+  ~AutoScheduler() { if (thread_pool != nullptr) delete thread_pool; }
+  void reset() { if (thread_pool != nullptr) {delete thread_pool; thread_pool = new ThreadPool(1);} }
+  std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
+  std::shared_future<tvm::runtime::Module> schedule_and_build_for(
     IntKey key, TIRGraph subgraph, Target target, int priority=0);
   
   // void feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback);
-  static AutoScheduler& Global();
+  // static AutoScheduler& Global();
 };
 
 

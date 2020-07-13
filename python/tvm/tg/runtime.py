@@ -28,6 +28,21 @@ def create_session(target, dev_id):
   return _ffi_api.create_session(target, dev_id)
 
 
+def delete_session(session_id):
+  """Delete a TensorGraph Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The id of this Session.
+
+    Returns
+    -------
+
+  """
+  _ffi_api.delete_session(session_id)
+
+
 def get_context_from_session(session_id):
   """Creates a TensorGraph Session.
 

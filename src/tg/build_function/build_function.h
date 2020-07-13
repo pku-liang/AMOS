@@ -38,7 +38,7 @@ tvm::runtime::Module build_func(
 
 
 // std::pair<ScheduleResult, tvm::runtime::Module>  build_func_for_future(
-//   std::future<ScheduleResult> &schedule_result,
+//   std::shared_future<ScheduleResult> &schedule_result,
 //   const tvm::Target& target,
 //   const tvm::Target& target_host,
 //   const std::string& name,
@@ -49,9 +49,12 @@ tvm::runtime::Module build_func(
 
 class FunctionBuilder {
  private:
-
+  ThreadPool *thread_pool = nullptr;
  public:
-  std::pair<ScheduleResult, std::future<tvm::runtime::Module> >  build_for(
+  FunctionBuilder() { thread_pool = new ThreadPool(1); }
+  ~FunctionBuilder() { if (thread_pool != nullptr) delete thread_pool; }
+  void reset() { if (thread_pool != nullptr) {delete thread_pool; thread_pool = new ThreadPool(1);} }
+  std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> >  build_for(
     tvm::tg::ScheduleResult sch_res,
     const tvm::Target& target,
     const tvm::Target& target_host,
@@ -60,8 +63,8 @@ class FunctionBuilder {
     const tvm::BuildConfig& config,
     int priority=0);
 
-  // std::future<std::pair<ScheduleResult, tvm::runtime::Module> > build_for_future(
-  //   std::future<ScheduleResult> &schedule_result,
+  // std::shared_future<std::pair<ScheduleResult, tvm::runtime::Module> > build_for_future(
+  //   std::shared_future<ScheduleResult> &schedule_result,
   //   const tvm::Target& target,
   //   const tvm::Target& target_host,
   //   const std::string& name,
@@ -69,7 +72,7 @@ class FunctionBuilder {
   //   const tvm::BuildConfig& config,
   //   int priority=0);
 
-  static FunctionBuilder& Global();
+  // static FunctionBuilder& Global();
 };
 
 

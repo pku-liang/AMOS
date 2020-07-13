@@ -23,10 +23,14 @@ class Session {
  public:
   Target target;
   DLContext ctx;
+  AutoScheduler *auto_scheduler = nullptr;
+  FunctionBuilder *function_builder = nullptr;
+  ThreadPool *thread_pool = nullptr;
+
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;
   std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
-  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::future<tvm::runtime::Module> > > > functions;
+  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > > > functions;
   std::unordered_map<IntKey, std::pair<tvm::runtime::Module, float> > best_functions;
   Queue<IntKey> emergency_queue;
   bool finish;
@@ -34,7 +38,8 @@ class Session {
 
  public:
   Session(Target target, int dev_id);
-  void initialize_weights(TIRGraph graph, std::unordered_map<te::Tensor, tvm::runtime::NDArray> bindings);
+  ~Session();
+  void initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
   std::string get_func_name(IntKey key);
 
@@ -55,7 +60,7 @@ std::shared_ptr<Session> get_session(int session_id);
 
 
 void initialize_weights(
-  int session_id, TIRGraph graph, std::unordered_map<te::Tensor, tvm::runtime::NDArray> bindings);
+  int session_id, TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
 
 
 void run_graph(

@@ -46,7 +46,6 @@ class IntKey : public ObjectRef {
     if (another == nullptr) {
       return false;
     }
-    std::cout << "compare " << (*this)->value << " with " << another->value << "\n";
     if (get() == another) return true;
     return ((*this)->value == another->value);
   }
@@ -82,7 +81,6 @@ class StringKey : public ObjectRef {
     if (another == nullptr) {
       return false;
     }
-    std::cout << "compare " << (*this)->value << " with " << another->value << "\n";
     if (get() == another) return true;
     return ((*this)->value) == another->value;
   }

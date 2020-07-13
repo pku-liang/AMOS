@@ -17,17 +17,19 @@ tvm::runtime::Module build_func(
   const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
   const tvm::BuildConfig& config) {
   
-  return tvm::build(
+  tvm::runtime::Module ret = tvm::build(
     tvm::lower(sch, args, name, binds, config),
     target,
     target_host,
     config
   );
+
+  return ret;
 }
 
 
 // std::pair<ScheduleResult, tvm::runtime::Module> build_func_for_future(
-//   std::future<ScheduleResult> &schedule_result,
+//   std::shared_future<ScheduleResult> &schedule_result,
 //   const tvm::Target& target,
 //   const tvm::Target& target_host,
 //   const std::string& name,
@@ -63,7 +65,7 @@ tvm::runtime::Module build_func(
 // }
 
 
-std::pair<ScheduleResult, std::future<tvm::runtime::Module> > FunctionBuilder::build_for(
+std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBuilder::build_for(
   tvm::tg::ScheduleResult sch_res,
   const tvm::Target& target,
   const tvm::Target& target_host,
@@ -75,11 +77,12 @@ std::pair<ScheduleResult, std::future<tvm::runtime::Module> > FunctionBuilder::b
   auto sch = sch_res->schedule;
   auto args = sch_res->tensors;
   if (priority == 0) {
-    auto module = ThreadPool::Global().push_back(build_func, sch, args, target, target_host, name, binds, config);
+    auto module = thread_pool->push_back(
+      build_func, sch, args, target, target_host, name, binds, config);
     return std::make_pair(sch_res, std::move(module));
   } else if (priority == 1) {
     // high priority
-    auto module = ThreadPool::Global().push_front(build_func, sch, args, target, target_host, name, binds, config);
+    auto module = thread_pool->push_front(build_func, sch, args, target, target_host, name, binds, config);
     return std::make_pair(sch_res, std::move(module));
   } else {
     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
@@ -88,8 +91,8 @@ std::pair<ScheduleResult, std::future<tvm::runtime::Module> > FunctionBuilder::b
 }
 
 
-// std::future<std::pair<ScheduleResult, tvm::runtime::Module> > FunctionBuilder::build_for_future(
-//   std::future<ScheduleResult> &schedule_result,
+// std::shared_future<std::pair<ScheduleResult, tvm::runtime::Module> > FunctionBuilder::build_for_future(
+//   std::shared_future<ScheduleResult> &schedule_result,
 //   const tvm::Target& target,
 //   const tvm::Target& target_host,
 //   const std::string& name,
@@ -98,20 +101,20 @@ std::pair<ScheduleResult, std::future<tvm::runtime::Module> > FunctionBuilder::b
 //   int priority) {
   
 //   if (priority == 0) {
-//     return ThreadPool::Global().push_back(build_func_for_future, schedule_result, target, target_host, name, binds, config, 1000);
+//     return thread_pool.push_back(build_func_for_future, schedule_result, target, target_host, name, binds, config, 1000);
 //   } else if (priority == 1) {
 //     // high priority
-//     return ThreadPool::Global().push_front(build_func_for_future, schedule_result, target, target_host, name, binds, config, 1000);
+//     return thread_pool.push_front(build_func_for_future, schedule_result, target, target_host, name, binds, config, 1000);
 //   } else {
 //     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
 //   }
 // }
 
 
-FunctionBuilder& FunctionBuilder::Global() {
-  static FunctionBuilder* builder = new FunctionBuilder();
-  return *builder;
-}
+// FunctionBuilder& FunctionBuilder::Global() {
+//   static FunctionBuilder* builder = new FunctionBuilder();
+//   return *builder;
+// }
 
    
 }  // namespace tg

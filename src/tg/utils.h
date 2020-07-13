@@ -57,65 +57,135 @@ namespace tg {
 
 class ThreadPool {
 public:
-    ThreadPool(size_t);
+  ThreadPool(size_t threads=std::thread::hardware_concurrency()) : num_threads(threads), stop(true) {
+    Init();
+  }
 
-    template<typename FType, typename... Args>
-    auto push_front(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
-      using return_type = decltype(f(args...));
+  void Init() {
+    size_t threads = num_threads;
+    stop = false;
+    workers.clear();
+    for(size_t i = 0;i<threads;++i) {
+      workers.emplace_back(
+        [this] {
+          for(;;) {
+            std::function<void()> task;
 
-      auto task = std::make_shared< std::packaged_task<return_type()> >(
-              std::bind(f, std::forward<Args>(args)...)
-          );
-          
-      std::future<return_type> res = task->get_future();
-      {
-          std::unique_lock<std::mutex> lock(deque_mutex);
+            {
+              std::unique_lock<std::mutex> lock(this->deque_mutex);
+              this->condition.wait(lock,
+                [this]{ return this->stop || !this->tasks.empty(); });
+              if(this->stop && this->tasks.empty())
+                return;
+              task = std::move(this->tasks.front());
+              this->tasks.pop_front();
+            }
 
-          if(stop)
-              throw std::runtime_error("push_front on stopped ThreadPool");
-
-          tasks.emplace_front([task](){ (*task)(); });
-      }
-      condition.notify_one();
-      return res;
+            task();
+          }
+        }
+      );
     }
+  }
 
-    template<typename FType, typename... Args>
-    auto push_back(FType&& f, Args&&... args) -> std::future<typename std::result_of<FType(Args...)>::type> {
-      using return_type = decltype(f(args...));
+  template<typename FType, typename... Args>
+  auto push_front(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
+    using return_type = decltype(f(args...));
 
-      auto task = std::make_shared< std::packaged_task<return_type()> >(
-              std::bind(f, std::forward<Args>(args)...)
-          );
-          
-      std::future<return_type> res = task->get_future();
-      {
-          std::unique_lock<std::mutex> lock(deque_mutex);
+    auto task = std::make_shared< std::packaged_task<return_type()> >(
+            std::bind(f, std::forward<Args>(args)...)
+        );
+        
+    std::shared_future<return_type> res = task->get_future();
+    {
+        std::unique_lock<std::mutex> lock(deque_mutex);
 
-          if(stop)
-              throw std::runtime_error("push_back on stopped ThreadPool");
+        if(stop)
+            throw std::runtime_error("push_front on stopped ThreadPool");
 
-          tasks.emplace_back([task](){ (*task)(); });
-      }
-      condition.notify_one();
-      return res;
+        tasks.emplace_front([task](){ (*task)(); });
     }
+    condition.notify_one();
+    return res;
+  }
 
-    void clear_threads();
+  template<typename FType, typename... Args>
+  auto push_back(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
+    using return_type = decltype(f(args...));
 
-    static ThreadPool& Global();
+    auto task = std::make_shared< std::packaged_task<return_type()> >(
+            std::bind(f, std::forward<Args>(args)...)
+        );
+        
+    std::shared_future<return_type> res = task->get_future();
+    {
+        std::unique_lock<std::mutex> lock(deque_mutex);
 
-    ~ThreadPool();
+        if(stop)
+            throw std::runtime_error("push_back on stopped ThreadPool");
+
+        tasks.emplace_back([task](){ (*task)(); });
+    }
+    condition.notify_one();
+    return res;
+  }
+
+  // static ThreadPool& Global() {
+  //   static ThreadPool* pool = new ThreadPool();
+  
+  //   return *pool;
+  // }
+
+  void DropAll() {
+    Cancel();
+    Stop();
+  }
+
+  void Reset() {
+    DropAll();
+    Join();
+    Init();
+  }
+
+  void Cancel() {
+    {
+        std::unique_lock<std::mutex> lock(deque_mutex);
+
+        tasks.clear();
+    }
+  }
+
+  void Join() {
+    condition.notify_all();
+    for(std::thread &worker: workers)
+      if (worker.joinable())
+        worker.join();
+      else
+        worker.detach();
+  }
+
+  void Stop() {
+    {
+      std::unique_lock<std::mutex> lock(deque_mutex);
+      stop = true;
+    }
+  }
+
+  ~ThreadPool() {
+    Reset();
+    DropAll();
+    Join();
+  }
 private:
+  size_t num_threads;
+  bool stop;
+  std::vector< std::thread > workers;
+  std::deque< std::function<void()> > tasks;
+  
+  std::mutex deque_mutex;
+  std::condition_variable condition;
 
-    std::vector< std::thread > workers;
-    std::deque< std::function<void()> > tasks;
-    
-    std::mutex deque_mutex;
-    std::condition_variable condition;
-    bool stop;
-
-    static const int REFRESH_EPOCH = 128;
+  static const int REFRESH_EPOCH = 128;
 };
 
 

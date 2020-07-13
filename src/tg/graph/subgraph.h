@@ -81,10 +81,10 @@ class SubGraphPartitionEngine {
  public:
 
   std::tuple<
-    Map<IntKey, TIRGraph>,
-    Map<Operation, Operation>,
+    std::unordered_map<IntKey, TIRGraph>,
+    std::unordered_map<Operation, Operation>,
     std::unordered_map<Tensor, Tensor>,
-    Map<IntKey, GraphAttr> >
+    std::unordered_map<IntKey, GraphAttr> >
     operator()(TIRGraph graph);
 
  private:
@@ -92,23 +92,23 @@ class SubGraphPartitionEngine {
   PartitionPolicy policy;
  protected:
   // mark the graph
-  Map<Operation, IntImm> mark_graph(TIRGraph graph);
+  std::unordered_map<Operation, IntImm> mark_graph(TIRGraph graph);
   // validate subgraph dependency
-  Map<IntKey, GraphAttr> validate_subgraph_dependency(Map<Operation, IntImm> &graph_mark);
+  std::unordered_map<IntKey, GraphAttr> validate_subgraph_dependency(std::unordered_map<Operation, IntImm> &graph_mark);
 };
 
 
 class TIRMultiGraphNode : public Object {
  public:
-  Map<IntKey, TIRGraph> graphs;
-  Map<Operation, Operation> operation_index;
+  std::unordered_map<IntKey, TIRGraph> graphs;
+  std::unordered_map<Operation, Operation> operation_index;
   std::unordered_map<Tensor, Tensor> tensor_index;
-  Map<IntKey, GraphAttr> graph_attrs;
+  std::unordered_map<IntKey, GraphAttr> graph_attrs;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("graphs", &graphs);
-    v->Visit("operation_index", &operation_index);
-    v->Visit("graph_attrs", &graph_attrs);
+    // v->Visit("graphs", &graphs);
+    // v->Visit("operation_index", &operation_index);
+    // v->Visit("graph_attrs", &graph_attrs);
   }
 
   static constexpr const char* _type_key = "tg.concrete_multi_graph";

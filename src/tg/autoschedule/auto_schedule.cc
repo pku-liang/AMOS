@@ -160,16 +160,16 @@ tvm::runtime::Module AutoScheduler::schedule_and_build_func(IntKey key, TIRGraph
 }
 
 
-std::future<ScheduleResult> AutoScheduler::schedule_for(
+std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
   IntKey key, TIRGraph subgraph, Target target, int priority) {
   
   if (priority == 0) {
-    return ThreadPool::Global().push_back(
+    return thread_pool->push_back(
       [this] (IntKey k, TIRGraph g, Target t) {
         return this->schedule_func(k, g, t);
         }, key, subgraph, target);
   } else if (priority == 1) {
-    return ThreadPool::Global().push_front(
+    return thread_pool->push_front(
       [this] (IntKey k, TIRGraph g, Target t) {
         return this->schedule_func(k, g, t);
         }, key, subgraph, target);
@@ -180,16 +180,16 @@ std::future<ScheduleResult> AutoScheduler::schedule_for(
 }
 
 
-std::future<tvm::runtime::Module> AutoScheduler::schedule_and_build_for(
+std::shared_future<tvm::runtime::Module> AutoScheduler::schedule_and_build_for(
     IntKey key, TIRGraph subgraph, Target target, int priority) {
 
   if (priority == 0) {
-    return ThreadPool::Global().push_back(
+    return thread_pool->push_back(
       [this] (IntKey k, TIRGraph g, Target t) {
         return this->schedule_and_build_func(k, g, t);
         }, key, subgraph, target);
   } else if (priority == 1) {
-    return ThreadPool::Global().push_front(
+    return thread_pool->push_front(
       [this] (IntKey k, TIRGraph g, Target t) {
         return this->schedule_and_build_func(k, g, t);
         }, key, subgraph, target);
@@ -218,10 +218,10 @@ std::future<tvm::runtime::Module> AutoScheduler::schedule_and_build_for(
 // }
 
 
-AutoScheduler& AutoScheduler::Global() {
-  static AutoScheduler* auto_scheduler = new AutoScheduler();
-  return *auto_scheduler;
-}
+// AutoScheduler& AutoScheduler::Global() {
+//   static AutoScheduler* auto_scheduler = new AutoScheduler();
+//   return *auto_scheduler;
+// }
 
 
 }  // namespace tg
