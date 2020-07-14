@@ -49,3 +49,21 @@ def make_tir_graph_training(inputs, labels, outputs, weights, loss, gradients, l
 
 def make_tir_multi_graph(graph):
   return _ffi_api.make_tir_multi_graph(graph)
+
+
+def generate_tag_from_body(shape, body):
+  """Generate string tag from body.
+
+    Parameters
+    ----------
+    shape: Array<PrimExpr>
+        The shape of output
+    
+    body : Array<PrimExpr>
+        The body of compute.
+
+    Returns
+    -------
+    tage: string
+  """
+  return _ffi_api.generate_tag_from_body(shape, body)

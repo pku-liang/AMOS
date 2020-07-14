@@ -24,6 +24,7 @@ import tvm.tir._ffi_api
 
 from tvm._ffi.base import string_types
 from tvm.runtime import convert
+from tvm import tg
 
 from . import tag as _tag
 from . import tensor as _tensor
@@ -83,6 +84,9 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
     requires_grad: bool, optional
         Whether the output tensor requires grad.
 
+    reorder: list or tuple
+        The order to feed dim vars
+
     Returns
     -------
     tensor: Tensor
@@ -133,6 +137,9 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
     else:
         if not isinstance(body, (list, tuple)):
             body = [body]
+        if tag == "TG_AUTOGEN":
+            tag_shape = [x.dom.extent for x in dim_var]
+            tag = tg.generate_tag_from_body(tag_shape, body)
         body = convert(body)
         op_node = _ffi_api.ComputeOp(
             name, tag, attrs, dim_var, body, requires_grad)

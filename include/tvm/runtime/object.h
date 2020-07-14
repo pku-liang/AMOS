@@ -500,6 +500,7 @@ class ObjectRef {
  public:
   /*! \brief default constructor */
   ObjectRef() = default;
+  // virtual ~ObjectRef() {}
   /*! \brief Constructor from existing object ptr */
   explicit ObjectRef(ObjectPtr<Object> data) : data_(data) {}
   /*!
@@ -637,7 +638,7 @@ struct ObjectHash {
 /*! \brief ObjectRef equal functor */
 struct ObjectEqual {
   bool operator()(const ObjectRef& a, const ObjectRef& b) const {
-    return a.same_as(b);
+    return a.same_as(b) || (a == b);
   }
 
   template<typename T>

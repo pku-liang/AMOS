@@ -122,6 +122,11 @@ TIRGraph::TIRGraph(
 }
 
 
+float get_gflop(TIRGraph subgraph) {
+  return 1;
+}
+
+
 TVM_REGISTER_NODE_TYPE(TIRGraphNode);
 TVM_REGISTER_NODE_TYPE(OpAttrNode);
 

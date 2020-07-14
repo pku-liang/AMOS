@@ -6,6 +6,40 @@ namespace tvm {
 
 namespace tg {
 
+std::pair<te::Schedule, Array<te::Tensor> >
+empty_schedule (TIRGraph subgraph) {
+  te::Schedule sch = te::create_schedule(subgraph->root_ops);
+  Array<te::Tensor> tensors;
+  for (auto t : subgraph->inputs) {
+    tensors.push_back(t);
+  }
+  for (auto t : subgraph->labels) {
+    tensors.push_back(t);
+  }
+  for (auto t : subgraph->outputs) {
+    tensors.push_back(t);
+  }
+  for (auto t : subgraph->weights) {
+    tensors.push_back(t);
+  }
+  if (subgraph->loss.defined()) {
+    tensors.push_back(subgraph->loss);
+  }
+  for (auto t : subgraph->gradients) {
+    tensors.push_back(t);
+  }
+  if (subgraph->lr.defined()) {
+    tensors.push_back(subgraph->lr);
+  }
+  for (auto t : subgraph->updates) {
+    tensors.push_back(t);
+  }
+
+  // do some thing according to config
+  return std::make_pair(sch, tensors);
+}
+
+
 // auto_schedule for one subgraph
 bool auto_schedule(
     TIRGraph subgraph,
@@ -15,12 +49,14 @@ bool auto_schedule(
   // one structure space for one operation
   // contains the structured schedule possibilities
   // mainly considers inline and use allreduce
-  Array<StructureSpace> spaces = get_structure_spaces(subgraph, context->target);
+  // Array<StructureSpace> spaces = get_structure_spaces(subgraph, context->target);
 
   // all the structure space together define a search tree
   // the nodes of the search tree may contain parameters to tune
   // called partial configs
   // each time, try one path in the search tree
+  
+  /*
   std::shared_ptr<SearchTreeNode> leaf = expand_tree(
     subgraph, spaces, context.get_search_tree());
 
@@ -41,11 +77,151 @@ bool auto_schedule(
     te::Schedule sch;
     Array<te::Tensor> tensors;
     std::tie(sch, tensors) = interpret(subgraph, configs[i]);
-    results.push_back(ScheduleResult(sch, tensors, configs[i]));
+    results.push_back(ScheduleResult(sch, tensors, leaf, configs[i]));
   }
+  */
+
+  te::Schedule sch;
+  Array<te::Tensor> tensors;
+  std::tie(sch, tensors) = empty_schedule(subgraph);
+  results.push_back(ScheduleResult(sch, tensors));
   
   return true;
 }
+
+
+ScheduleResult AutoScheduler::schedule_func(IntKey key, TIRGraph subgraph, Target target) {
+  if (contexts.find(key) == contexts.end()) {
+    contexts[key] = AutoScheduleContext(target, key);
+  }
+
+  AutoScheduleContext context = contexts[key];
+  std::vector<ScheduleResult> results;
+  int num_trial = 0;
+  while(!auto_schedule(subgraph, context, results)) {
+    num_trial += 1;
+    if (num_trial >= schedule_trials_for_one) {
+      // no more schedule
+      if (topk_schedules.find(key) != topk_schedules.end()) {
+        // use the best
+        return topk_schedules[key].top()->schedule_result;
+      } else {
+        throw std::runtime_error("Can't get schedule");
+      }
+    }
+  }
+  
+  return results[0];
+}
+
+
+tvm::runtime::Module AutoScheduler::schedule_and_build_func(IntKey key, TIRGraph subgraph, Target target) {
+  if (contexts.find(key) == contexts.end()) {
+    contexts[key] = AutoScheduleContext(target, key);
+  }
+
+  AutoScheduleContext context = contexts[key];
+  std::vector<ScheduleResult> results;
+  int num_trial = 0;
+  while(!auto_schedule(subgraph, context, results)) {
+    num_trial += 1;
+    if (num_trial >= schedule_trials_for_one) {
+      // no more schedule
+      if (topk_schedules.find(key) != topk_schedules.end()) {
+        // use the best
+        std::vector<EvaluatedScheduleResult> tmp;
+        for (int i = 0; i < num_topk; ++i) {
+          tmp.push_back(topk_schedules[key].top());
+          topk_schedules[key].pop();
+        }
+        results.push_back(tmp.back()->schedule_result);
+        for (auto v : tmp) {
+          topk_schedules[key].push(v);
+        }
+      } else {
+        throw std::runtime_error("Can't get schedule");
+      }
+    }
+  }
+  
+  std::string name = "subgraph_" + std::to_string(key->value);
+  std::unordered_map<te::Tensor, tir::Buffer> binds;
+  Target target_host = Target::Create("llvm");
+  tvm::BuildConfig config = tvm::BuildConfig::Create();
+
+  auto func = tvm::build(
+    tvm::lower(results[0]->schedule, results[0]->tensors, name, binds, config),
+    target,
+    target_host,
+    config
+  );
+
+  return func;
+}
+
+
+std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
+  IntKey key, TIRGraph subgraph, Target target, int priority) {
+  
+  if (priority == 0) {
+    return thread_pool->push_back(
+      [this] (IntKey k, TIRGraph g, Target t) {
+        return this->schedule_func(k, g, t);
+        }, key, subgraph, target);
+  } else if (priority == 1) {
+    return thread_pool->push_front(
+      [this] (IntKey k, TIRGraph g, Target t) {
+        return this->schedule_func(k, g, t);
+        }, key, subgraph, target);
+  } else {
+    LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
+    throw;
+  }
+}
+
+
+std::shared_future<tvm::runtime::Module> AutoScheduler::schedule_and_build_for(
+    IntKey key, TIRGraph subgraph, Target target, int priority) {
+
+  if (priority == 0) {
+    return thread_pool->push_back(
+      [this] (IntKey k, TIRGraph g, Target t) {
+        return this->schedule_and_build_func(k, g, t);
+        }, key, subgraph, target);
+  } else if (priority == 1) {
+    return thread_pool->push_front(
+      [this] (IntKey k, TIRGraph g, Target t) {
+        return this->schedule_and_build_func(k, g, t);
+        }, key, subgraph, target);
+  } else {
+    LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
+    throw;
+  }
+}
+
+
+// void AutoScheduler::feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback) {
+//   schedule_result.get_leaf()->update_reward(schedule_result->configs, feedback);
+
+//   if (topk_schedules.find(key) == topk_schedules.end()) {
+//     topk_schedules[key] = std::priority_queue<EvaluatedScheduleResult>();
+//   }
+//   if ((int)topk_schedules[key].size() < AutoScheduler::num_topk) {
+//     topk_schedules[key].push(EvaluatedScheduleResult(schedule_result, feedback));
+//   } else {
+//     if (feedback > topk_schedules[key].top()->evaluation) {
+//       // better feedback
+//       topk_schedules[key].pop();
+//       topk_schedules[key].push(EvaluatedScheduleResult(schedule_result, feedback));
+//     }
+//   }
+// }
+
+
+// AutoScheduler& AutoScheduler::Global() {
+//   static AutoScheduler* auto_scheduler = new AutoScheduler();
+//   return *auto_scheduler;
+// }
 
 
 }  // namespace tg

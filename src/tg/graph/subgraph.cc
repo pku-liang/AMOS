@@ -39,13 +39,13 @@ bool PartitionPolicy::operator()(TIRGraph graph, Operation pre, Operation post) 
 // 1. old_compute_op -> new_compute_op
 // 2. old_placeholder_op -> new_placeholder_op
 // 3. additional_placeholder_op -> old_compute_op
-Map<Operation, Operation> subgraph_partition(
-  Map<Operation, IntImm> graph_mark, Array<Operation> outputs) {
+std::unordered_map<Operation, Operation> subgraph_partition(
+  std::unordered_map<Operation, IntImm> graph_mark, Array<Operation> outputs) {
   std::unordered_map<Operation, Operation> cache;
 
   std::function<Operation(const Operation&)> update_graph;
 
-  update_graph = [&update_graph, &cache, graph_mark, outputs]
+  update_graph = [&update_graph, &cache, &graph_mark, outputs]
     (const Operation& op) {
       auto it = cache.find(op);
       if (it != cache.end()) {
@@ -132,9 +132,9 @@ Map<Operation, Operation> subgraph_partition(
     Operation new_out = update_graph(out);
   }
 
-  Map<Operation, Operation> ret;
+  std::unordered_map<Operation, Operation> ret;
   for (auto kv : cache) {
-    ret.Set(kv.first, kv.second);
+    ret[kv.first] = kv.second;
   }
 
   // note that the input map only contains compute op
@@ -143,23 +143,24 @@ Map<Operation, Operation> subgraph_partition(
 }
 
 
-std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>, Map<IntKey, GraphAttr> >
+std::tuple<std::unordered_map<IntKey, TIRGraph>, std::unordered_map<Operation, Operation>,
+           std::unordered_map<Tensor, Tensor>, std::unordered_map<IntKey, GraphAttr> >
   SubGraphPartitionEngine::operator()(TIRGraph graph) {
   
   // only marks graph
   // no real split
-  Map<Operation, IntImm> graph_mark = mark_graph(graph);
+  std::unordered_map<Operation, IntImm> graph_mark = mark_graph(graph);
   // see if the dependency is well defined
-  Map<IntKey, GraphAttr> subgraph_attr = validate_subgraph_dependency(graph_mark);
+  std::unordered_map<IntKey, GraphAttr> subgraph_attr = validate_subgraph_dependency(graph_mark);
 
   // actual graph partition
   // this is old_op->new_op
   // also contains new placeholder ops
-  Map<Operation, Operation> reverse_operation_index = subgraph_partition(graph_mark, graph->operation_list);
+  std::unordered_map<Operation, Operation> reverse_operation_index = subgraph_partition(graph_mark, graph->operation_list);
   // new_op -> old_op
-  Map<Operation, Operation> operation_index;
+  std::unordered_map<Operation, Operation> operation_index;
   // new_tensor -> old_tensor
-  Map<Tensor, Tensor> tensor_index;
+  std::unordered_map<Tensor, Tensor> tensor_index;
 
   // we collect every subgraph
   // use unordered_map to store intermediate value
@@ -188,7 +189,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
     // this is also a compute op
     Operation new_op = reverse_operation_index[kv.first];
     // record the mapping relation
-    operation_index.Set(new_op, kv.first);
+    operation_index[new_op] = kv.first;
     IntKey mark = IntKey(get_const_int(kv.second));
     marks.insert(mark);
 
@@ -217,22 +218,22 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
 
       if (inputs_lookup.find(inp) != inputs_lookup.end()) {
         graphs_inputs[mark].push_back(new_input_tensors[i]);
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       if (labels_lookup.find(inp) != labels_lookup.end()) {
         graphs_labels[mark].push_back(new_input_tensors[i]);
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       if (weights_lookup.find(inp) != weights_lookup.end()) {
         graphs_weights[mark].push_back(new_input_tensors[i]);
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       if (inp == graph->lr) {
         graphs_lr[mark] = new_input_tensors[i];
-        tensor_index.Set(new_input_tensors[i], inp);
+        tensor_index[new_input_tensors[i]] = inp;
       }
 
       // when "new input" is in the index,
@@ -243,7 +244,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
         graphs_inputs[mark].push_back(new_input_tensors[i]);
         Tensor old_output_tensor = \
           reverse_operation_index[new_input_tensors[i]->op].output(inp->value_index);
-        tensor_index.Set(new_input_tensors[i], old_output_tensor);
+        tensor_index[new_input_tensors[i]] = old_output_tensor;
 
         IntKey another_mark = IntKey(
           get_const_int(graph_mark[reverse_operation_index[new_input_tensors[i]->op]]));
@@ -264,7 +265,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
                                   reverse_operation_index[
                                     new_input_tensors[i]->op]].output(inp->value_index);
         graphs_outputs[another_mark].push_back(output_tensor);
-        tensor_index.Set(output_tensor, old_output_tensor);
+        tensor_index[output_tensor] = old_output_tensor;
       }
     }
 
@@ -273,30 +274,30 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
       Tensor out = kv.first.output(i);
       if (outputs_lookup.find(out) != outputs_lookup.end()) {
         graphs_outputs[mark].push_back(new_op.output(i));
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
 
       if (gradients_lookup.find(out) != gradients_lookup.end()) {
         graphs_gradients[mark].push_back(new_op.output(i));
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
 
       if (updates_lookup.find(out) != updates_lookup.end()) {
         graphs_updates[mark].push_back(new_op.output(i));
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
 
       if (out == graph->loss) {
         graphs_loss[mark] = new_op.output(i);
-        tensor_index.Set(new_op.output(i), out);
+        tensor_index[new_op.output(i)] = out;
       }
     }
   }
 
   // assemble all the subgraphs
-  Map<IntKey, TIRGraph> graphs;
+  std::unordered_map<IntKey, TIRGraph> graphs;
   for (auto mark : marks) {
-    graphs.Set(mark, TIRGraph(
+    graphs[IntKey(mark->value)] = TIRGraph(
       graphs_inputs[mark],
       graphs_labels[mark],
       graphs_outputs[mark],
@@ -305,7 +306,7 @@ std::tuple<Map<IntKey, TIRGraph>, Map<Operation, Operation>, Map<Tensor, Tensor>
       graphs_gradients[mark],
       graphs_lr[mark],
       graphs_updates[mark]
-    ));
+    );
   }
 
   return std::make_tuple(graphs, operation_index, tensor_index, subgraph_attr);
@@ -322,8 +323,8 @@ GraphAttr::GraphAttr(int num_predecessor, Array<IntKey> successors) {
 }
 
 
-Map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGraph graph) {
-  Map<Operation, IntImm> graph_mark;
+std::unordered_map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGraph graph) {
+  std::unordered_map<Operation, IntImm> graph_mark;
 
   std::vector<Operation> stack(graph->operation_list.begin(), graph->operation_list.end());
   std::unordered_set<Operation> visited;
@@ -344,7 +345,7 @@ Map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGraph graph) {
       current_mark = gen_mark.get();
     }
 
-    graph_mark.Set(cur, IntImm(DataType::Int(32), current_mark));
+    graph_mark[cur] = IntImm(DataType::Int(32), current_mark);
 
     for (int i = 0; i < (int)cur->num_outputs(); ++i) {
       auto tensor = cur.output(i);
@@ -352,7 +353,7 @@ Map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGraph graph) {
         for (auto op : graph->down_graph[tensor->op]) {
           if (!policy(graph, cur, op)) {
             // in the same subgraph
-            graph_mark.Set(op, IntImm(DataType::Int(32), current_mark));
+            graph_mark[op] = IntImm(DataType::Int(32), current_mark);
             stack.push_back(op);
           }
         }
@@ -362,7 +363,7 @@ Map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGraph graph) {
     for (auto tensor : cur->InputTensors()) {
       const ComputeOpNode *as_compute = tensor->op.as<ComputeOpNode>();
       if (as_compute != nullptr && !policy(graph, tensor->op, cur)) {
-        graph_mark.Set(tensor->op, IntImm(DataType::Int(32), current_mark));
+        graph_mark[tensor->op] = IntImm(DataType::Int(32), current_mark);
         stack.push_back(tensor->op);
       }
     }
@@ -374,10 +375,10 @@ Map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGraph graph) {
 }
 
 
-Map<IntKey, GraphAttr> SubGraphPartitionEngine::validate_subgraph_dependency(
-  Map<Operation, IntImm> &graph_mark) {
+std::unordered_map<IntKey, GraphAttr> SubGraphPartitionEngine::validate_subgraph_dependency(
+  std::unordered_map<Operation, IntImm> &graph_mark) {
   
-  Map<IntKey, GraphAttr> graph_attr;
+  std::unordered_map<IntKey, GraphAttr> graph_attr;
   std::unordered_map<int, int> graph_num_predecessor;
   std::unordered_map<int, std::unordered_set<int> > graph_predecessor;
   std::unordered_map<int, std::unordered_set<int> > graph_successor;
@@ -419,7 +420,7 @@ Map<IntKey, GraphAttr> SubGraphPartitionEngine::validate_subgraph_dependency(
     for (auto v : graph_successor[mark]) {
       val.push_back(IntKey(v));
     }
-    graph_attr.Set(key, GraphAttr(graph_num_predecessor[mark], val));
+    graph_attr[IntKey(key->value)] = GraphAttr(graph_num_predecessor[mark], val);
   }
 
   // validate
@@ -474,8 +475,18 @@ TVM_REGISTER_NODE_TYPE(GraphAttrNode);
 
 
 TVM_REGISTER_GLOBAL("tg.subgraph_partition")
-.set_body([](TVMArgs args, TVMRetValue *ret) {
-  *ret = subgraph_partition(args[0], args[1]);
+.set_body_typed([](Map<Operation, IntImm> graph_mark, Array<Operation> outputs) {
+  Map<te::Operation, Operation> m;
+  std::unordered_map<Operation, IntImm> graph_mark_;
+  for (auto& kv : graph_mark) {
+    graph_mark_[kv.first] = kv.second;
+  }
+
+  auto mm = subgraph_partition(graph_mark_, outputs);
+  for (auto kv : mm) {
+    m.Set(kv.first, kv.second);
+  }
+  return m;
 });
 
 

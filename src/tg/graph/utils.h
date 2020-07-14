@@ -15,6 +15,8 @@
 #include <vector>
 #include <deque>
 
+#include "../utils.h"
+
 
 namespace tvm {
 using namespace te;
@@ -38,14 +40,14 @@ class IntKey : public ObjectRef {
  public:
   IntKey(int value);
 
-  inline bool operator== (const IntKey &other) const {
-    if (get() == other.get()) return true;
-    if (get() == nullptr || other.get() == nullptr) return false;
-    if ((*this)->value == other->value) {
-      return true;
-    } else {
+  inline bool operator== (const ObjectRef& other) const {
+    if (get() == nullptr) return false;
+    const IntKeyNode* another = other.as<IntKeyNode>();
+    if (another == nullptr) {
       return false;
     }
+    if (get() == another) return true;
+    return ((*this)->value == another->value);
   }
 
   inline bool operator!= (const IntKey &other) const {
@@ -73,14 +75,14 @@ class StringKey : public ObjectRef {
  public:
   StringKey(std::string value);
 
-  inline bool operator== (const StringKey &other) const {
-    if (get() == other.get()) return true;
-    if (get() == nullptr || other.get() == nullptr) return false;
-    if ((*this)->value == other->value) {
-      return true;
-    } else {
+  inline bool operator== (const ObjectRef& other) const {
+    if (get() == nullptr) return false;
+    const StringKeyNode* another = other.as<StringKeyNode>();
+    if (another == nullptr) {
       return false;
     }
+    if (get() == another) return true;
+    return ((*this)->value) == another->value;
   }
 
   inline bool operator!= (const StringKey &other) const {
