@@ -8,15 +8,33 @@ namespace tvm {
 
 namespace tg {
 
-
-int randint(int low, int high) {
-  CHECK(low <= high) << "Randint only accepts [low, high] with high > low.";
+double randdouble(double low, double high) {
+  CHECK(low < high) << "randdouble only accepts [low, high) with high > low.";
   static std::random_device rd;
   static std::mt19937 gen(rd());
   static std::uniform_real_distribution<> distrib(0.0, 1.0);
   double number = distrib(gen);
   number = number * (double(high) - double(low)) + double(low);
-  return static_cast<int>(number);
+  return number;
+}
+
+
+int randint(int low, int high) {
+  CHECK(low < high) << "randint only accepts [low, high) with high > low.";
+  high -= 1;
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_real_distribution<> distrib(0.0, 1.0);
+  double number = distrib(gen);
+  number = number * (double(high) - double(low)) + double(low);
+  int ret = static_cast<int>(number);
+  if (ret < low) {
+    ret = low;
+  }
+  if (ret > high) {
+    ret = high;
+  }
+  return ret;
 }
 
 
@@ -39,29 +57,21 @@ bool able_inline(
 
 
 void any_part_split(
-  PrimExpr extent,
+  int extent,
   int nparts,
-  Array<Array<PrimExpr> > &ret,
+  std::vector<std::vector<int> > &ret,
   std::string policy) {
 
-  const IntImmNode *as_int = extent.as<IntImmNode>();
-  if (as_int == nullptr) {
-    extent = te::Simplify(extent);
-    as_int = extent.as<IntImmNode>();
+  CHECK(extent > 0 && nparts > 0)
+    << "Don't know how to split " << extent << " to " << nparts << "parts.";
 
-    if (as_int == nullptr) {
-      LOG(FATAL) << "Currently no support for symbolic extent in split.";
-    }
-  }
-
-  int value = as_int->value;
-  auto key = std::make_pair(value, nparts);
-  static std::unordered_map<std::pair<int, int>, Array<Array<PrimExpr> > > split_cache;
+  auto key = std::make_tuple(extent, nparts, policy);
+  static std::unordered_map<std::tuple<int, int, std::string>, std::vector<std::vector<int> > > split_cache;
   static std::unordered_map<std::pair<int, std::string>, std::unordered_set<int> > factor_cache;
 
   if (split_cache.find(key) != split_cache.end()) {
     for (auto val : split_cache[key]) {
-      Array<PrimExpr> tmp;
+      std::vector<int> tmp;
       for (auto v : val) {
         tmp.push_back(v);
       }
@@ -70,8 +80,8 @@ void any_part_split(
     return;
   }
 
-  std::function<void(int cur_value, int num, Array<PrimExpr> cur)> helper;
-  helper = [nparts, policy, &ret, &helper](int cur_value, int num, Array<PrimExpr> cur) {
+  std::function<void(int cur_value, int num, std::vector<int> cur)> helper;
+  helper = [nparts, policy, &ret, &helper](int cur_value, int num, std::vector<int> cur) {
     if (num == nparts) {
       // the last one
       cur.push_back(cur_value);
@@ -111,7 +121,7 @@ void any_part_split(
 
     for (auto f : factors) {
       int left = cur_value / f;
-      Array<PrimExpr> tmp;
+      std::vector<int> tmp;
       for (auto v : cur) {
         tmp.push_back(v);
       }
@@ -121,12 +131,12 @@ void any_part_split(
 
   };
 
-  Array<PrimExpr> tmp;
-  helper(value, 1, tmp);
+  std::vector<int> tmp;
+  helper(extent, 1, tmp);
 
-  Array<Array<PrimExpr> > to_store;
+  std::vector<std::vector<int> > to_store;
   for (auto val : ret) {
-    Array<PrimExpr> tmp;
+    std::vector<int> tmp;
     for (auto v : val) {
       tmp.push_back(v);
     }
@@ -136,16 +146,35 @@ void any_part_split(
 }
 
 
-void permutation(int num_axis, Array<Array<IntImm> > &ret) {
+void _permutation(int num_axis, std::vector<std::vector<int> > &ret) {
+  /*
+   *This is not fast due to tvm registration
+   */
+  const auto* f = runtime::Registry::Get("tg.utils.permutation");
+  CHECK(f) << "Can't find tg.utils.permutation.";
+  Array<Array<IntImm> > permutations = (*f)(num_axis);
+  for (auto lst : permutations) {
+    std::vector<int> tmp;
+    for (auto v : lst) {
+      tmp.push_back(v->value);
+    }
+    ret.push_back(tmp);
+  }
+  return;
+}
+
+
+void permutation(int num_axis, std::vector<std::vector<int> > &ret) {
+  CHECK(num_axis > 0) << "Don't know how to permute " << num_axis << " elements.";
   std::vector<bool> chose;
   for (int i = 0; i < num_axis; ++i) {
     chose.push_back(false);
   }
 
-  static std::unordered_map<int, Array<Array<IntImm> > > cache;
+  static std::unordered_map<int, std::vector<std::vector<int> > > cache;
   if (cache.find(num_axis) != cache.end()) {
     for (auto val : cache[num_axis]) {
-      Array<IntImm> tmp;
+      std::vector<int> tmp;
       for (auto v : val) {
         tmp.push_back(v);
       }
@@ -154,8 +183,8 @@ void permutation(int num_axis, Array<Array<IntImm> > &ret) {
     return;
   }
 
-  std::function<void(int, Array<IntImm>)> helper;
-  helper = [num_axis, &ret, &chose, &helper](int num, Array<IntImm> cur) {
+  std::function<void(int, std::vector<int>)> helper;
+  helper = [num_axis, &ret, &chose, &helper](int num, std::vector<int> cur) {
     if (num == num_axis) {
       ret.push_back(cur);
       return;
@@ -164,23 +193,23 @@ void permutation(int num_axis, Array<Array<IntImm> > &ret) {
     for (int i = 0; i < num_axis; ++i) {
       if (!chose[i]) {
         chose[i] = true;
-        Array<IntImm> tmp;
+        std::vector<int> tmp;
         for (auto v : cur) {
           tmp.push_back(v);
         }
-        tmp.push_back(IntImm(DataType::Int(32), i));
+        tmp.push_back(i);
         helper(num + 1, tmp);
         chose[i] = false;
       } 
     }
   };
 
-  Array<IntImm> tmp;
+  std::vector<int> tmp;
   helper(0, tmp);
 
-  cache[num_axis] = Array<Array<IntImm> >();
+  cache[num_axis] = std::vector<std::vector<int> >();
   for (auto val : ret) {
-    Array<IntImm> tmp;
+    std::vector<int> tmp;
     for (auto v : val) {
       tmp.push_back(v);
     }
@@ -189,14 +218,16 @@ void permutation(int num_axis, Array<Array<IntImm> > &ret) {
 }
 
 
-void choose_from(int total, int want, Array<Array<IntImm> > &ret) {
-  static std::unordered_map<std::pair<int, int>, Array<Array<IntImm> > > cache;
+void choose_from(int total, int want, std::vector<std::vector<int> > &ret) {
+  CHECK(total > 0 && want > 0)
+    << "Don't know how to handle choose " << want << " from " << total;
+  static std::unordered_map<std::pair<int, int>, std::vector<std::vector<int> > > cache;
   auto key = std::make_pair(total, want);
   bool allow_repeat = (total < want);
 
   if (cache.find(key) != cache.end()) {
     for (auto val : cache[key]) {
-      Array<IntImm> tmp;
+      std::vector<int> tmp;
       for (auto v : val) {
         tmp.push_back(v);
       }
@@ -210,20 +241,20 @@ void choose_from(int total, int want, Array<Array<IntImm> > &ret) {
     inds.push_back(i);
   }
 
-  std::function<void(int pos, int num, Array<IntImm> cur)> helper;
+  std::function<void(int pos, int num, std::vector<int> cur)> helper;
 
-  helper = [inds, total, want, allow_repeat, &ret, &helper](int pos, int num, Array<IntImm> cur) {
+  helper = [inds, total, want, allow_repeat, &ret, &helper](int pos, int num, std::vector<int> cur) {
     if (num == want) {
       ret.push_back(cur);
       return;
     }
 
     for (int i = pos; i < total; ++i) {
-      Array<IntImm> tmp;
+      std::vector<int> tmp;
       for (auto v : cur) {
         tmp.push_back(v);
       }
-      tmp.push_back(IntImm(DataType::Int(32), inds[i]));
+      tmp.push_back(inds[i]);
       if (allow_repeat) {
         helper(i, num + 1, tmp);
       }
@@ -233,12 +264,12 @@ void choose_from(int total, int want, Array<Array<IntImm> > &ret) {
     }
   };
 
-  Array<IntImm> tmp;
+  std::vector<int> tmp;
   helper(0, 0, tmp);
 
-  Array<Array<IntImm> > to_store;
+  std::vector<std::vector<int> > to_store;
   for (auto val : ret) {
-    Array<IntImm> tmp;
+    std::vector<int> tmp;
     for (auto v : val) {
       tmp.push_back(v);
     }
@@ -249,17 +280,33 @@ void choose_from(int total, int want, Array<Array<IntImm> > &ret) {
 
 
 TVM_REGISTER_GLOBAL("tg.any_part_split")
-.set_body_typed([](PrimExpr extent, int nparts, std::string policy){
+.set_body_typed([](int extent, int nparts, std::string policy){
   Array<Array<PrimExpr> > factor_list;
-  any_part_split(extent, nparts, factor_list, policy);
+  std::vector<std::vector<int> > tmp;
+  any_part_split(extent, nparts, tmp, policy);
+  for (auto lst : tmp) {
+    Array<PrimExpr> tt;
+    for (auto v : lst) {
+      tt.push_back(v);
+    }
+    factor_list.push_back(tt);
+  }
   return factor_list;
 });
 
 
-TVM_REGISTER_GLOBAL("tg.permutation")
+TVM_REGISTER_GLOBAL("tg.utils.permutation")
 .set_body_typed([](int num_total){
   Array<Array<IntImm> > choices;
-  permutation(num_total, choices);
+  std::vector<std::vector<int> > tmp;
+  permutation(num_total, tmp);
+  for (auto lst : tmp) {
+    Array<IntImm> tt;
+    for (auto v : lst) {
+      tt.push_back(IntImm(DataType::Int(32), v));
+    }
+    choices.push_back(tt);
+  }
   return choices;
 });
 
@@ -267,7 +314,15 @@ TVM_REGISTER_GLOBAL("tg.permutation")
 TVM_REGISTER_GLOBAL("tg.choose_from")
 .set_body_typed([](int total, int want){
   Array<Array<IntImm> > choices;
-  choose_from(total, want, choices);
+  std::vector<std::vector<int> > tmp;
+  choose_from(total, want, tmp);
+  for (auto lst : tmp) {
+    Array<IntImm> tt;
+    for (auto v : lst) {
+      tt.push_back(IntImm(DataType::Int(32), v));
+    }
+    choices.push_back(tt);
+  }
   return choices;
 });
 

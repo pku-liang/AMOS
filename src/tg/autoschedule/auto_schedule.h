@@ -2,6 +2,7 @@
 #define TVM_TG_AUTOSCHEDULE_AUTO_SCHEDULE_H_
 
 #include <unordered_map>
+#include <unordered_set>
 #include <queue>
 
 #include <tvm/te/schedule.h>
@@ -9,10 +10,7 @@
 #include <tvm/tir/expr.h>
 #include <tvm/target/target.h>
 
-// #include "utils.h"
-// #include "interpreter.h"
-// #include "structure_space.h"
-// #include "search_tree.h"
+#include "schedule_space.h"
 #include "../utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
@@ -27,48 +25,52 @@ class ScheduleResultNode : public Object {
  public:
   te::Schedule schedule;
   Array<te::Tensor> tensors;
-  // std::shared_ptr<SearchTreeNode> leaf;
-  // Array<Config> configs;
+  MultiScheduleEntity schedule_entities;
 
-  static constexpr const char* _type_key = "tg.ScheduleResult";
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("schedule", &schedule);
+    v->Visit("tensors", &tensors);
+    v->Visit("schedule_entities", &schedule_entities);
+  }
+
+  static constexpr const char* _type_key = "tg.autoschedule.ScheduleResult";
   TVM_DECLARE_FINAL_OBJECT_INFO(ScheduleResultNode, Object);
 };
 
 
 class ScheduleResult : public ObjectRef {
  public:
-  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors/*,
-                 std::shared_ptr<SearchTreeNode> leaf, Array<Config> configs*/) {
+  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors,
+                 MultiScheduleEntity entities) {
     auto node = make_object<ScheduleResultNode>();
     node->schedule = sch;
     node->tensors = tensors;
-    // node->leaf = leaf;
-    // node->configs = configs;
+    node->schedule_entities = entities;
     data_ = std::move(node);
   }
 
-  // std::shared_ptr<SearchTreeNode> get_leaf() {
-  //   return Self()->leaf;
-  // }
-
   TVM_DEFINE_OBJECT_REF_METHODS(ScheduleResult, ObjectRef, ScheduleResultNode);
-  TG_DEFINE_OBJECT_SELF_METHOD(ScheduleResultNode);
 };
 
 
 class EvaluatedScheduleResultNode : public Object {
  public:
   ScheduleResult schedule_result;
-  float evaluation;
+  double evaluation;
 
-  static constexpr const char* _type_key = "tg.EvaluatedScheduleResult";
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("schedule_result", &schedule_result);
+    v->Visit("evaluation", &evaluation);
+  }
+
+  static constexpr const char* _type_key = "tg.autoschedule.EvaluatedScheduleResult";
   TVM_DECLARE_FINAL_OBJECT_INFO(ScheduleResultNode, Object);
 };
 
 
 class EvaluatedScheduleResult : public ObjectRef {
  public:
-  EvaluatedScheduleResult(ScheduleResult result, float evaluation) {
+  EvaluatedScheduleResult(ScheduleResult result, double evaluation) {
     auto node = make_object<EvaluatedScheduleResultNode>();
     node->schedule_result = result;
     node->evaluation = evaluation;
@@ -76,6 +78,10 @@ class EvaluatedScheduleResult : public ObjectRef {
   }
 
   bool operator< (const EvaluatedScheduleResult &other) const {
+    return (*this)->evaluation < other->evaluation;
+  }
+
+  bool operator> (const EvaluatedScheduleResult &other) const {
     return (*this)->evaluation > other->evaluation;
   }
 
@@ -85,63 +91,60 @@ class EvaluatedScheduleResult : public ObjectRef {
 
 class AutoScheduleContextNode : public Object {
  public:
-  Target target;
   IntKey task_id;
-  // SearchTree search_tree;
+  TIRGraph graph;
+  Target target;
+  MultiScheduleSpace spaces;
+  int topk;
+  int number_per_trial;
+  std::priority_queue<
+        EvaluatedScheduleResult,
+        std::vector<EvaluatedScheduleResult>,
+        std::greater<EvaluatedScheduleResult> > topk_schedules;
+  std::unordered_set<MultiScheduleEntity, ObjectHash> known_schedules;
 
-  static constexpr const char* _type_key = "tg.AutoScheduleContext";
+  static constexpr const char* _type_key = "tg.autoschedule.AutoScheduleContext";
   TVM_DECLARE_FINAL_OBJECT_INFO(AutoScheduleContextNode, Object);
 };
 
 
 class AutoScheduleContext : public ObjectRef {
  public:
-  AutoScheduleContext(Target &target, IntKey &task_id) {
+  AutoScheduleContext(IntKey task_id, TIRGraph graph, Target target, int topk=20, int number_per_trial=20) {
     auto node = make_object<AutoScheduleContextNode>();
-    node->target = target;
     node->task_id = task_id;
-    // node->search_tree = SearchTree();
+    node->graph = graph;
+    node->target = target;
+    node->spaces = MultiScheduleSpace(graph, target);
+    node->topk = topk;
+    node->number_per_trial = number_per_trial;
     data_ = std::move(node);
   }
 
-  // SearchTree& get_search_tree() {
-  //   auto self = Self();
-  //   return self->search_tree;
-  // }
-
-  TVM_DEFINE_OBJECT_REF_METHODS(AutoScheduleContext, ObjectRef, AutoScheduleContextNode);
-  TG_DEFINE_OBJECT_SELF_METHOD(AutoScheduleContextNode);
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AutoScheduleContext, ObjectRef, AutoScheduleContextNode);
 };
 
 
 // auto_schedule for one subgraph
-bool auto_schedule(
+void auto_schedule(
     TIRGraph subgraph,
     AutoScheduleContext &context,
-    std::vector<ScheduleResult> &results);
+    ScheduleResult &results);
 
 
 class AutoScheduler {
  private:
-  const static int num_topk = 10;
-  const static int schedule_trials_for_one = 100;
+  const static int schedule_trials_for_one = 10;
   ThreadPool *thread_pool = nullptr;
 
   std::unordered_map<IntKey, AutoScheduleContext> contexts;
-  std::unordered_map<IntKey, std::priority_queue<EvaluatedScheduleResult> > topk_schedules;
 
   ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
-  tvm::runtime::Module schedule_and_build_func(IntKey key, TIRGraph subgraph, Target target);
  public:
   AutoScheduler() { thread_pool = new ThreadPool(1); }
   ~AutoScheduler() { if (thread_pool != nullptr) delete thread_pool; }
   void reset() { if (thread_pool != nullptr) {delete thread_pool; thread_pool = new ThreadPool(1);} }
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
-  std::shared_future<tvm::runtime::Module> schedule_and_build_for(
-    IntKey key, TIRGraph subgraph, Target target, int priority=0);
-  
-  // void feedback_schedule(IntKey key, ScheduleResult schedule_result, float feedback);
-  // static AutoScheduler& Global();
 };
 
 

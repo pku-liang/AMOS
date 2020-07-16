@@ -4,15 +4,14 @@
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
 
-#include "config.h"
+#include "schedule_space.h"
 #include "../graph/concrete_graph.h"
 
 namespace tvm {
 
 namespace tg {
 
-std::pair<te::Schedule, Array<te::Tensor> >
-interpret (TIRGraph subgraph, std::vector<Config> config);
+void interpret(te::Schedule &sch, TIRGraph subgraph, Target target, MultiScheduleEntity entity);
 
 
 }  // namespace tg
