@@ -61,7 +61,7 @@ namespace tg {
 
 class ThreadPool {
 public:
-  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout = 300) : num_threads(threads), stop(true), timeout(_timeout) {
+  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout = 1000) : num_threads(threads), stop(true), timeout(_timeout) {
     Init();
   }
 
@@ -99,27 +99,33 @@ public:
     auto task = std::make_shared< std::packaged_task<return_type()> >(
             std::bind(f, std::forward<Args>(args)...)
         );
-        
-    std::shared_future<return_type> res = task->get_future();
+    
+  auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
+    [task, this](){
+      auto ret = task->get_future();
+
+      std::thread th([task](){ (*task)(); });
+
+      auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
+      if(status != std::future_status::ready) {
+        pthread_cancel(th.native_handle());
+        th.join();
+        throw std::runtime_error("time out");
+      } else {
+        th.join();
+        return ret.get();
+      }
+    }
+  );
+
+    std::shared_future<return_type> res = timed_task->get_future();
     {
         std::unique_lock<std::mutex> lock(deque_mutex);
 
         if(stop)
             throw std::runtime_error("push_front on stopped ThreadPool");
 
-        tasks.emplace_back([task, this](){
-            std::thread th([task](){ (*task)(); });
-            th.detach();
-            std::this_thread::sleep_for(std::chrono::milliseconds(this->timeout));
-            try {
-              if (th.joinable())
-                th.join();
-              else
-                pthread_cancel(th.native_handle());
-            }  catch (const std::exception& e) {
-              std::cerr << e.what() << '\n';
-            }
-          });
+        tasks.emplace_front([timed_task]() { (*timed_task)(); });
     }
     condition.notify_one();
     return res;
@@ -132,26 +138,33 @@ public:
     auto task = std::make_shared< std::packaged_task<return_type()> >(
             std::bind(f, std::forward<Args>(args)...)
         );
-        
-    std::shared_future<return_type> res = task->get_future();
+    
+  auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
+    [task, this](){
+      auto ret = task->get_future();
+
+      std::thread th([task](){ (*task)(); });
+
+      auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
+      if(status != std::future_status::ready) {
+        pthread_cancel(th.native_handle());
+        th.join();
+        throw std::runtime_error("time out");
+      } else {
+        th.join();
+        return ret.get();
+      }
+    }
+  );
+
+    std::shared_future<return_type> res = timed_task->get_future();
     {
         std::unique_lock<std::mutex> lock(deque_mutex);
 
         if(stop)
             throw std::runtime_error("push_back on stopped ThreadPool");
 
-        tasks.emplace_back([task, this](){
-            std::thread th([task](){ (*task)(); });
-            std::this_thread::sleep_for(std::chrono::milliseconds(this->timeout));
-            try {
-              if (th.joinable())
-                th.join();
-              else
-                pthread_cancel(th.native_handle());
-            }  catch (const std::exception& e) {
-              std::cerr << e.what() << '\n';
-            }
-          });
+        tasks.emplace_back([timed_task]() { (*timed_task)(); });
     }
     condition.notify_one();
     return res;
