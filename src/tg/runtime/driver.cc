@@ -294,6 +294,7 @@ void Session::run_functions(
                 * should kill the thread
                 * TODO: add kill
                 */
+               std::cerr << "Can't run function: " << e.what() << "\n";
               }  // end try run function
 
             } catch (const std::exception& e) {
@@ -303,6 +304,7 @@ void Session::run_functions(
               * should stop
               * TODO: stop the thread
               */
+             std::cerr << "Can't get schedule module: " << e.what() << "\n";
             }  // end try get mod
           }  // end status == ready
         }  // end try new function

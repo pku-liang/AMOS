@@ -11,7 +11,7 @@ namespace tvm {
 
 namespace tg {
 
-void interpret(te::Schedule &sch, TIRGraph subgraph, Target target, MultiScheduleEntity entity);
+void interpret(te::Schedule &sch, Array<te::Tensor> tensors, TIRGraph subgraph, Target target, MultiScheduleEntity entity);
 
 
 }  // namespace tg

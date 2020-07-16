@@ -137,7 +137,7 @@ void auto_schedule(
   int count_cand = 0;
   for (auto cand : new_candidates) {
     te::Schedule tmp_sch = te::create_schedule(subgraph->root_ops);
-    interpret(tmp_sch, subgraph, context->target, cand);
+    interpret(tmp_sch, tensors, subgraph, context->target, cand);
     double tmp = judge_schedule(tmp_sch, tensors, context->target, context->policy);
     if (context->policy == "profile") {
       context.add_feedback(ScheduleResult(tmp_sch, tensors, cand), tmp);
@@ -151,7 +151,7 @@ void auto_schedule(
 
   MultiScheduleEntity result_entity = new_candidates[best_ind];
 
-  interpret(sch, subgraph, context->target, result_entity);
+  interpret(sch, tensors, subgraph, context->target, result_entity);
   results = ScheduleResult(sch, tensors, new_candidates[best_ind]);
 }
 
