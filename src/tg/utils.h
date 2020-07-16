@@ -12,6 +12,10 @@
 #include <stdexcept>
 #include <utility>
 #include <tuple>
+#include <chrono>
+#include <pthread.h>
+#include <iostream>
+#include <exception>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
@@ -57,7 +61,7 @@ namespace tg {
 
 class ThreadPool {
 public:
-  ThreadPool(size_t threads=std::thread::hardware_concurrency()) : num_threads(threads), stop(true) {
+  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout = 300) : num_threads(threads), stop(true), timeout(_timeout) {
     Init();
   }
 
@@ -103,7 +107,19 @@ public:
         if(stop)
             throw std::runtime_error("push_front on stopped ThreadPool");
 
-        tasks.emplace_front([task](){ (*task)(); });
+        tasks.emplace_back([task, this](){
+            std::thread th([task](){ (*task)(); });
+            th.detach();
+            std::this_thread::sleep_for(std::chrono::milliseconds(this->timeout));
+            try {
+              if (th.joinable())
+                th.join();
+              else
+                pthread_cancel(th.native_handle());
+            }  catch (const std::exception& e) {
+              std::cerr << e.what() << '\n';
+            }
+          });
     }
     condition.notify_one();
     return res;
@@ -124,7 +140,18 @@ public:
         if(stop)
             throw std::runtime_error("push_back on stopped ThreadPool");
 
-        tasks.emplace_back([task](){ (*task)(); });
+        tasks.emplace_back([task, this](){
+            std::thread th([task](){ (*task)(); });
+            std::this_thread::sleep_for(std::chrono::milliseconds(this->timeout));
+            try {
+              if (th.joinable())
+                th.join();
+              else
+                pthread_cancel(th.native_handle());
+            }  catch (const std::exception& e) {
+              std::cerr << e.what() << '\n';
+            }
+          });
     }
     condition.notify_one();
     return res;
@@ -184,6 +211,8 @@ private:
   
   std::mutex deque_mutex;
   std::condition_variable condition;
+
+  unsigned int timeout;
 
   static const int REFRESH_EPOCH = 128;
 };
