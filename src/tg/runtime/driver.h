@@ -43,6 +43,9 @@ class Session {
   void allocate_output_buffer(TIRMultiGraph multi_graph);
   std::string get_func_name(IntKey key);
 
+  void run_autoschedule(
+    TIRMultiGraph multi_graph, int advance_number);
+
   void run_functions(
     TIRMultiGraph multi_graph,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);

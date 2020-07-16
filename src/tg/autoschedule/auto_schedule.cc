@@ -47,13 +47,13 @@ double calculate_possibility(double x, double best, double upper=0.7) {
 }
 
 
-double judge_schedule(MultiScheduleEntity schedule_entity) {
+double judge_schedule(te::Schedule sch, Array<te::Tensor> tensors, Target target, std::string policy) {
   const auto* f = runtime::Registry::Get("tg.autoschedule.judge_schedule");
   // CHECK(f) << "Can't find tg.autoschedule.judge_schedule";
   if (f == nullptr) {
     return randdouble();
   } else {
-    return (*f)(schedule_entity);
+    return (*f)(sch, tensors, target, policy);
   }
 }
 
@@ -126,6 +126,7 @@ void auto_schedule(
       } else {
         new_candidates.push_back(new_one);
       }
+      context->known_schedules.insert(new_one);
     }
     must_new = false;  // the second round, just relaxed
   }
@@ -135,7 +136,12 @@ void auto_schedule(
   int best_ind;
   int count_cand = 0;
   for (auto cand : new_candidates) {
-    double tmp = judge_schedule(cand);
+    te::Schedule tmp_sch = te::create_schedule(subgraph->root_ops);
+    interpret(tmp_sch, subgraph, context->target, cand);
+    double tmp = judge_schedule(tmp_sch, tensors, context->target, context->policy);
+    if (context->policy == "profile") {
+      context.add_feedback(ScheduleResult(tmp_sch, tensors, cand), tmp);
+    }
     if (tmp > best_value) {
       best_ind = count_cand;
       best_value = tmp;
@@ -147,6 +153,25 @@ void auto_schedule(
 
   interpret(sch, subgraph, context->target, result_entity);
   results = ScheduleResult(sch, tensors, new_candidates[best_ind]);
+}
+
+
+void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double evaluation) {
+  EvaluatedScheduleResult evaluated = EvaluatedScheduleResult(schedule_result, evaluation);
+  auto self = (*this);
+  if ((int)self->topk_schedules.size() < self->topk) {
+    self->topk_schedules.push(evaluated);
+  } else {
+    if (evaluated < self->topk_schedules.top()) {
+      return;
+    } else {
+      self->topk_schedules.pop();
+      self->topk_schedules.push(evaluated);
+    }
+  }
+
+  Feature feature = get_feature(schedule_result->schedule, schedule_result->tensors, self->target);
+  self->log_out << feature << " : " << evaluation << "\n";
 }
 
 
@@ -180,6 +205,11 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
     throw;
   }
+}
+
+
+void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
+  contexts[key].add_feedback(schedule_result, evaluation);
 }
 
 

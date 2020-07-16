@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <queue>
+#include <fstream>
 
 #include <tvm/te/schedule.h>
 #include <tvm/node/container.h>
@@ -11,6 +12,7 @@
 #include <tvm/target/target.h>
 
 #include "schedule_space.h"
+#include "feature.h"
 #include "../utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
@@ -102,6 +104,8 @@ class AutoScheduleContextNode : public Object {
         std::vector<EvaluatedScheduleResult>,
         std::greater<EvaluatedScheduleResult> > topk_schedules;
   std::unordered_set<MultiScheduleEntity, ObjectHash> known_schedules;
+  std::ofstream log_out;
+  std::string policy;
 
   static constexpr const char* _type_key = "tg.autoschedule.AutoScheduleContext";
   TVM_DECLARE_FINAL_OBJECT_INFO(AutoScheduleContextNode, Object);
@@ -110,7 +114,9 @@ class AutoScheduleContextNode : public Object {
 
 class AutoScheduleContext : public ObjectRef {
  public:
-  AutoScheduleContext(IntKey task_id, TIRGraph graph, Target target, int topk=20, int number_per_trial=20) {
+  AutoScheduleContext(IntKey task_id, TIRGraph graph, Target target,
+  int topk=20, int number_per_trial=20, std::string log_file_name="autoschedule_log.txt",
+  std::string policy="profile") {
     auto node = make_object<AutoScheduleContextNode>();
     node->task_id = task_id;
     node->graph = graph;
@@ -118,8 +124,12 @@ class AutoScheduleContext : public ObjectRef {
     node->spaces = MultiScheduleSpace(graph, target);
     node->topk = topk;
     node->number_per_trial = number_per_trial;
+    node->log_out.open(log_file_name, std::ios::app);
+    node->policy = policy;
     data_ = std::move(node);
   }
+
+  void add_feedback(ScheduleResult schedule_result, double evaluation);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AutoScheduleContext, ObjectRef, AutoScheduleContextNode);
 };
@@ -145,6 +155,7 @@ class AutoScheduler {
   ~AutoScheduler() { if (thread_pool != nullptr) delete thread_pool; }
   void reset() { if (thread_pool != nullptr) {delete thread_pool; thread_pool = new ThreadPool(1);} }
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
+  void feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation);
 };
 
 
