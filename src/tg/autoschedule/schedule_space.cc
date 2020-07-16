@@ -5,6 +5,7 @@ namespace tvm {
 
 namespace tg {
 
+TVM_REGISTER_NODE_TYPE(ScheduleSkeletonNode);
 TVM_REGISTER_NODE_TYPE(TilingEntityNode);
 TVM_REGISTER_NODE_TYPE(BindingEntityNode);
 TVM_REGISTER_NODE_TYPE(TilingAndBindingEntityNode);
@@ -259,6 +260,7 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
     TilingAndBindingSubSpaceNode::BindPosition for_block_z;
     for (int iv : axis_id_to_split) {
       if (iv != top2[0].first && iv != top2[1].first) {
+        node->need_tile[iv] = false;
         for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), iv), IntImm(DataType::Int(32), -1)}));
       }
     }
