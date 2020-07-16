@@ -401,7 +401,6 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
         // then, check emergency queue
         if (!this->emergency_queue.empty()) {
           auto& key = this->emergency_queue.front();
-          this->emergency_queue.pop();
 
           // the following are repeated
           // TODO: isolate the logic
@@ -429,6 +428,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
 
           try {
             ScheduleResult result = schedule_result.get();
+            this->emergency_queue.pop();
             
             // get future func
             std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
@@ -444,7 +444,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
 
             functions[key].push(sch_func);
           } catch (const std::exception& e) {
-            continue;
+            std::cout << "Can't get schedule for emergency: " << e.what() << "\n";
           }
         }  // if (!this->emergency_queue.empty())
 
@@ -523,9 +523,10 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
            * should tell the thread to stop
            * TODO: stop the thread
            */
+          std::cout << "Can't get schedule: " << e.what() << "\n";
           continue;
         }
-      }
+      }  // for cand
 
       for (auto deleted : delete_set) {
         free_set.erase(deleted);
@@ -556,7 +557,6 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
     if (!peek_finish) {
       if (!this->emergency_queue.empty()) {
         auto& key = this->emergency_queue.front();
-        this->emergency_queue.pop();
 
         // the following are repeated
         // TODO: isolate the logic
@@ -584,6 +584,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
 
         try {
           ScheduleResult result = schedule_result.get();
+          this->emergency_queue.pop();
           
           // get future func
           std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
@@ -599,6 +600,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
 
           functions[key].push(sch_func);
         } catch (const std::exception& e) {
+          std::cout << "Can't get schedule for emergency: " << e.what() << "\n";
           continue;
         }
       }
