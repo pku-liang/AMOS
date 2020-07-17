@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <iostream>
 #include <exception>
+#include <cstdlib>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
@@ -37,31 +38,102 @@ namespace tg {
   }
 
 
-// template<typename ELE>
-// class UnpackVec {
-//  public:
-// 	UnpackVec(const std::vector<ELE>& vec) : vec(vec), index(0) {}
+enum class LogLevel {
+  tINFO,
+  tWARNING,
+  tERROR
+};
 
-//   template<typename T>
-// 	ELE unpack()	{
-// 		return  vec[index++];
-// 	}
+class LazyLogging {
+ private:
+  LogLevel log_level;
+  bool do_print;
+  std::string file_;
+  int lineno_;
+  std::ostringstream oss;
+public:
+  LazyLogging() = default;
+  LazyLogging(const LazyLogging &&other) : log_level(other.log_level), do_print(other.do_print) {}
+  LazyLogging(LogLevel level, bool do_print=true, std::string file=__FILE__, int lineno=__LINE__) :
+    log_level(level), do_print(do_print), file_(file), lineno_(lineno) {}
+  ~LazyLogging() {
+    std::chrono::milliseconds ms = std::chrono::duration_cast< std::chrono::milliseconds >(
+        std::chrono::system_clock::now().time_since_epoch()
+    );
+    if (do_print) {
+      switch (log_level)
+      {
+      case LogLevel::tINFO:
+        std::cerr << "[Info] " << "[time=" << ms.count() << "] ";
+        break;
+      case LogLevel::tWARNING:
+        std::cerr << "[Warning] " << "[time=" << ms.count() << "] file:"
+                  << file_ << " line:" << lineno_ << " ";
+        break;
+      case LogLevel::tERROR:
+        std::cerr << "[Error] " << "[time=" << ms.count() << "] "
+                  << file_ << " line:" << lineno_ << " ";
+        break;
+      default:
+        break;
+      }
+      if (oss.str().size() != 0)
+        std::cerr << oss.str() << "\n";
+    }
+  }
 
-//  private:
-// 	const std::vector<ELE>& vec;
-// 	int index;
-// };
+  template<typename T>
+  LazyLogging &operator<<(T &other) {
+      oss << other;
+      return *this;
+  }
 
-// template<typename R, typename... Args, typename ELE>
-// auto call_function(std::function<R(Args...)> f, std::vector<ELE> &v) {
-//     UnpackVec<ELE> unpackvec(v);
-//     return f(unpackvec.unpack<Args>()...);
-// }
+  template<typename T>
+  LazyLogging &operator<<(T &&other) {
+      oss << other;
+      return *this;
+  }
+};
+
+
+#define ASSERT(cond)                                                          \
+  (                                                                           \
+    [&]()-> LazyLogging {                                                     \
+      if (!(cond)) {                                                          \
+        return LazyLogging(LogLevel::tERROR, true, __FILE__, __LINE__);       \
+      } else {                                                                \
+        return LazyLogging(LogLevel::tINFO, false, __FILE__, __LINE__);       \
+      }                                                                       \
+    }()                                                                       \
+  )                                                                           
+
+
+#define ERROR (ASSERT(false))
+
+
+int get_evn_value(std::string name);
+
+
+class print{
+ private:
+  bool do_print; 
+ public:
+  print(int level) : do_print(level <= get_evn_value("TG_PRINT_LEVEL")) {}
+
+  template<typename T>
+  print& operator<< (T&& x) {
+    if (do_print) {
+      std::cerr << std::forward<T>(x);
+    }
+    return *this;
+  }
+};
 
 
 class ThreadPool {
 public:
-  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout = 1000) : num_threads(threads), stop(true), timeout(_timeout) {
+  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout=1000)
+  : num_threads(threads), stop(true), timeout(_timeout) {
     Init();
   }
 

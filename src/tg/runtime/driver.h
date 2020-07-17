@@ -18,11 +18,77 @@ namespace tvm {
 
 namespace tg {
 
+class SessionOptionNode : public Object {
+ public:
+  bool report_profile;
+  bool report_iteration;
+  int report_iteration_period;
+  int autoschedule_topk;
+  int autoschedule_new_trial;
+  std::string autoschedule_policy;
+  int autoschedule_parallel;
+  double autoschedule_timeout;
+  std::string autoschedule_log_file;
+  int profile_parallel;
+  double profile_timeout;
+  int build_parallel;
+  double build_timeout;
+  int execution_parallel;
+  double execution_timeout;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("report_profile", &report_profile);
+    v->Visit("report_iteration", &report_iteration);
+    v->Visit("report_iteration_period", &report_iteration_period);
+    v->Visit("autoschedule_topk", &autoschedule_topk);
+    v->Visit("autoschedule_new_trial", &autoschedule_new_trial);
+    v->Visit("autoschedule_policy", &autoschedule_policy);
+    v->Visit("autoschedule_timeout", &autoschedule_timeout);
+    v->Visit("autoschedule_timeout", &autoschedule_timeout);
+    v->Visit("autoschedule_log_file", &autoschedule_log_file);
+    v->Visit("profile_parallel", &profile_parallel);
+    v->Visit("profile_timeout", &profile_timeout);
+    v->Visit("build_parallel", &build_parallel);
+    v->Visit("build_timeout", &build_timeout);
+    v->Visit("execution_parallel", &execution_parallel);
+    v->Visit("execution_timeout", &execution_timeout);
+  }
+
+  static constexpr const char* _type_key = "tg.autoschedule.SessionOption";
+  TVM_DECLARE_FINAL_OBJECT_INFO(SessionOptionNode, Object);
+};
+
+
+class SessionOption : public ObjectRef {
+ public:
+  SessionOption(
+    bool report_profile,
+    bool report_iteration,
+    int report_iteration_period,
+    int autoschedule_topk,
+    int autoschedule_new_trial,
+    std::string autoschedule_policy,
+    int autoschedule_parallel,
+    double autoschedule_timeout,
+    std::string autoschedule_log_file,
+    int profile_parallel,
+    double profile_timeout,
+    int build_parallel,
+    double build_timeout,
+    int execution_parallel,
+    double execution_timeout);
+  
+  SessionOption(int dummy);
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SessionOption, ObjectRef, SessionOptionNode);
+};
+
 
 class Session {
  public:
   Target target;
   DLContext ctx;
+  SessionOption sess_option;
   AutoScheduler *auto_scheduler = nullptr;
   FunctionBuilder *function_builder = nullptr;
   ThreadPool *thread_pool = nullptr;
@@ -37,7 +103,7 @@ class Session {
   std::mutex finish_mutex;
 
  public:
-  Session(Target target, int dev_id);
+  Session(Target target, int dev_id, SessionOption sess_option);
   ~Session();
   void initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
@@ -54,10 +120,11 @@ class Session {
 };
 
 
-std::shared_ptr<Session> create_or_get_session(Target target, int dev_id, int& session_id, bool get_session=false);
+std::shared_ptr<Session> create_or_get_session(
+  Target target, int dev_id, SessionOption log_option, int& session_id, bool get_session=false);
 
 
-int create_session(Target target, int dev_id);
+int create_session(Target target, int dev_id, SessionOption log_option);
 
 std::shared_ptr<Session> get_session(int session_id);
 

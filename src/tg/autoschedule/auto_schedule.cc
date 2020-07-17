@@ -47,19 +47,30 @@ double calculate_possibility(double x, double best, double upper=0.7) {
 }
 
 
-double judge_schedule(te::Schedule sch, Array<te::Tensor> tensors, Target target, std::string policy) {
+std::vector<double> AutoScheduler::judge_schedule(
+  Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, double gflop, std::string policy) {
   const auto* f = runtime::Registry::Get("tg.autoschedule.judge_schedule");
   // CHECK(f) << "Can't find tg.autoschedule.judge_schedule";
+  std::vector<double> ret;
   if (f == nullptr) {
-    return randdouble();
+    if (policy == "profile") {
+      ret = measurer->measure(schedules, tensors, target, ctx, gflop);
+    } else {
+      std::cerr << "No support for policy: " << policy << ".";
+      abort();
+    }
   } else {
-    return (*f)(sch, tensors, target, policy);
+    Array<FloatImm> tmp = (*f)(schedules, tensors, target, gflop, policy);
+    for (auto v : tmp) {
+      ret.push_back(v->value);
+    }
   }
+  return ret;
 }
 
 
 // auto_schedule for one subgraph
-void auto_schedule(
+void AutoScheduler::auto_schedule(
     TIRGraph subgraph,
     AutoScheduleContext &context,
     ScheduleResult &results) {
@@ -110,7 +121,7 @@ void auto_schedule(
   std::vector<MultiScheduleEntity> new_candidates;
   bool must_new = true;
   while (new_candidates.size() == 0U) {
-    for (int i = 0; i < context->number_per_trial; ++i) {
+    for (int i = 0; i < context->new_trial; ++i) {
       MultiScheduleEntity new_one;
       if (use_seed) {
         new_one = context->spaces.choose_one(skeletons);
@@ -133,21 +144,31 @@ void auto_schedule(
 
   // choose from new candidates
   double best_value = -1;
-  int best_ind;
-  int count_cand = 0;
-  for (auto cand : new_candidates) {
+  int best_ind = -1;
+  int num_new_candidates = (int)new_candidates.size();
+  Array<te::Schedule> tmp_schedules;
+  for (int i = 0; i < num_new_candidates; ++i) {
     te::Schedule tmp_sch = te::create_schedule(subgraph->root_ops);
-    interpret(tmp_sch, tensors, subgraph, context->target, cand);
-    double tmp = judge_schedule(tmp_sch, tensors, context->target, context->policy);
-    if (context->policy == "profile") {
-      context.add_feedback(ScheduleResult(tmp_sch, tensors, cand), tmp);
-    }
-    if (tmp > best_value) {
-      best_ind = count_cand;
-      best_value = tmp;
-    }
-    count_cand += 1;
+    interpret(tmp_sch, tensors, subgraph, context->target, new_candidates[i]);
+    tmp_schedules.push_back(tmp_sch);
   }
+  double gflop = 1;
+  std::vector<double> tmp_judges = judge_schedule(tmp_schedules, tensors, context->target, gflop, context->policy);
+  for (int i = 0; i < num_new_candidates; ++i) {
+    if (context->policy == "profile") {
+      context.add_feedback(ScheduleResult(tmp_schedules[i], tensors, new_candidates[i]), tmp_judges[i]);
+    }
+    if (tmp_judges[i] > best_value) {
+      best_ind = i;
+      best_value = tmp_judges[i];
+    }
+  }
+
+  std::cout << "check judge values:\n";
+  for (auto v : tmp_judges) {
+    std::cout << v << " ";
+  }
+  std::cout << "\n";
 
   MultiScheduleEntity result_entity = new_candidates[best_ind];
 
@@ -169,15 +190,12 @@ void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double ev
       self->topk_schedules.push(evaluated);
     }
   }
-
-  Feature feature = get_feature(schedule_result->schedule, schedule_result->tensors, self->target);
-  self->log_out << feature << " : " << evaluation << "\n";
 }
 
 
 ScheduleResult AutoScheduler::schedule_func(IntKey key, TIRGraph subgraph, Target target) {
   if (contexts.find(key) == contexts.end()) {
-    contexts[key] = AutoScheduleContext(key, subgraph, target);
+    contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
   }
 
   AutoScheduleContext context = contexts[key];
@@ -210,6 +228,8 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
   contexts[key].add_feedback(schedule_result, evaluation);
+  Feature feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
+  log_out << feature << " : " << evaluation << "\n";
 }
 
 

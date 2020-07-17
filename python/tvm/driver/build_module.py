@@ -98,8 +98,8 @@ def form_body(sch):
     # normalize schedule first
     sch = sch.normalize()
     bounds = schedule.InferBound(sch)
-    for k, v in bounds.items():
-        print(k, v)
+    # for k, v in bounds.items():
+    #     print(k, v)
     stmt = schedule.ScheduleOps(sch, bounds)
     stmt = ir_pass.InjectPrefetch(stmt)
     return stmt

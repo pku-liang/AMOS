@@ -13,6 +13,7 @@
 
 #include "schedule_space.h"
 #include "feature.h"
+#include "measure.h"
 #include "../utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
@@ -98,13 +99,12 @@ class AutoScheduleContextNode : public Object {
   Target target;
   MultiScheduleSpace spaces;
   int topk;
-  int number_per_trial;
+  int new_trial;
   std::priority_queue<
         EvaluatedScheduleResult,
         std::vector<EvaluatedScheduleResult>,
         std::greater<EvaluatedScheduleResult> > topk_schedules;
   std::unordered_set<MultiScheduleEntity, ObjectHash> known_schedules;
-  std::ofstream log_out;
   std::string policy;
 
   static constexpr const char* _type_key = "tg.autoschedule.AutoScheduleContext";
@@ -115,16 +115,14 @@ class AutoScheduleContextNode : public Object {
 class AutoScheduleContext : public ObjectRef {
  public:
   AutoScheduleContext(IntKey task_id, TIRGraph graph, Target target,
-  int topk=20, int number_per_trial=20, std::string log_file_name="autoschedule_log.txt",
-  std::string policy="profile") {
+  int topk=20, int new_trial=4, std::string policy="profile") {
     auto node = make_object<AutoScheduleContextNode>();
     node->task_id = task_id;
     node->graph = graph;
     node->target = target;
     node->spaces = MultiScheduleSpace(graph, target);
     node->topk = topk;
-    node->number_per_trial = number_per_trial;
-    node->log_out.open(log_file_name, std::ios::app);
+    node->new_trial = new_trial;
     node->policy = policy;
     data_ = std::move(node);
   }
@@ -135,27 +133,50 @@ class AutoScheduleContext : public ObjectRef {
 };
 
 
-// auto_schedule for one subgraph
-void auto_schedule(
-    TIRGraph subgraph,
-    AutoScheduleContext &context,
-    ScheduleResult &results);
-
-
 class AutoScheduler {
  private:
-  const static int schedule_trials_for_one = 10;
-  ThreadPool *thread_pool = nullptr;
+  int topk;
+  int new_trial;
+  std::string policy;
+  int parallel;
+  int profile_parallel;
+  double timeout;
+  double profile_timeout;
 
+  DLContext ctx;
+  ThreadPool *thread_pool = nullptr;
   std::unordered_map<IntKey, AutoScheduleContext> contexts;
+  std::ofstream log_out;
+  Measurer *measurer = nullptr;
 
   ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
  public:
-  AutoScheduler() { thread_pool = new ThreadPool(1); }
-  ~AutoScheduler() { if (thread_pool != nullptr) delete thread_pool; }
-  void reset() { if (thread_pool != nullptr) {delete thread_pool; thread_pool = new ThreadPool(1);} }
+  AutoScheduler(DLContext context, int topk, int new_trial, std::string policy, int parallel,
+  int profile_parallel, double timeout, double profile_timeout,
+  std::string log_file_name="autoschedule_log.txt")
+  : topk(topk), new_trial(new_trial), policy(policy), parallel(parallel),
+    profile_parallel(profile_parallel), timeout(timeout), profile_timeout(profile_timeout) {
+    ctx = context;
+    thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
+    log_out.open(log_file_name, std::ios::app); 
+    measurer = new Measurer(profile_parallel, profile_timeout);
+  }
+  ~AutoScheduler() {
+    if (thread_pool != nullptr) delete thread_pool;
+    log_out.close();
+    if (measurer != nullptr) delete measurer;
+  }
+  void reset() {
+    if (thread_pool != nullptr) {
+      delete thread_pool; thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
+    }
+    if (measurer != nullptr) {delete measurer; measurer = new Measurer(profile_parallel, profile_timeout);}
+  }
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
   void feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation);
+  std::vector<double> judge_schedule(
+    Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, double gflop, std::string policy);
+  void auto_schedule(TIRGraph subgraph, AutoScheduleContext &context, ScheduleResult &results);
 };
 
 
