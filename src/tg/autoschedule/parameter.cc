@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "parameter.h"
 #include "utils.h"
 
@@ -9,7 +11,7 @@ namespace tg {
 TVM_REGISTER_NODE_TYPE(SplitFactorEntityNode);
 
 
-namespace paramter {
+namespace parameter {
 
 bool IntImm_equal(const IntImm& a, const IntImm& b) {
   return a->value == b->value;
@@ -32,7 +34,7 @@ static bool array_equal(const Array<T>& a, const Array<T>& b, FCmp equal=std::eq
   return true;
 }
 
-}  // namespace paramter
+}  // namespace parameter
 
 
 size_t ParameterSubSpace::size() {
@@ -40,6 +42,7 @@ size_t ParameterSubSpace::size() {
 }
 
 
+/*********** split ************/
 SplitFactorEntity::SplitFactorEntity(std::vector<int> fs) {
   auto node = make_object<SplitFactorEntityNode>();
   for (auto f : fs) {
@@ -53,7 +56,7 @@ bool SplitFactorEntity::operator== (const SplitFactorEntity& other) const {
   if (this->get() == other.get()) {
     return true;
   }
-  return paramter::array_equal((*this)->factors, other->factors, paramter::IntImm_equal);
+  return parameter::array_equal((*this)->factors, other->factors, parameter::IntImm_equal);
 }
 
 
@@ -74,15 +77,190 @@ SplitFactorSubSpace::SplitFactorSubSpace(int extent, int nparts, std::string pol
 }
 
 
-SplitFactorEntity SplitFactorSubSpace::choose_one(std::string policy) {
+SplitFactorEntity SplitFactorSubSpace::choose_one() {
   int low = 0, high = (int)(*this)->split_factors.size();
   int ind = randint(low, high);
   return (*this)->split_factors[ind];
 }
 
 
+SplitFactorEntity SplitFactorSubSpace::choose_one(SplitFactorEntity hint) {
+  int low = 0, high = (int)(hint->factors.size());
+  if (low + 1 == high) {
+    // only one factor, actually no split
+    return hint;
+  } else if (low + 1 < high) {
+    int pos1 = randint(low, high-1);
+    int pos2 = randint(pos1, high);
+    int exchange = randint(0, 2);
+    if (exchange == 1) {
+      std::swap(pos1, pos2);
+    }
+    return choose_one(hint, pos1, pos2);
+  } else {
+    ERROR << "Bad SplitFactorEntity with empty factors.\n";
+    return hint;
+  }
+}
+
+
+SplitFactorEntity SplitFactorSubSpace::choose_one(SplitFactorEntity hint, int inc, int dec) {
+  int factor = get_minimal_factor(hint->factors[dec]->value);
+  std::vector<int> new_factors;
+  for (auto v : hint->factors) {
+    new_factors.push_back(v->value);
+  }
+  new_factors[inc] *= factor;
+  new_factors[dec] /= factor;
+  return SplitFactorEntity(new_factors);
+}
+
+
 size_t SplitFactorSubSpace::size() {
   return (*this)->split_factors.size();
+}
+
+
+/*********** choice ************/
+ChoiceEntity::ChoiceEntity(int c) {
+  auto node = make_object<ChoiceEntityNode>();
+  node->choice = c;
+  data_ = std::move(node);
+}
+
+
+bool ChoiceEntity::operator== (const ChoiceEntity& other) const {
+  if (this->get() == other.get()) {
+    return true;
+  }
+  return (*this)->choice == other->choice;
+}
+
+
+bool ChoiceEntity::operator!= (const ChoiceEntity& other) const {
+  return !((*this) == other);
+}
+
+
+// ChoiceSubSpace::ChoiceSubSpace(std::vector<int> choices) {
+//   auto node = make_object<ChoiceSubSpaceNode>();
+//   for (auto c : choices) {
+//     node->choices.push_back(ChoiceEntity(c));
+//   }
+
+//   data_ = std::move(node);
+// }
+
+
+ChoiceSubSpace::ChoiceSubSpace(int num_choices) {
+  auto node = make_object<ChoiceSubSpaceNode>();
+  node->num_choices = num_choices;
+
+  data_ = std::move(node);
+}
+
+
+ChoiceEntity ChoiceSubSpace::choose_one() {
+  int low = 0, high = (*this)->num_choices;
+  int ind = randint(low, high);
+  return ChoiceEntity(ind);
+}
+
+
+ChoiceEntity ChoiceSubSpace::choose_one(ChoiceEntity hint) {
+  int inc = randint(0, 2);
+  int delta = inc == 0 ? -1 : 1;
+  return choose_one(hint, delta);
+}
+
+
+ChoiceEntity ChoiceSubSpace::choose_one(ChoiceEntity hint, int delta) {
+  int result = hint->choice + delta;
+  if (result < 0) {
+    result = 0;
+  }
+  if (result >= (*this)->num_choices) {
+    result = (*this)->num_choices - 1;
+  }
+  return ChoiceEntity(result);
+}
+
+
+size_t ChoiceSubSpace::size() {
+  return (*this)->num_choices;
+}
+
+
+/*********** multi-choice ************/
+MultiChoiceEntity::MultiChoiceEntity(std::vector<int> multi_choice) {
+  auto node = make_object<MultiChoiceEntityNode>();
+  for (auto v : multi_choice) {
+    node->multi_choice.push_back(IntImm(DataType::Int(32), v));
+  }
+  data_ = std::move(node);
+}
+
+
+bool MultiChoiceEntity::operator== (const MultiChoiceEntity& other) const {
+  if (this->get() == other.get()) {
+    return true;
+  }
+  return parameter::array_equal((*this)->multi_choice, other->multi_choice, parameter::IntImm_equal);
+}
+
+
+bool MultiChoiceEntity::operator!= (const MultiChoiceEntity& other) const {
+  return !((*this) == other);
+}
+
+
+MultiChoiceSubSpace::MultiChoiceSubSpace(int total, int want) {
+  auto node = make_object<MultiChoiceSubSpaceNode>();
+  std::vector<std::vector<int> > tmp;
+  choose_from(total, want, tmp);
+  for (auto lst : tmp) {
+    node->multi_choices.push_back(MultiChoiceEntity(lst));
+  }
+
+  data_ = std::move(node);
+}
+
+
+MultiChoiceEntity MultiChoiceSubSpace::choose_one() {
+  int low = 0, high = (int)((*this)->multi_choices.size());
+  int ind = randint(low, high);
+  return (*this)->multi_choices[ind];
+}
+
+
+MultiChoiceEntity MultiChoiceSubSpace::choose_one(MultiChoiceEntity hint) {
+  int inc = randint(0, 2);
+  int delta = inc == 0 ? -1 : 1;
+  return choose_one(hint, delta);
+}
+
+
+MultiChoiceEntity MultiChoiceSubSpace::choose_one(MultiChoiceEntity hint, int delta) {
+  int ind = 0;
+  auto self = (*this);
+  for (auto entity : self->multi_choices) {
+    if (entity == hint) {
+      break;
+    }
+    ind += 1;
+  }
+  ind += delta;
+  if (ind < 0) {
+    ind = 0;
+  } else if (ind >= (int)(self->multi_choices.size())) {
+    ind = (int)(self->multi_choices.size()) - 1;
+  }
+  return self->multi_choices[ind];
+}
+
+
+size_t MultiChoiceSubSpace::size() {
+  return (*this)->multi_choices.size();
 }
 
 }  // namespace tg

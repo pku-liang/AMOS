@@ -72,8 +72,9 @@ public:
                   << file_ << " line:" << lineno_ << " ";
         break;
       case LogLevel::tERROR:
-        std::cerr << "[Error] " << "[time=" << ms.count() << "] "
+        {std::cerr << "[Error] " << "[time=" << ms.count() << "] "
                   << file_ << " line:" << lineno_ << " ";
+        abort();}
         break;
       default:
         break;

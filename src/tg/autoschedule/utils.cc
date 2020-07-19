@@ -56,6 +56,55 @@ bool able_inline(
 }
 
 
+int get_minimal_factor(int value) {
+  int bound = (int)std::sqrt(value);
+  for (int i = 2; i <= bound; ++i) {
+    if (value % i == 0) {
+      return i;
+    }
+  }
+  if (value >= 2) {
+    return 2;
+  }
+  return 1;
+}
+
+
+
+void get_factor_list(int value, std::unordered_set<int> &factors, std::string policy) {
+  static std::unordered_map<std::pair<int, std::string>, std::unordered_set<int> > factor_cache;
+
+  auto f_key = std::make_pair(value, policy);
+  if (factor_cache.find(f_key) != factor_cache.end()) {
+    factors = factor_cache[f_key];
+  } else {
+    int bound = (int)std::sqrt(value);
+    if (policy == "power2") {
+      int beg = 1;
+      for (int i = 1; i <= bound; ++i) {
+        if (value % i == 0) {
+          factors.insert(i);
+          factors.insert(value / i);
+        }
+        // when x > 16, log2(x) < sqrt(x)
+        if (beg <= value) {
+          factors.insert(beg);
+          beg *= 2;
+        }
+      }
+    } else {
+      for (int i = 1; i <= bound; ++i) {
+        if (value % i == 0) {
+          factors.insert(i);
+          factors.insert(value / i);
+        }
+      }
+    }
+    factor_cache[f_key] = factors;
+  }
+}
+
+
 void any_part_split(
   int extent,
   int nparts,
@@ -67,7 +116,6 @@ void any_part_split(
 
   auto key = std::make_tuple(extent, nparts, policy);
   static std::unordered_map<std::tuple<int, int, std::string>, std::vector<std::vector<int> > > split_cache;
-  static std::unordered_map<std::pair<int, std::string>, std::unordered_set<int> > factor_cache;
 
   if (split_cache.find(key) != split_cache.end()) {
     for (auto val : split_cache[key]) {
@@ -90,34 +138,7 @@ void any_part_split(
     }
 
     std::unordered_set<int> factors;
-    auto f_key = std::make_pair(cur_value, policy);
-    if (factor_cache.find(f_key) != factor_cache.end()) {
-      factors = factor_cache[f_key];
-    } else {
-      int bound = (int)std::sqrt(cur_value);
-      if (policy == "power2") {
-        int beg = 1;
-        for (int i = 1; i <= bound; ++i) {
-          if (cur_value % i == 0) {
-            factors.insert(i);
-            factors.insert(cur_value / i);
-          }
-          // when x > 16, log2(x) < sqrt(x)
-          if (beg <= cur_value) {
-            factors.insert(beg);
-            beg *= 2;
-          }
-        }
-      } else {
-        for (int i = 1; i <= bound; ++i) {
-          if (cur_value % i == 0) {
-            factors.insert(i);
-            factors.insert(cur_value / i);
-          }
-        }
-      }
-      factor_cache[f_key] = factors;
-    }
+    get_factor_list(cur_value, factors, policy);
 
     for (auto f : factors) {
       int left = cur_value / f;

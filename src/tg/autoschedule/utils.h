@@ -30,6 +30,12 @@ bool able_inline(
   const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph);
 
 
+int get_minimal_factor(int value);
+
+
+void get_factor_list(int value, std::vector<int> &factors, std::string policy="normal");
+
+
 void any_part_split(
   int extent,
   int nparts,

@@ -41,6 +41,7 @@ class ParameterSubSpace : public ObjectRef {
 };
 
 
+/*********** split ************/
 class SplitFactorEntityNode : public EntityNode {
  public:
   Array<IntImm> factors;
@@ -78,11 +79,119 @@ class SplitFactorSubSpace : public ParameterSubSpace {
  public:
   SplitFactorSubSpace(int extent, int nparts, std::string policy="normal");
 
-  SplitFactorEntity choose_one(std::string policy="random");
+  /* pure random */
+  SplitFactorEntity choose_one();
+  /* random direction */
+  SplitFactorEntity choose_one(SplitFactorEntity hint);
+  /* appointed direction */
+  SplitFactorEntity choose_one(SplitFactorEntity hint, int inc, int dec);
 
   size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SplitFactorSubSpace, ParameterSubSpace, SplitFactorSubSpaceNode);
+};
+
+
+/*********** choice ************/
+class ChoiceEntityNode : public EntityNode {
+ public:
+  int choice;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("choice", &choice);
+  }
+  
+  static constexpr const char* _type_key = "tg.autoschedule.ChoiceEntity";
+  TVM_DECLARE_FINAL_OBJECT_INFO(ChoiceEntityNode, EntityNode);
+};
+
+
+class ChoiceEntity : public Entity {
+ public:
+  ChoiceEntity(int c);
+
+  bool operator== (const ChoiceEntity& other) const;
+  bool operator!= (const ChoiceEntity& other) const;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ChoiceEntity, Entity, ChoiceEntityNode);
+};
+
+
+class ChoiceSubSpaceNode : public ParameterSubSpaceNode {
+ public:
+  int num_choices;
+  
+  static constexpr const char* _type_key = "tg.autoschedule.ChoiceSubSpace";
+  TVM_DECLARE_FINAL_OBJECT_INFO(ChoiceSubSpaceNode, ParameterSubSpaceNode);
+};
+
+
+class ChoiceSubSpace : public ParameterSubSpace {
+ public:
+  // ChoiceSubSpace(std::vector<int> choices);
+  ChoiceSubSpace(int num_choices);
+
+  /* pure random */
+  ChoiceEntity choose_one();
+  /* random direction */
+  ChoiceEntity choose_one(ChoiceEntity hint);
+  /* appointed direction */
+  ChoiceEntity choose_one(ChoiceEntity hint, int delta);
+
+  size_t size() final;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ChoiceSubSpace, ParameterSubSpace, ChoiceSubSpaceNode);
+};
+
+
+/*********** multi-choice ************/
+class MultiChoiceEntityNode : public EntityNode {
+ public:
+  Array<IntImm> multi_choice;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("multi_choice", &multi_choice);
+  }
+  
+  static constexpr const char* _type_key = "tg.autoschedule.MultiChoiceEntity";
+  TVM_DECLARE_FINAL_OBJECT_INFO(MultiChoiceEntityNode, EntityNode);
+};
+
+
+class MultiChoiceEntity : public Entity {
+ public:
+  MultiChoiceEntity(std::vector<int> multi_choice);
+
+  bool operator== (const MultiChoiceEntity& other) const;
+  bool operator!= (const MultiChoiceEntity& other) const;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MultiChoiceEntity, Entity, MultiChoiceEntityNode);
+};
+
+
+class MultiChoiceSubSpaceNode : public ParameterSubSpaceNode {
+ public:
+  std::vector<MultiChoiceEntity> multi_choices;
+  
+  static constexpr const char* _type_key = "tg.autoschedule.MultiChoiceSubSpace";
+  TVM_DECLARE_FINAL_OBJECT_INFO(MultiChoiceSubSpaceNode, ParameterSubSpaceNode);
+};
+
+
+class MultiChoiceSubSpace : public ParameterSubSpace {
+ public:
+  MultiChoiceSubSpace(int total, int want);
+
+  /* pure random */
+  MultiChoiceEntity choose_one();
+  /* random direction */
+  MultiChoiceEntity choose_one(MultiChoiceEntity hint);
+  /* appointed direction */
+  MultiChoiceEntity choose_one(MultiChoiceEntity hint, int delta);
+
+  size_t size() final;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MultiChoiceSubSpace, ParameterSubSpace, MultiChoiceSubSpaceNode);
 };
 
 

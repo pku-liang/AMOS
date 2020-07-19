@@ -32,10 +32,39 @@ class ScheduleSubSpace : public ObjectRef {
 /************** schedule skeleton *************/
 class ScheduleSkeletonNode : public Object {
  public:
+  /* 
+   * 0: no merge
+   * 1: compute at
+   * 2: compute inline
+   */
+  int merge;
+  /* 
+   * true: do tiling and binding
+   * false: not do tiling and binding
+   */
   bool do_tiling_and_binding;
+  /* 
+   * true: use local cache
+   * false: don't use local cache
+   */
+  bool buffer_output;
+  /* 
+   * true: use allreduce
+   * false: don't use allreduce
+   */
+  bool use_allreduce;
+  /* 
+   * 1: use buffer input
+   * 0: don't use buffer input
+   */
+  Array<IntImm> buffer_input;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("merge", &merge);
     v->Visit("do_tiling_and_binding", &do_tiling_and_binding);
+    v->Visit("buffer_output", &buffer_output);
+    v->Visit("use_allreduce", &use_allreduce);
+    v->Visit("buffer_input", &buffer_input);
   }
 
   static constexpr const char* _type_key = "tg.autoschedule.ScheduleSkeleton";
@@ -46,7 +75,11 @@ class ScheduleSkeletonNode : public Object {
 class ScheduleSkeleton : public ObjectRef {
  public:
   ScheduleSkeleton(
+    // int merge,
     bool do_tiling_and_binding
+    // bool buffer_output,
+    // bool use_allreduce,
+    // Array<IntImm> buffer_input,
   );
   
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ScheduleSkeleton, ObjectRef, ScheduleSkeletonNode);
@@ -57,8 +90,40 @@ void generate_schedule_skeletons(te::Operation op, Target target, std::vector<Sc
 
 
 /************** merge *************/
+class MergeEntityNode : public EntityNode {
+ public:
+  ChoiceEntity compute_at_position;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("compute_at_position", &compute_at_position);
+  }
+
+  static constexpr const char* _type_key = "tg.autoschedule.MergeEntity";
+  TVM_DECLARE_FINAL_OBJECT_INFO(MergeEntityNode, EntityNode);
+};
+
+
+class MergeEntity : public Entity {
+ public:
+  MergeEntity(ChoiceEntity position);
+
+  bool operator== (const MergeEntity& other) const;
+  bool operator!= (const MergeEntity& other) const;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MergeEntity, Entity, MergeEntityNode);
+};
+
+
+/*
+ * this represents compute_at schedule
+ * the space enumerates possbile compute_at position
+ */
 class MergeSubSpaceNode : public ScheduleSubSpaceNode {
  public:
+  /*
+   * the choice granularity is block, vthread, thread, inner
+   * */
+  ChoiceSubSpace compute_at_positions;
 
   static constexpr const char* _type_key = "tg.autoschedule.MergeSubSpace";
   TVM_DECLARE_FINAL_OBJECT_INFO(MergeSubSpaceNode, ScheduleSubSpaceNode);
@@ -67,30 +132,77 @@ class MergeSubSpaceNode : public ScheduleSubSpaceNode {
 
 class MergeSubSpace : public ScheduleSubSpace {
  public:
+  MergeSubSpace(int levels);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MergeSubSpace, ScheduleSubSpace, MergeSubSpaceNode);
 };
 
 
 /************** buffer output *************/
-class BufferOutputSubSpaceNode : public ScheduleSubSpaceNode {
- public:
+// class BufferOutputSubSpaceNode : public ScheduleSubSpaceNode {
+//  public:
 
-  static constexpr const char* _type_key = "tg.autoschedule.BufferOutputSubSpace";
-  TVM_DECLARE_FINAL_OBJECT_INFO(BufferOutputSubSpaceNode, ScheduleSubSpaceNode);
-};
+//   static constexpr const char* _type_key = "tg.autoschedule.BufferOutputSubSpace";
+//   TVM_DECLARE_FINAL_OBJECT_INFO(BufferOutputSubSpaceNode, ScheduleSubSpaceNode);
+// };
 
 
-class BufferOutputSubSpace : public ScheduleSubSpace {
- public:
+// class BufferOutputSubSpace : public ScheduleSubSpace {
+//  public:
 
-  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferOutputSubSpace, ScheduleSubSpace, BufferOutputSubSpaceNode);
-};
+//   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferOutputSubSpace, ScheduleSubSpace, BufferOutputSubSpaceNode);
+// };
 
 
 /************** allreduce *************/
+class AllreduceEntityNode : public EntityNode {
+ public:
+  Array<IntImm> need_tile;
+  Array<SplitFactorEntity> split_factor_entities;
+  Array<IntImm> reduce_need_tile;
+  Array<SplitFactorEntity> reduce_split_factor_entities;
+  int parallel_parent_axis_id;
+  ChoiceEntity use_factor;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("need_tile", &need_tile);
+    v->Visit("split_factor_entities", &split_factor_entities);
+    v->Visit("reduce_need_tile", &reduce_need_tile);
+    v->Visit("reduce_split_factor_entities", &reduce_split_factor_entities);
+    v->Visit("parallel_parent_axis_id", &parallel_parent_axis_id);
+    v->Visit("use_factor", &use_factor);
+  }
+  
+  static constexpr const char* _type_key = "tg.autoschedule.AllreduceEntity";
+  TVM_DECLARE_FINAL_OBJECT_INFO(AllreduceEntityNode, EntityNode);
+};
+
+
+class AllreduceEntity : public Entity {
+ public:
+  AllreduceEntity(
+    std::vector<bool> a,
+    std::vector<SplitFactorEntity> b,
+    std::vector<bool> c,
+    std::vector<SplitFactorEntity> d,
+    int parallel_parent_axis_id,
+    ChoiceEntity use_factor);
+
+  bool operator== (const AllreduceEntity& other) const;
+  bool operator!= (const AllreduceEntity& other) const;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AllreduceEntity, Entity, AllreduceEntityNode);
+};
+
+
 class AllreduceSubSpaceNode : public ScheduleSubSpaceNode {
  public:
+  std::vector<bool> need_tile;
+  std::vector<SplitFactorSubSpace> split_factor_spaces;
+  std::vector<bool> reduce_need_tile;
+  std::vector<SplitFactorSubSpace> reduce_split_factor_spaces;
+  int parallel_parent_axis_id;
+  ChoiceSubSpace use_factor;
 
   static constexpr const char* _type_key = "tg.autoschedule.AllreduceSubSpace";
   TVM_DECLARE_FINAL_OBJECT_INFO(AllreduceSubSpaceNode, ScheduleSubSpaceNode);
@@ -99,6 +211,7 @@ class AllreduceSubSpaceNode : public ScheduleSubSpaceNode {
 
 class AllreduceSubSpace : public ScheduleSubSpace {
  public:
+  AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_axis, int parts, int reduce_parts);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AllreduceSubSpace, ScheduleSubSpace, AllreduceSubSpaceNode);
 };
@@ -239,8 +352,34 @@ class TilingAndBindingSubSpace : public ScheduleSubSpace {
 
 
 /************** buffer input *************/
+class BufferInputEntityNode : public EntityNode {
+ public:
+  Array<MultiChoiceEntity> compute_at_position;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("compute_at_position", &compute_at_position);
+  }
+  
+  static constexpr const char* _type_key = "tg.autoschedule.BufferInputEntity";
+  TVM_DECLARE_FINAL_OBJECT_INFO(BufferInputEntityNode, EntityNode);
+};
+
+
+class BufferInputEntity : public Entity {
+ public:
+  BufferInputEntity(
+    std::vector<MultiChoiceEntity> position);
+
+  bool operator== (const BufferInputEntity& other) const;
+  bool operator!= (const BufferInputEntity& other) const;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferInputEntity, Entity, BufferInputEntityNode);
+};
+
+
 class BufferInputSubSpaceNode : public ScheduleSubSpaceNode {
  public:
+  std::vector<MultiChoiceSubSpace> compute_at_position;
 
   static constexpr const char* _type_key = "tg.autoschedule.BufferInputSubSpace";
   TVM_DECLARE_FINAL_OBJECT_INFO(BufferInputSubSpaceNode, ScheduleSubSpaceNode);
@@ -249,14 +388,46 @@ class BufferInputSubSpaceNode : public ScheduleSubSpaceNode {
 
 class BufferInputSubSpace : public ScheduleSubSpace {
  public:
+  BufferInputSubSpace(Array<te::Tensor> tensors, int total, int want);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferInputSubSpace, ScheduleSubSpace, BufferInputSubSpaceNode);
 };
 
 
 /************** unroll *************/
+class UnrollEntityNode : public EntityNode {
+ public:
+  ChoiceEntity choice;
+  int depth;
+  bool explicit_;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("choice", &choice);
+    v->Visit("depth", &depth);
+    v->Visit("explicit", &explicit_);
+  }
+  
+  static constexpr const char* _type_key = "tg.autoschedule.UnrollEntity";
+  TVM_DECLARE_FINAL_OBJECT_INFO(UnrollEntityNode, EntityNode);
+};
+
+
+class UnrollEntity : public Entity {
+ public:
+  UnrollEntity(
+    ChoiceEntity choice, int depth, bool explicit_);
+
+  bool operator== (const UnrollEntity& other) const;
+  bool operator!= (const UnrollEntity& other) const;
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(UnrollEntity, Entity, UnrollEntityNode);
+};
+
+
 class UnrollSubSpaceNode : public ScheduleSubSpaceNode {
  public:
+  ChoiceSubSpace choices;
+  std::vector<std::pair<int, bool> > choices_;
 
   static constexpr const char* _type_key = "tg.autoschedule.UnrollSubSpace";
   TVM_DECLARE_FINAL_OBJECT_INFO(UnrollSubSpaceNode, ScheduleSubSpaceNode);
@@ -265,6 +436,7 @@ class UnrollSubSpaceNode : public ScheduleSubSpaceNode {
 
 class UnrollSubSpace : public ScheduleSubSpace {
  public:
+  UnrollSubSpace(int max_depth);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(UnrollSubSpace, ScheduleSubSpace, UnrollSubSpaceNode);
 };

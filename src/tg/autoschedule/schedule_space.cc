@@ -6,9 +6,13 @@ namespace tvm {
 namespace tg {
 
 TVM_REGISTER_NODE_TYPE(ScheduleSkeletonNode);
+TVM_REGISTER_NODE_TYPE(MergeEntityNode);
+TVM_REGISTER_NODE_TYPE(AllreduceEntityNode);
 TVM_REGISTER_NODE_TYPE(TilingEntityNode);
 TVM_REGISTER_NODE_TYPE(BindingEntityNode);
 TVM_REGISTER_NODE_TYPE(TilingAndBindingEntityNode);
+TVM_REGISTER_NODE_TYPE(BufferInputEntityNode);
+TVM_REGISTER_NODE_TYPE(UnrollEntityNode);
 TVM_REGISTER_NODE_TYPE(ScheduleEntityNode);
 TVM_REGISTER_NODE_TYPE(MultiScheduleEntityNode);
 
@@ -63,6 +67,138 @@ void generate_schedule_skeletons(
     tiling_and_binding
   );
   to_store.push_back(tmp);
+}
+
+
+/************** merge *************/
+MergeEntity::MergeEntity(ChoiceEntity position) {
+  auto node = make_object<MergeEntityNode>();
+  node->compute_at_position = position;
+  data_ = std::move(node);
+}
+
+
+bool MergeEntity::operator== (const MergeEntity& other) const {
+  return (*this)->compute_at_position == other->compute_at_position;
+}
+
+
+bool MergeEntity::operator!= (const MergeEntity& other) const {
+  return !((*this) == other);
+}
+
+
+MergeSubSpace::MergeSubSpace(int levels) {
+  auto node = make_object<MergeSubSpaceNode>();
+  node->compute_at_positions = ChoiceSubSpace(levels);
+  data_ = std::move(node);
+}
+
+
+/************** allreduce *************/
+AllreduceEntity::AllreduceEntity(
+    std::vector<bool> a,
+    std::vector<SplitFactorEntity> b,
+    std::vector<bool> c,
+    std::vector<SplitFactorEntity> d,
+    int parallel_parent_axis_id,
+    ChoiceEntity use_factor
+) {
+  auto node = make_object<AllreduceEntityNode>();
+  for (auto v : a) {
+    node->need_tile.push_back(IntImm(DataType::Int(32), v));
+  }
+  node->split_factor_entities = Array<SplitFactorEntity>(b);
+  for (auto v : c) {
+    node->reduce_need_tile.push_back(IntImm(DataType::Int(32), v));
+  }
+  node->reduce_split_factor_entities = Array<SplitFactorEntity>(d);
+  node->parallel_parent_axis_id = parallel_parent_axis_id;
+  node->use_factor = use_factor;
+  data_ = std::move(node);
+}
+
+
+bool AllreduceEntity::operator== (const AllreduceEntity& other) const {
+  auto self = (*this);
+  return schedule_space::array_equal(self->need_tile, other->need_tile, schedule_space::IntImm_equal)
+         && schedule_space::array_equal(self->split_factor_entities, other->split_factor_entities)
+         && schedule_space::array_equal(self->reduce_need_tile, other->reduce_need_tile, schedule_space::IntImm_equal)
+         && schedule_space::array_equal(self->reduce_split_factor_entities, other->reduce_split_factor_entities)
+         && self->parallel_parent_axis_id == other->parallel_parent_axis_id
+         && self->use_factor == other->use_factor;
+}
+
+
+bool AllreduceEntity::operator!= (const AllreduceEntity& other) const {
+  return !((*this) == other);
+}
+
+
+AllreduceSubSpace::AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_axis, int parts, int reduce_parts) {
+  auto node = make_object<AllreduceSubSpaceNode>();
+  // first for spatial split
+  int count_axis = 0;
+  int count_split_axis = 0;
+  std::vector<int> axis_id_to_split;
+  std::vector<int> extents;
+  /* keep track of the biggest two extents */
+  /* axis id, extent */
+  using AxesExtent = std::pair<int, int>;
+  std::vector<AxesExtent> top2;
+  top2.push_back(std::make_pair(-1, -1));
+  top2.push_back(std::make_pair(-1, -1));
+  for (auto iv : axis) {
+    int extent = get_const_int(iv->dom->extent);
+    extents.push_back(extent);
+    
+    if (extent == 1) {
+      // do not consider axis with extent=1
+      node->need_tile.push_back(false);
+    } else {
+      if (extent > top2[0].second) {
+        top2[1] = top2[0];
+        top2[0] = std::make_pair(count_axis, extent);
+      } else if (extent > top2[1].second) {
+        top2[1] = std::make_pair(count_axis, extent);
+      }
+
+      axis_id_to_split.push_back(count_axis);
+      node->need_tile.push_back(true);
+      count_split_axis += 1;
+    }
+    node->split_factor_spaces.push_back(SplitFactorSubSpace(extent, parts, "power2"));
+
+    count_axis += 1;
+  }  // end for axis
+
+  // then for reduce split
+  int count_reduce_axis = 0;
+  std::vector<int> reduce_extents;
+  /* keep track of the biggest extent */
+  /* axis id, extent */
+  using AxesExtent = std::pair<int, int>;
+  AxesExtent top1 = std::make_pair(-1, -1);
+  for (auto iv : reduce_axis) {
+    int extent = get_const_int(iv->dom->extent);
+    reduce_extents.push_back(extent);
+    
+    if (extent > top1.second) {
+      top1 = std::make_pair(count_reduce_axis, extent);
+    }
+    node->reduce_need_tile.push_back(true);
+
+    node->reduce_split_factor_spaces.push_back(SplitFactorSubSpace(extent, reduce_parts, "power2"));
+
+    count_reduce_axis += 1;
+  }  // end for axis
+
+  // the axis to parallel reduce
+  node->parallel_parent_axis_id = top1.first;
+
+  node->use_factor = ChoiceSubSpace(2);
+
+  data_ = std::move(node);
 }
 
 
@@ -321,6 +457,70 @@ size_t TilingAndBindingSubSpace::size() {
     ret *= s.size();
   }
   return ret;
+}
+
+
+/************** buffer input *************/
+BufferInputEntity::BufferInputEntity(std::vector<MultiChoiceEntity> position) {
+  auto node = make_object<BufferInputEntityNode>();
+  for (auto p : position) {
+    node->compute_at_position.push_back(p);
+  }
+  data_ = std::move(node);
+}
+
+
+bool BufferInputEntity::operator== (const BufferInputEntity& other) const {
+  return schedule_space::array_equal((*this)->compute_at_position, other->compute_at_position);
+}
+
+
+bool BufferInputEntity::operator!= (const BufferInputEntity& other) const {
+  return !((*this) == other);
+}
+
+
+BufferInputSubSpace::BufferInputSubSpace(Array<te::Tensor> tensors, int total, int want) {
+  auto node = make_object<BufferInputSubSpaceNode>();
+  for (auto t : tensors) {
+    node->compute_at_position.push_back(MultiChoiceSubSpace(total, want));
+  }
+  data_ = std::move(node);
+}
+
+
+/************** schedule space *************/
+UnrollEntity::UnrollEntity(ChoiceEntity choice, int depth, bool explicit_) {
+  auto node = make_object<UnrollEntityNode>();
+  node->choice = choice;
+  node->depth = depth;
+  node->explicit_ = explicit_;
+  data_ = std::move(node);
+}
+
+
+bool UnrollEntity::operator== (const UnrollEntity& other) const {
+  auto self = (*this);
+  return (self->choice == other->choice)
+         && (self->depth == other->depth)
+         && (self->explicit_ == other->explicit_);
+}
+
+
+bool UnrollEntity::operator!= (const UnrollEntity& other) const {
+  return !((*this) == other);
+}
+
+
+UnrollSubSpace::UnrollSubSpace(int max_depth) {
+  auto node = make_object<UnrollSubSpaceNode>();
+  for (int d = 1; d <= max_depth; d *= 2) {
+    for (int e = 0; e < 2; ++e) {
+      node->choices_.push_back(std::make_pair(d, (bool)e));
+    }
+  }
+  node->choices = ChoiceSubSpace((int)(node->choices_.size()));
+  data_ = std::move(node);
 }
 
 

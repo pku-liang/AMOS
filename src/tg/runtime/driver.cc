@@ -175,7 +175,7 @@ void Session::run_functions(
   for (int ad = 0; ad < advance_number; ++ad) {
     if (sess_option->report_iteration)
       std::cerr << "Iteration: " << ad << "\n";
-    else:
+    else
       progress_bar.draw(((double)(ad) / advance_number));
     std::unordered_map<IntKey, int> call_order;
     std::unordered_set<IntKey> free_set;
