@@ -115,32 +115,6 @@ public:
 template<typename Function, typename T>
 class CallFunc {
  public:
-  // template<typename Tuple, size_t ... I>
-  // void call(Function f, Tuple t, std::index_sequence<I ...>) {
-  //     f(std::get<I>(t) ...);
-  // }
-
-  // template<typename Tuple>
-  // void call(Function f, Tuple t) {
-  //     static constexpr auto size = std::tuple_size<Tuple>::value;
-  //     return call(f, t, std::make_index_sequence<size>());
-  // }
-
-  // template<typename Tuple>
-  // void call_function(Function f, std::vector<T> v, Tuple t) {
-  //   if (v.empty()) call(f, t);
-  //   else {
-  //     auto new_t = std::tuple_cat(std::make_tuple(v.back()), t);
-  //     v.pop_back();
-  //     call_function(f, v, t);
-  //   }
-  // }
-
-  // void call_function(Function f, std::vector<T> v) {
-  //   auto t = std::make_tuple();
-  //   call_function(f, v, t);
-  // }
-
   void call_func_0(Function f) {
     f();
   }
@@ -221,6 +195,34 @@ class print{
       std::cerr << std::forward<T>(x);
     }
     return *this;
+  }
+};
+
+
+class ProgressBar {
+ private:
+  int length;
+ public:
+  ProgressBar(int length=80) : length(length) {}
+
+  void draw(double progress) {
+    if (progress < 0) {
+      progress = 0.0;
+    } else if (progress > 1) {
+      progress = 1.0;
+    }
+    int pos = (int)(progress * (length - 2));
+    print(0) << "[";
+    for (int i = 0; i < length - 2; ++i) {
+      if (i < pos) {
+        print(0) << "#";
+      } else if (i == pos) {
+        print(0) << "X";
+      } else {
+        print(0) << " ";
+      }
+    }
+    print(0) << "]\r";
   }
 };
 

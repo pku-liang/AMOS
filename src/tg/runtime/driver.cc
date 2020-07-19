@@ -170,9 +170,13 @@ void Session::run_functions(
   int advance_number = (int)bindings.size();
   double total_execution_time = 0.0;
   double best_execution_time = 1e10;
+  ProgressBar progress_bar;
 
   for (int ad = 0; ad < advance_number; ++ad) {
-    print(3) << "Iteration: " << ad << "\n";
+    if (sess_option->report_iteration)
+      std::cerr << "Iteration: " << ad << "\n";
+    else:
+      progress_bar.draw(((double)(ad) / advance_number));
     std::unordered_map<IntKey, int> call_order;
     std::unordered_set<IntKey> free_set;
     for (auto kv : multi_graph->graph_attrs) {
@@ -474,7 +478,7 @@ void Session::run_functions(
     if (execution_time < best_execution_time)
       best_execution_time = execution_time;
     if (sess_option->report_iteration && ((ad + 1) % sess_option->report_iteration_period == 0)) {
-      print(2) << "Time cost: " << execution_time << " ms.\n";
+      std::cerr << "Time cost: " << execution_time << " ms.\n";
     }
     if (ad > 0)
       total_execution_time += execution_time;
