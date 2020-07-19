@@ -55,6 +55,10 @@ std::vector<double> AutoScheduler::judge_schedule(
   if (f == nullptr) {
     if (policy == "profile") {
       ret = measurer->measure(schedules, tensors, target, ctx, gflop);
+    } else if (policy == "random") {
+      for (auto sch : schedules) {
+        ret.push_back(randdouble());
+      }
     } else {
       std::cerr << "No support for policy: " << policy << ".";
       abort();
@@ -164,11 +168,13 @@ void AutoScheduler::auto_schedule(
     }
   }
 
-  std::cout << "check judge values:\n";
-  for (auto v : tmp_judges) {
-    std::cout << v << " ";
+  if (report_profile) {
+    std::cout << "check judge values:\n";
+    for (auto v : tmp_judges) {
+      std::cout << v << " ";
+    }
+    std::cout << "\n";
   }
-  std::cout << "\n";
 
   MultiScheduleEntity result_entity = new_candidates[best_ind];
 

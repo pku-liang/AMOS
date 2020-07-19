@@ -11,6 +11,7 @@ def create_session_option(
   report_profile=False,
   report_iteration=True,
   report_iteration_period=100,
+  autoschedule_trial_ratio=0.5,
   autoschedule_topk=20,
   autoschedule_new_trial=4,
   autoschedule_policy="profile",
@@ -21,6 +22,7 @@ def create_session_option(
   profile_timeout=10.0,
   build_parallel=1,
   build_timeout=1.0,
+  execution_explore_probability=0.5,
   execution_parallel=1,
   execution_timeout=100.0):
   """Creates a SessionOption
@@ -32,6 +34,8 @@ def create_session_option(
   report_iteration : bool
 
   report_iteration_period : int
+
+  autoschedule_trial_ratio : double
 
   autoschedule_topk : int
 
@@ -56,6 +60,8 @@ def create_session_option(
 
   build_timeout : float
         in seconds
+
+  execution_explore_probability : double
   
   execution_parallel : int
 
@@ -70,6 +76,7 @@ def create_session_option(
     report_profile,
     report_iteration,
     report_iteration_period,
+    autoschedule_trial_ratio,
     autoschedule_topk,
     autoschedule_new_trial,
     autoschedule_policy,
@@ -80,6 +87,7 @@ def create_session_option(
     profile_timeout,
     build_parallel,
     build_timeout,
+    execution_explore_probability,
     execution_parallel,
     execution_timeout)
 

@@ -142,6 +142,7 @@ class AutoScheduler {
   int profile_parallel;
   double timeout;
   double profile_timeout;
+  bool report_profile;
 
   DLContext ctx;
   ThreadPool *thread_pool = nullptr;
@@ -152,10 +153,11 @@ class AutoScheduler {
   ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
  public:
   AutoScheduler(DLContext context, int topk, int new_trial, std::string policy, int parallel,
-  int profile_parallel, double timeout, double profile_timeout,
+  int profile_parallel, double timeout, double profile_timeout, bool report_profile=false,
   std::string log_file_name="autoschedule_log.txt")
   : topk(topk), new_trial(new_trial), policy(policy), parallel(parallel),
-    profile_parallel(profile_parallel), timeout(timeout), profile_timeout(profile_timeout) {
+    profile_parallel(profile_parallel), timeout(timeout),
+    profile_timeout(profile_timeout), report_profile(report_profile) {
     ctx = context;
     thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
     log_out.open(log_file_name, std::ios::app); 

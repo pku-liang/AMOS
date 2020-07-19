@@ -1,5 +1,6 @@
 #include "driver.h"
 #include <unistd.h>
+#include <cmath>
 
 
 #include "../graph/concrete_graph.h"
@@ -16,6 +17,7 @@ SessionOption::SessionOption(
   bool report_profile,
   bool report_iteration,
   int report_iteration_period,
+  double autoschedule_trial_ratio,
   int autoschedule_topk,
   int autoschedule_new_trial,
   std::string autoschedule_policy,
@@ -26,12 +28,14 @@ SessionOption::SessionOption(
   double profile_timeout,
   int build_parallel,
   double build_timeout,
+  double execution_explore_probability,
   int execution_parallel,
   double execution_timeout) {
   auto node = make_object<SessionOptionNode>();
   node->report_profile = report_profile;
   node->report_iteration = report_iteration;
   node->report_iteration_period = report_iteration_period;
+  node->autoschedule_trial_ratio = autoschedule_trial_ratio;
   node->autoschedule_topk = autoschedule_topk;
   node->autoschedule_new_trial = autoschedule_new_trial;
   node->autoschedule_policy = autoschedule_policy;
@@ -42,6 +46,7 @@ SessionOption::SessionOption(
   node->profile_timeout = profile_timeout;
   node->build_parallel = build_parallel;
   node->build_timeout = build_timeout;
+  node->execution_explore_probability = execution_explore_probability;
   node->execution_parallel = execution_parallel;
   node->execution_timeout = execution_timeout;
   data_ = std::move(node);
@@ -65,7 +70,8 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
 
   auto_scheduler = new AutoScheduler(ctx, sess_option->autoschedule_topk, sess_option->autoschedule_new_trial,
     sess_option->autoschedule_policy, sess_option->autoschedule_parallel, sess_option->profile_parallel,
-    sess_option->autoschedule_timeout, sess_option->profile_timeout, sess_option->autoschedule_log_file);
+    sess_option->autoschedule_timeout, sess_option->profile_timeout, sess_option->report_profile,
+    sess_option->autoschedule_log_file);
   function_builder = new FunctionBuilder(sess_option->build_parallel, sess_option->build_timeout);
   thread_pool = new ThreadPool(sess_option->execution_parallel, (int)(sess_option->execution_timeout * 1000));
 }
@@ -156,14 +162,17 @@ void Session::run_functions(
   TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
 
   // prepare the call_unpack
-  const auto* call_unpack = runtime::Registry::Get("tg.runtime.call_unpack");
-  ASSERT(call_unpack != nullptr) << "Should prepare call_unpack function.";
+  // const auto* call_unpack = runtime::Registry::Get("tg.runtime.call_unpack");
+  // ASSERT(call_unpack != nullptr) << "Should prepare call_unpack function.";
+
+  auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
 
   int advance_number = (int)bindings.size();
   double total_execution_time = 0.0;
   double best_execution_time = 1e10;
 
   for (int ad = 0; ad < advance_number; ++ad) {
+    print(3) << "Iteration: " << ad << "\n";
     std::unordered_map<IntKey, int> call_order;
     std::unordered_set<IntKey> free_set;
     for (auto kv : multi_graph->graph_attrs) {
@@ -181,11 +190,13 @@ void Session::run_functions(
       IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set)> run_helper;
-    run_helper = [this, ad, &multi_graph, &call_order, &bindings, call_unpack]
+    run_helper = [this, ad, &multi_graph, &call_order, &bindings, &call_unpack]
       (IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set) {
       
+      auto t0 = std::chrono::steady_clock::now();
+      print(4) << "in run helper\n";
       // the mark that indicates this subgraph is done
       bool succ = false;
 
@@ -196,7 +207,8 @@ void Session::run_functions(
        * TODO: handle the order by some other
        * independent logic
        */
-      Array<tvm::runtime::NDArray> arrays;
+      print(4) << "Preparing arrays...\n";
+      std::vector<tvm::runtime::NDArray> arrays;
       // get the inputs
       for (auto tt : subgraph->inputs) {
         te::Tensor t = multi_graph.Self()->tensor_index[tt];
@@ -232,7 +244,6 @@ void Session::run_functions(
         te::Tensor t = multi_graph.Self()->tensor_index[tt];
         if (persistent_tensors.find(t) == persistent_tensors.end()) {
           ERROR << "Can't find weight " << t;
-          throw;
         }
         arrays.push_back(this->persistent_tensors[t]);
       }
@@ -272,6 +283,10 @@ void Session::run_functions(
         }
         arrays.push_back(this->persistent_tensors[t]);
       }
+      print(4) << "Arrays prepared!\n";
+      auto t1 = std::chrono::steady_clock::now();
+      auto t1_t0 = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1e3;
+      print(4) << "Array preparation uses " << t1_t0 << " ms.\n";
       
       /* loop until this subgraph is handled
        * or break if there is no way to execute this subgraph
@@ -280,9 +295,14 @@ void Session::run_functions(
        */
       while (!succ) {
         bool taken = false;  // record taken a function
+
+        auto t2 = std::chrono::steady_clock::now();
+
+        double explore = randdouble();
+        print(4) << "explore random value: " << explore << " vs " << sess_option->execution_explore_probability << "\n";
         
         // first, try to get new function
-        if (!this->functions[key].empty()) {
+        if ((explore < sess_option->execution_explore_probability) && !this->functions[key].empty()) {
           auto sch_func = this->functions[key].front();
           // check if is ready
           auto schedule_result = sch_func.first;
@@ -295,30 +315,62 @@ void Session::run_functions(
             taken = true;   // we will take one function
    
             try {
+              print(4) << "Waiting for build for " << key->value << "...\n";
               tvm::runtime::Module module = mod.get();
+              print(4) << "Get build for " << key->value << "!\n";
+              auto t5 = std::chrono::steady_clock::now();
+              auto t5_t2 = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t2).count() / 1e3;
+              print(4) << "Get build uses " << t5_t2 << " ms.\n";
               auto mod_func = module->GetFunction(get_func_name(key));
               ASSERT(mod_func != nullptr) << "Get null function, don't know how to deal with it.";
 
               /* run the function in another thread 
               * TODO: wait this thread to the end
               */
-              auto future = thread_pool->push_back(
-                [call_unpack](tvm::runtime::PackedFunc& f, Array<tvm::runtime::NDArray>& v) {
-                  auto start = std::chrono::steady_clock::now();
-                  (*call_unpack)(f, v);
-                  auto end = std::chrono::steady_clock::now();
-                  float elapsed_time = (float)(
-                    std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
-                  return elapsed_time;
-                }, mod_func, arrays);
+              // auto future = thread_pool->push_back(
+              //   [call_unpack](tvm::runtime::PackedFunc& f, Array<tvm::runtime::NDArray>& v) {
+              //     auto start = std::chrono::steady_clock::now();
+              //     (*call_unpack)(f, v);
+              //     auto end = std::chrono::steady_clock::now();
+              //     float elapsed_time = (float)(
+              //       std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
+              //     return elapsed_time;
+              //   }, mod_func, arrays);
 
+              // auto future = thread_pool->push_back(
+              //   [&]() {
+              //     auto start = std::chrono::steady_clock::now();
+              //     (*call_unpack)(mod_func, arrays);
+              //     auto end = std::chrono::steady_clock::now();
+              //     float elapsed_time = (float)(
+              //       std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
+              //     return elapsed_time;
+              //   });
+
+              auto t6 = std::chrono::steady_clock::now();
+              auto t6_t5 = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() / 1e3;
+              print(4) << "Push back execution task uses " << t6_t5 << " ms.\n";
               // run this function
               try {
-                float elapsed_time = future.get();
+                print(4) << "Waiting for execution for " << key->value << "...\n";
+                // float elapsed_time = future.get();
+                auto start_exe = std::chrono::steady_clock::now();
+                print(4) << "size of arrays: " << arrays.size() << "\n";
+                (*call_unpack)(mod_func, arrays);
+                auto end_exe = std::chrono::steady_clock::now();
+                float elapsed_time = (float)(
+                  std::chrono::duration_cast<std::chrono::microseconds>(end_exe - start_exe).count()) / 1e3;
+                print(4) << "Get execution for " << key->value << "!\n";
+                auto t7 = std::chrono::steady_clock::now();
+                auto t7_t6 = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count() / 1e3;
+                print(4) << "Execution uses " << t7_t6 << " ms.\n";
                 // std::cout << "elapsed time: " << elapsed_time << " ms\n";
                 // feedback
                 float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
                 auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+                auto t8 = std::chrono::steady_clock::now();
+                auto t8_t7 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() / 1e3;
+                print(4) << "Feedback uses " << t8_t7 << " ms.\n";
                 /*
                 * feedback is added here
                 * TODO: do feedback here
@@ -356,6 +408,10 @@ void Session::run_functions(
           }  // end status == ready
         }  // end try new function
 
+        auto t3 = std::chrono::steady_clock::now();
+        auto t3_t2 = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1e3;
+        print(4) << "Run new function uses " << t3_t2 << " ms.\n";
+
         // then, try to use old function
         if (!succ) {
           // std::cout << "try old function for " << key->value << "\n";
@@ -366,6 +422,10 @@ void Session::run_functions(
             succ = true;
           }
         }  // end try old function
+
+        auto t4 = std::chrono::steady_clock::now();
+        auto t4_t3 = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() / 1e3;
+        print(4) << "Run old function uses " << t4_t3 << " ms.\n";
 
         // must check taken because chance is that
         // the scheduler is not ready
@@ -396,7 +456,11 @@ void Session::run_functions(
       std::unordered_set<IntKey> update_set, delete_set;
 
       for (auto k : free_set) {
+        auto start = std::chrono::steady_clock::now();
         run_helper(k, update_set, delete_set);
+        auto stop = std::chrono::steady_clock::now();
+        double run_helper_time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count() / 1e3;
+        print(4) << "run helper uses " << run_helper_time << " ms.\n";
       }
       for (auto k : delete_set) {
         free_set.erase(k);
@@ -429,7 +493,8 @@ void Session::run_functions(
 
 void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
   // forward the compilation by multiple iterations
-  for (int ad = 0; ad < advance_number; ++ad) {
+  int schedule_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
+  for (int ad = 0; ad < schedule_trials; ++ad) {
     // initialize call order
     std::unordered_map<IntKey, int> schedule_order;
     std::unordered_set<IntKey> free_set;
@@ -488,8 +553,10 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
           // }
 
           try {
+            print(4) << "Waiting for emergency schedule for " << key->value << "...\n";
             ScheduleResult result = schedule_result.get();
             this->emergency_queue.pop();
+            print(4) << "Get emergency schedule for " << key->value << "!\n";
             
             // get future func
             std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
@@ -518,6 +585,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
         /*
          * make a schedule
          */
+        print(4) << "schedule for " << cand->value << "\n";
         std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
           cand, subgraph, target, 0);
 
@@ -549,7 +617,9 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
         // }
 
         try {
+          print(4) << "Waiting for schedule for " << cand->value << "...\n";
           ScheduleResult result = schedule_result.get();
+          print(4) << "Get schedule for " << cand->value << "!\n";
           
           // get future func
           std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
@@ -606,6 +676,10 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
         + std::to_string(schedule_count)
         + " vs. " + std::to_string(num_subgraphs));
     }
+
+    // print(4) << "before auto_scheduler reset...\n";
+    // auto_scheduler->reset();
+    // print(4) << "after auto_scheduler reset!\n";
   }  // for ad
 
   // wait until finished
@@ -644,8 +718,10 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
         // }
 
         try {
+          print(4) << "Waiting for emergency schedule for " << key->value << "...\n";
           ScheduleResult result = schedule_result.get();
           this->emergency_queue.pop();
+          print(4) << "Get emergency schedule for " << key->value << "!\n";
           
           // get future func
           std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
@@ -728,6 +804,7 @@ void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm
   // wait for execution
   sch_thread.join();
   exe_thread.join();
+  print(4) << "end run.\n";
 }
 
 
@@ -794,6 +871,7 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
   bool report_profile,
   bool report_iteration,
   int report_iteration_period,
+  double autoschedule_trial_ratio,
   int autoschedule_topk,
   int autoschedule_new_trial,
   std::string autoschedule_policy,
@@ -804,6 +882,7 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
   double profile_timeout,
   int build_parallel,
   double build_timeout,
+  double execution_explore_probability,
   int execution_parallel,
   double execution_timeout
 ) {
@@ -811,6 +890,7 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
     report_profile,
     report_iteration,
     report_iteration_period,
+    autoschedule_trial_ratio,
     autoschedule_topk,
     autoschedule_new_trial,
     autoschedule_policy,
@@ -821,6 +901,7 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
     profile_timeout,
     build_parallel,
     build_timeout,
+    execution_explore_probability,
     execution_parallel,
     execution_timeout);
   return ret;

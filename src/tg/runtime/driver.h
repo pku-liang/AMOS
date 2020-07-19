@@ -23,6 +23,7 @@ class SessionOptionNode : public Object {
   bool report_profile;
   bool report_iteration;
   int report_iteration_period;
+  double autoschedule_trial_ratio;
   int autoschedule_topk;
   int autoschedule_new_trial;
   std::string autoschedule_policy;
@@ -33,6 +34,7 @@ class SessionOptionNode : public Object {
   double profile_timeout;
   int build_parallel;
   double build_timeout;
+  double execution_explore_probability;
   int execution_parallel;
   double execution_timeout;
 
@@ -40,6 +42,7 @@ class SessionOptionNode : public Object {
     v->Visit("report_profile", &report_profile);
     v->Visit("report_iteration", &report_iteration);
     v->Visit("report_iteration_period", &report_iteration_period);
+    v->Visit("autoschedule_trial_ratio", &autoschedule_trial_ratio);
     v->Visit("autoschedule_topk", &autoschedule_topk);
     v->Visit("autoschedule_new_trial", &autoschedule_new_trial);
     v->Visit("autoschedule_policy", &autoschedule_policy);
@@ -50,6 +53,7 @@ class SessionOptionNode : public Object {
     v->Visit("profile_timeout", &profile_timeout);
     v->Visit("build_parallel", &build_parallel);
     v->Visit("build_timeout", &build_timeout);
+    v->Visit("execution_explore_probability", &execution_explore_probability);
     v->Visit("execution_parallel", &execution_parallel);
     v->Visit("execution_timeout", &execution_timeout);
   }
@@ -65,6 +69,7 @@ class SessionOption : public ObjectRef {
     bool report_profile,
     bool report_iteration,
     int report_iteration_period,
+    double autoschedule_trial_ratio,
     int autoschedule_topk,
     int autoschedule_new_trial,
     std::string autoschedule_policy,
@@ -75,6 +80,7 @@ class SessionOption : public ObjectRef {
     double profile_timeout,
     int build_parallel,
     double build_timeout,
+    double execution_explore_probability,
     int execution_parallel,
     double execution_timeout);
   

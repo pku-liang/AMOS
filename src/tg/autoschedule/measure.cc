@@ -74,18 +74,24 @@ std::vector<double> Measurer::measure(
     } 
   }
 
+  print(4) << "after getting all functions.\n";
+
   // get result
   int num_remain = (int)remain_to_run.size();
   for (int i = 0; i < num_remain; ++i) {
     auto res = run_results[i];
     try {
+      print(4) << "before getting run result " << i << "\n";
       double elapsed_time = res.get();
+      print(4) << "after getting run result " << i << "\n"; 
       double gflops = gflop / (elapsed_time / 1e3 + 1e-8);
       measure_results[remain_to_run[i]] = gflops;
     } catch (const std::exception& e) {
       print(2) << "measure for function fail in execution: " << e.what() << "\n";
     }
   }
+
+  print(4) << "after measure.\n";
 
   return measure_results;
 }
