@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <sstream>
 
 #include "parameter.h"
 #include "utils.h"
@@ -62,6 +63,16 @@ bool SplitFactorEntity::operator== (const SplitFactorEntity& other) const {
 
 bool SplitFactorEntity::operator!= (const SplitFactorEntity& other) const {
   return !((*this) == other);
+}
+
+
+std::string SplitFactorEntity::to_string() const {
+  return int_array_to_string((*this)->factors);
+}
+
+
+SplitFactorEntity split_factor_entity_from_string(std::string s) {
+  return SplitFactorEntity(int_vector_from_string(s));
 }
 
 
@@ -152,6 +163,21 @@ bool ChoiceEntity::operator!= (const ChoiceEntity& other) const {
 // }
 
 
+std::string ChoiceEntity::to_string() const {
+  return std::to_string((*this)->choice);
+}
+
+
+ChoiceEntity choice_entity_from_string(std::string s) {
+  int i = 0;
+  int end = (int)s.size();
+  while (i < end && s[i] == ' ') ++i;
+  while (i < end && s[end - 1] == ' ') --end;
+  int value = std::stoi(s.substr(i, end - i));
+  return ChoiceEntity(value);
+}
+
+
 ChoiceSubSpace::ChoiceSubSpace(int num_choices) {
   auto node = make_object<ChoiceSubSpaceNode>();
   node->num_choices = num_choices;
@@ -211,6 +237,16 @@ bool MultiChoiceEntity::operator== (const MultiChoiceEntity& other) const {
 
 bool MultiChoiceEntity::operator!= (const MultiChoiceEntity& other) const {
   return !((*this) == other);
+}
+
+
+std::string MultiChoiceEntity::to_string() const {
+  return int_array_to_string((*this)->multi_choice);
+}
+
+
+MultiChoiceEntity multi_choice_entity_from_string(std::string s) {
+  return MultiChoiceEntity(int_vector_from_string(s));
 }
 
 

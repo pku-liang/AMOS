@@ -61,9 +61,13 @@ class SplitFactorEntity : public Entity {
 
   bool operator== (const SplitFactorEntity& other) const;
   bool operator!= (const SplitFactorEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SplitFactorEntity, Entity, SplitFactorEntityNode);
 };
+
+
+SplitFactorEntity split_factor_entity_from_string(std::string s);
 
 
 class SplitFactorSubSpaceNode : public ParameterSubSpaceNode {
@@ -112,9 +116,13 @@ class ChoiceEntity : public Entity {
 
   bool operator== (const ChoiceEntity& other) const;
   bool operator!= (const ChoiceEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ChoiceEntity, Entity, ChoiceEntityNode);
 };
+
+
+ChoiceEntity choice_entity_from_string(std::string s);
 
 
 class ChoiceSubSpaceNode : public ParameterSubSpaceNode {
@@ -164,9 +172,13 @@ class MultiChoiceEntity : public Entity {
 
   bool operator== (const MultiChoiceEntity& other) const;
   bool operator!= (const MultiChoiceEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MultiChoiceEntity, Entity, MultiChoiceEntityNode);
 };
+
+
+MultiChoiceEntity multi_choice_entity_from_string(std::string s);
 
 
 class MultiChoiceSubSpaceNode : public ParameterSubSpaceNode {

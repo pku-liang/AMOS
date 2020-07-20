@@ -6,6 +6,7 @@ Author: size zheng
 import itertools
 import tvm._ffi
 from . import _ffi_api
+from tvm import target as _target
 
 
 # @tvm._ffi.register_func("tg.utils.permutation")
@@ -71,3 +72,75 @@ class UtilBox(object):
         The choices.
     """
     return _ffi_api.choose_from(total, want)
+
+
+def get_schedule_skeletons(graph, target):
+  """Get the schedule skeletons from a given graph
+  This is function is used to test
+  the internal of TensorGraph AutoScheduler
+
+  Parameters
+  ----------
+  graph: TIRGraph
+  
+  target: tvm.target.Target
+
+  Returns
+  -------
+  skeletons: list of list of ScheduleSkeleton
+  """
+  target = _target.create(target)
+  return _ffi_api.get_schedule_skeletons(graph, target)
+
+
+def get_schedule_entities(graph, target, number):
+  """Get the schedule entities from a given graph
+  This is function is used to test
+  the internal of TensorGraph AutoScheduler
+
+  Parameters
+  ----------
+  graph: TIRGraph
+  
+  target: tvm.target.Target
+
+  number: int
+
+  Returns
+  -------
+  entities: list of list of MultiScheduleEntity
+  """
+  target = _target.create(target)
+  return _ffi_api.get_schedule_entities(graph, target, number)
+
+
+def schedule_entity_to_string(entity):
+  """Get the string representation of ScheduleEntity
+  This is function is used to test
+  the internal of TensorGraph AutoScheduler
+
+  Parameters
+  ----------
+  entity: ScheduleEntity
+
+  Returns
+  -------
+  str
+  """
+  return _ffi_api.schedule_entity_to_string(entity)
+
+
+def string_to_schedule_entity(string):
+  """Get the ScheduleEntity from string representation
+  This is function is used to test
+  the internal of TensorGraph AutoScheduler
+
+  Parameters
+  ----------
+  string: str
+
+  Returns
+  -------
+  ScheduleEntity
+  """
+  return _ffi_api.schedule_entity_from_string(string)

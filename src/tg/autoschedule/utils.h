@@ -5,6 +5,7 @@
 #include <climits>
 #include <unordered_map>
 #include <unordered_set>
+#include <sstream>
 
 #include <tvm/tir/expr.h>
 #include <tvm/tir/ir_pass.h>
@@ -24,6 +25,17 @@ double randdouble(double low=0.0, double high=1.0);
 
 
 int randint(int low=INT_MIN, int high=INT_MAX);
+
+
+IntImm make_int(int v);
+
+
+std::string string_join(std::string tok, std::vector<std::string> strings);
+std::vector<std::string> string_split(std::string tok, std::string str);
+std::string string_strip(std::string str);
+std::string int_array_to_string(Array<IntImm> array);
+std::vector<int> int_vector_from_string(std::string s);
+std::vector<bool> bool_vector_from_string(std::string s);
 
 
 bool able_inline(

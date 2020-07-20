@@ -65,15 +65,15 @@ public:
       switch (log_level)
       {
       case LogLevel::tINFO:
-        std::cerr << "[Info] " << "[time=" << ms.count() << "] ";
+        std::cerr << "[Info] " << "[time=" << ms.count() << "] " << oss.str();
         break;
       case LogLevel::tWARNING:
         std::cerr << "[Warning] " << "[time=" << ms.count() << "] file:"
-                  << file_ << " line:" << lineno_ << " ";
+                  << file_ << " line:" << lineno_ << " " << oss.str();
         break;
       case LogLevel::tERROR:
         {std::cerr << "[Error] " << "[time=" << ms.count() << "] "
-                  << file_ << " line:" << lineno_ << " ";
+                  << file_ << " line:" << lineno_ << " " << oss.str();
         abort();}
         break;
       default:

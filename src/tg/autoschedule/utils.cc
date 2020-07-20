@@ -38,6 +38,108 @@ int randint(int low, int high) {
 }
 
 
+IntImm make_int(int v) {
+  return IntImm(DataType::Int(32), v);
+}
+
+
+std::string string_join(std::string tok, std::vector<std::string> strings) {
+  int length = (int)strings.size();
+  std::string ret = "";
+  for (int i = 0; i < length; ++i) {
+    ret += strings[i];
+    if (i != length - 1) {
+      ret += tok;
+    }
+  }
+  return ret;
+}
+
+
+std::vector<std::string> string_split(std::string tok, std::string str) {
+  size_t i = 0;
+  std::vector<std::string> ret;
+  size_t j = str.find(tok, i);
+  while (j != std::string::npos) {
+    std::string to_push = str.substr(i, j - i);
+    if (to_push != "")
+      ret.push_back(to_push);
+    i = j + tok.size();
+    j = str.find(tok, i);
+  }
+  std::string to_push = str.substr(i);
+    if (to_push != "")
+      ret.push_back(to_push);
+  return ret;
+}
+
+
+std::string string_strip(std::string str) {
+  size_t i = 0;
+  size_t j = str.size();
+  while (i < j && str[i] == ' ') ++i;
+  while (i < j && str[j - 1] == ' ') --j;
+  return str.substr(i, j - i);
+}
+
+
+std::string int_array_to_string(Array<IntImm> array) {
+  std::ostringstream oss;
+  oss << "[";
+  int length = (int)array.size();
+  for (int i = 0; i < length; ++i) {
+    oss << std::to_string(array[i]->value);
+    if (i != length - 1) {
+      oss << ", ";
+    }
+  }
+  oss << "]";
+  return oss.str();
+}
+
+
+std::vector<int> int_vector_from_string(std::string s) {
+  int i = 0;
+  int end = (int)s.size();
+  while (i < end && s[i] == ' ') {
+    ++i;
+  }
+  std::vector<int> values;
+  if (end > 0 && i + 1 < end && (s[i] == '[') && (s[end - 1] == ']')) {
+    ++i;  // skip '['
+    --end;  // skip ']'
+    std::string tmp = s.substr(i, end - i);
+    std::vector<std::string> strings = string_split(", ", tmp);
+    for (auto str : strings)
+      values.push_back(std::stoi(str));
+    return values;
+  }
+  ERROR << "Can't make std::vector<int> from " << s << ".\n";
+  return values;
+}
+
+
+std::vector<bool> bool_vector_from_string(std::string s) {
+  int i = 0;
+  int end = (int)s.size();
+  while (i < end && s[i] == ' ') {
+    ++i;
+  }
+  std::vector<bool> values;
+  if (end > 0 && i + 1 < end && (s[i] == '[') && (s[end - 1] == ']')) {
+    ++i;  // skip '['
+    --end;  // skip ']'
+    std::string tmp = s.substr(i, end - i);
+    std::vector<std::string> strings = string_split(", ", tmp);
+    for (auto str : strings)
+      values.push_back((bool)std::stoi(str));
+    return values;
+  }
+  ERROR << "Can't make std::vector<int> from " << s << ".\n";
+  return values;
+}
+
+
 bool able_inline(
   const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph) {
   

@@ -39,11 +39,6 @@ class ScheduleSkeletonNode : public Object {
    */
   int merge;
   /* 
-   * true: do tiling and binding
-   * false: not do tiling and binding
-   */
-  bool do_tiling_and_binding;
-  /* 
    * true: use local cache
    * false: don't use local cache
    */
@@ -54,6 +49,11 @@ class ScheduleSkeletonNode : public Object {
    */
   bool use_allreduce;
   /* 
+   * true: do tiling and binding
+   * false: not do tiling and binding
+   */
+  bool do_tiling_and_binding;
+  /* 
    * 1: use buffer input
    * 0: don't use buffer input
    */
@@ -61,8 +61,8 @@ class ScheduleSkeletonNode : public Object {
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("merge", &merge);
-    v->Visit("do_tiling_and_binding", &do_tiling_and_binding);
     v->Visit("buffer_output", &buffer_output);
+    v->Visit("do_tiling_and_binding", &do_tiling_and_binding);
     v->Visit("use_allreduce", &use_allreduce);
     v->Visit("buffer_input", &buffer_input);
   }
@@ -75,18 +75,43 @@ class ScheduleSkeletonNode : public Object {
 class ScheduleSkeleton : public ObjectRef {
  public:
   ScheduleSkeleton(
-    // int merge,
-    bool do_tiling_and_binding
-    // bool buffer_output,
-    // bool use_allreduce,
-    // Array<IntImm> buffer_input,
+    int merge,
+    bool buffer_output,
+    bool use_allreduce,
+    bool do_tiling_and_binding,
+    Array<IntImm> buffer_input
   );
+
+  ScheduleSkeleton copy();
+  bool operator== (const ScheduleSkeleton& other) const;
+  bool operator!= (const ScheduleSkeleton& other) const;
+  std::string to_string() const;
   
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ScheduleSkeleton, ObjectRef, ScheduleSkeletonNode);
 };
 
 
-void generate_schedule_skeletons(te::Operation op, Target target, std::vector<ScheduleSkeleton>& to_store);
+ScheduleSkeleton schedule_skeleton_from_string(std::string s);
+
+
+class ScheduleSkeletonGenerator {
+ public:
+  void generate_schedule_skeletons_merge (
+    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+  void generate_schedule_skeletons_tiling_and_binding (
+    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+  void generate_schedule_skeletons_buffer_output (
+    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+  void generate_schedule_skeletons_allreduce (
+    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+  void generate_schedule_skeletons_buffer_input (
+    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+  void generate_schedule_skeletons_accept (
+    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+};
+
+
+void generate_schedule_skeletons(te::Operation op, Target target, bool is_output, std::vector<ScheduleSkeleton>& to_store);
 
 
 /************** merge *************/
@@ -109,9 +134,13 @@ class MergeEntity : public Entity {
 
   bool operator== (const MergeEntity& other) const;
   bool operator!= (const MergeEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MergeEntity, Entity, MergeEntityNode);
 };
+
+
+MergeEntity merge_entity_from_string(std::string s);
 
 
 /*
@@ -133,6 +162,8 @@ class MergeSubSpaceNode : public ScheduleSubSpaceNode {
 class MergeSubSpace : public ScheduleSubSpace {
  public:
   MergeSubSpace(int levels);
+  MergeEntity choose_one();
+  size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MergeSubSpace, ScheduleSubSpace, MergeSubSpaceNode);
 };
@@ -190,9 +221,13 @@ class AllreduceEntity : public Entity {
 
   bool operator== (const AllreduceEntity& other) const;
   bool operator!= (const AllreduceEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AllreduceEntity, Entity, AllreduceEntityNode);
 };
+
+
+AllreduceEntity allreduce_entity_from_string(std::string s);
 
 
 class AllreduceSubSpaceNode : public ScheduleSubSpaceNode {
@@ -212,6 +247,8 @@ class AllreduceSubSpaceNode : public ScheduleSubSpaceNode {
 class AllreduceSubSpace : public ScheduleSubSpace {
  public:
   AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_axis, int parts, int reduce_parts);
+  AllreduceEntity choose_one();
+  size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AllreduceSubSpace, ScheduleSubSpace, AllreduceSubSpaceNode);
 };
@@ -247,9 +284,13 @@ class TilingEntity : public Entity {
 
   bool operator== (const TilingEntity& other) const;
   bool operator!= (const TilingEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(TilingEntity, Entity, TilingEntityNode);
 };
+
+
+TilingEntity tiling_entity_from_string(std::string s);
 
 
 class BindingEntityNode : public EntityNode {
@@ -293,9 +334,13 @@ class BindingEntity : public Entity {
 
   bool operator== (const BindingEntity& other) const;
   bool operator!= (const BindingEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BindingEntity, Entity, BindingEntityNode);
 };
+
+
+BindingEntity binding_entity_from_string(std::string s);
 
 
 class TilingAndBindingEntityNode : public EntityNode {
@@ -319,9 +364,13 @@ class TilingAndBindingEntity : public Entity {
 
   bool operator== (const TilingAndBindingEntity& other) const;
   bool operator!= (const TilingAndBindingEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(TilingAndBindingEntity, Entity, TilingAndBindingEntityNode);
 };
+
+
+TilingAndBindingEntity tiling_and_binding_entity_from_string(std::string s);
 
 
 class TilingAndBindingSubSpaceNode : public ScheduleSubSpaceNode {
@@ -372,9 +421,13 @@ class BufferInputEntity : public Entity {
 
   bool operator== (const BufferInputEntity& other) const;
   bool operator!= (const BufferInputEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferInputEntity, Entity, BufferInputEntityNode);
 };
+
+
+BufferInputEntity buffer_input_entity_from_string(std::string s);
 
 
 class BufferInputSubSpaceNode : public ScheduleSubSpaceNode {
@@ -389,6 +442,8 @@ class BufferInputSubSpaceNode : public ScheduleSubSpaceNode {
 class BufferInputSubSpace : public ScheduleSubSpace {
  public:
   BufferInputSubSpace(Array<te::Tensor> tensors, int total, int want);
+  BufferInputEntity choose_one();
+  size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferInputSubSpace, ScheduleSubSpace, BufferInputSubSpaceNode);
 };
@@ -419,9 +474,13 @@ class UnrollEntity : public Entity {
 
   bool operator== (const UnrollEntity& other) const;
   bool operator!= (const UnrollEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(UnrollEntity, Entity, UnrollEntityNode);
 };
+
+
+UnrollEntity unroll_entity_from_string(std::string s);
 
 
 class UnrollSubSpaceNode : public ScheduleSubSpaceNode {
@@ -437,6 +496,8 @@ class UnrollSubSpaceNode : public ScheduleSubSpaceNode {
 class UnrollSubSpace : public ScheduleSubSpace {
  public:
   UnrollSubSpace(int max_depth);
+  UnrollEntity choose_one();
+  size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(UnrollSubSpace, ScheduleSubSpace, UnrollSubSpaceNode);
 };
@@ -446,11 +507,19 @@ class UnrollSubSpace : public ScheduleSubSpace {
 class ScheduleEntityNode : public EntityNode {
  public:
   ScheduleSkeleton schedule_skeleton;
+  MergeEntity merge;
+  AllreduceEntity allreduce;
   TilingAndBindingEntity tiling_and_binding;
+  BufferInputEntity buffer_input;
+  UnrollEntity unroll;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("schedule_skeleton", &schedule_skeleton);
+    v->Visit("merge", &merge);
+    v->Visit("allreduce", &allreduce);
     v->Visit("tiling_and_binding", &tiling_and_binding);
+    v->Visit("buffer_input", &buffer_input);
+    v->Visit("unroll", &unroll);
   }
 
   static constexpr const char* _type_key = "tg.autoschedule.ScheduleEntity";
@@ -460,19 +529,34 @@ class ScheduleEntityNode : public EntityNode {
 
 class ScheduleEntity : public Entity {
  public:
-  ScheduleEntity(ScheduleSkeleton schedule_skeleton, TilingAndBindingEntity tiling_and_binding_entity);
+  ScheduleEntity(
+    ScheduleSkeleton schedule_skeleton,
+    MergeEntity merge_entity,
+    AllreduceEntity allreduce_entity,
+    TilingAndBindingEntity tiling_and_binding_entity,
+    BufferInputEntity buffer_input_entity,
+    UnrollEntity unroll_entity
+  );
 
   bool operator== (const ScheduleEntity& other) const;
   bool operator!= (const ScheduleEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ScheduleEntity, Entity, ScheduleEntityNode);
 };
 
 
+ScheduleEntity schedule_entity_from_string(std::string s);
+
+
 class ScheduleSpaceNode : public Object {
  public:
   std::vector<ScheduleSkeleton> skeletons;
+  MergeSubSpace merge;
+  AllreduceSubSpace allreduce;
   TilingAndBindingSubSpace tiling_and_binding;
+  BufferInputSubSpace buffer_input;
+  UnrollSubSpace unroll;
 
   static constexpr const char* _type_key = "tg.autoschedule.ScheduleSpace";
   TVM_DECLARE_FINAL_OBJECT_INFO(ScheduleSpaceNode, Object);
@@ -481,7 +565,7 @@ class ScheduleSpaceNode : public Object {
 
 class ScheduleSpace : public ObjectRef {
  public:
-  ScheduleSpace(te::Operation operation, Target target);
+  ScheduleSpace(te::Operation operation, Target target, bool is_output);
 
   ScheduleSkeleton choose_skeleton();
   ScheduleEntity choose_one(ScheduleSkeleton skeleton);
