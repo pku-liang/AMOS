@@ -81,26 +81,36 @@ TIRGraph::TIRGraph(
   node->lr = lr;
   node->updates = updates;
 
+  Array<Operation> finalized_ops;
+  int finalize_position = -1;
+
   if (loss.defined()) {
     for (auto t : outputs) {
       node->root_ops.push_back(t->op);
+      finalize_position = 0;
     }
     node->root_ops.push_back(loss->op);
+    finalize_position = 1;
     for (auto t : gradients) {
       node->root_ops.push_back(t->op);
+      finalize_position = 2;
     }
     for (auto t : updates) {
       node->root_ops.push_back(t->op);
+      finalize_position = 3;
     }
   } else {
     for (auto t : outputs) {
       node->root_ops.push_back(t->op);
+      finalize_position = 0;
     }
     for (auto t : gradients) {
       node->root_ops.push_back(t->op);
+      finalize_position = 2;
     }
     for (auto t : updates) {
       node->root_ops.push_back(t->op);
+      finalize_position = 3;
     }
   }
 
@@ -110,7 +120,24 @@ TIRGraph::TIRGraph(
 
   // get serialize all operation list
   // and feed graph, tensor to its consumer operations
-  std::tie(node->operation_list, node->down_graph) = serialize_compute_dag(node->root_ops);
+  switch (finalize_position)
+  {
+  case 0: for (auto t : outputs) finalized_ops.push_back(t->op);
+    break;
+
+  case 1: finalized_ops.push_back(loss->op);
+    break;
+
+  case 2: for (auto t : gradients) finalized_ops.push_back(t->op);
+    break;
+
+  case 3: for (auto t : updates) finalized_ops.push_back(t->op);
+    break;
+  
+  default:
+    break;
+  }
+  std::tie(node->operation_list, node->down_graph) = serialize_compute_dag(finalized_ops);
 
   // get the operation key for each operation
   for (auto op : node->operation_list) {
