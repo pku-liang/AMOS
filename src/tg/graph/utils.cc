@@ -49,27 +49,33 @@ void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
 }
 
 
-/* 可以被 fuse 的 dimension: 出现在 weight 中, 不出现在 input 中, 在 output 中 spatial, 单独出现 */
-void FindFusibleDim::VisitExpr_(const CallNode *op) {  // 对于 X 和 W 的访存都会调用
+void FindFusibleDim::VisitExpr_(const CallNode *op) {
     ExprVisitor::VisitExpr_(op);
-    if (op->call_type == CallNode::CallType::Halide) {  // 访存: placeholder / input
-        const PlaceholderOpNode * op_as_plhd = op->func.as<PlaceholderOpNode>();
-        bool is_weight = (op_as_plhd != nullptr);
-        int pos = 0;  // X[i, j, k] 的第 pos 个 axis
+    bool is_weight = false;
+    if (op->call_type == CallNode::CallType::Halide) {
+        for (auto &w: weights_) {
+            if (op->func.same_as(w->op)) {
+                is_weight = true;
+                break;
+            }
+        }
+        int pos = 0;
         for (auto e : op->args) {
-            const VarNode* e_as_var = e.as<VarNode>(); // 将 PrimExpr 转换成 VarNode
-            if (e_as_var != nullptr) {  // X[i, j+1, k] 中 j+1 无法转成 VarNode, 会返回 nullptr
+            const VarNode* e_as_var = e.as<VarNode>();
+            if (e_as_var != nullptr) {
                 int spatial_id = 0;
                 for (auto v : this->spatial_indices_) {
-                    if (e_as_var == v.get()) { // 第 pos 个 axis 是第 spatial_id 各个 spatial_indices
-//                        records[spatial_id].push_back(pos);
-                        if (is_weight) spatial_indices_in_weight[spatial_id] = true;
-                        else spatial_indices_in_input[spatial_id] = true;
+                    if (e_as_var == v.get()) {
+                        if (is_weight) {
+                            spatial_indices_in_weight[spatial_id] = std::make_pair(true, pos);
+                        }
+                        else {
+                            spatial_indices_in_input[spatial_id] = true;
+                        }
                     }
                     spatial_id += 1;
                 }
             }
-
             pos += 1;
         }
     }
@@ -268,34 +274,40 @@ Array<IntImm> get_batch_like_dim(const Tensor &output) {
 }
 
 
-Array<IntImm> find_fusible_dim(const Tensor &output) {
-    Array<IntImm> ret;
-    std::vector<bool> is_fusible;
+Array<Array<IntImm> > find_fusible_dim(const Tensor &output, Array<Tensor> weights) {
+
+    Array<Array<IntImm> > ret;
+    std::vector<std::pair<bool, int> > is_fusible;
 
     const ComputeOpNode* op = output->op.as<ComputeOpNode>();
     CHECK(op != nullptr);
 
     Array<Var> spatial_indices;
-    for (auto iv : op->axis) {  // op->axis 是 spatial axis
-        is_fusible.push_back(true);
+    for (auto iv : op->axis) {
+        is_fusible.push_back(std::make_pair(false, -1));
         spatial_indices.push_back(iv->var);
     }
 
+    CHECK_EQ(op->body.size(), 1);
+
     for (auto b : op->body) {
-        FindFusibleDim fbld(spatial_indices);
-        fbld.VisitExpr(b);
-        int num_spatial_indices = (int)fbld.spatial_indices_in_weight.size();
-        for (int i = 0; i < num_spatial_indices; ++i) {
-            if (!fbld.spatial_indices_in_weight[i])
-                is_fusible[i] = false;
-            if (fbld.spatial_indices_in_input[i])
-                is_fusible[i] = false;
+        FindFusibleDim ffd(spatial_indices, weights);
+        ffd.VisitExpr(b);
+
+        int n = (int)spatial_indices.size();
+        for (int i = 0; i < n; ++i) {
+            if (ffd.spatial_indices_in_weight[i].first && !ffd.spatial_indices_in_input[i]) {
+                is_fusible[i] = std::make_pair(true, ffd.spatial_indices_in_weight[i].second);
+            }
         }
     }
 
     for (int i = 0; i < (int)is_fusible.size(); ++i) {
-        if (is_fusible[i]) {
-            ret.push_back(IntImm(DataType::Int(32), i));
+        if (is_fusible[i].first) {
+            ret.push_back(Array<IntImm> {
+                IntImm(DataType::Int(32), i),
+                IntImm(DataType::Int(32), is_fusible[i].second),
+            });
         }
     }
 
@@ -461,7 +473,7 @@ TVM_REGISTER_NODE_TYPE(StringKeyNode);
 
 TVM_REGISTER_GLOBAL("tg.find_fusible_dim")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
-    *ret = find_fusible_dim(args[0]);
+    *ret = find_fusible_dim(args[0], args[1]);
 });
 
 

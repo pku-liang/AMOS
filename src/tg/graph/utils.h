@@ -114,15 +114,17 @@ class FindBatchLikeDim : public ExprVisitor {
 class FindFusibleDim : public ExprVisitor {
 private:
     Array<Var> spatial_indices_;
+    Array<Tensor> weights_;
 public:
-    std::vector<bool> spatial_indices_in_weight;
+    std::vector<std::pair<bool, int> > spatial_indices_in_weight;
     std::vector<bool> spatial_indices_in_input;
     using ExprVisitor::VisitExpr;
 
-    FindFusibleDim(Array<Var> spatial_indices) : spatial_indices_(spatial_indices) {
-        int num_spatial_indices = (int) spatial_indices_.size();
-        spatial_indices_in_weight.resize(num_spatial_indices, false);
-        spatial_indices_in_input.resize(num_spatial_indices, false);
+    FindFusibleDim(Array<Var> spatial_indices, Array<Tensor> &weights)
+        :spatial_indices_(spatial_indices), weights_(weights) {
+        int n = (int) spatial_indices_.size();
+        spatial_indices_in_weight.resize(n, std::make_pair(false, -1));
+        spatial_indices_in_input.resize(n, false);
     }
 
 protected:
