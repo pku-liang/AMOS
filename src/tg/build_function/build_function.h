@@ -49,11 +49,20 @@ tvm::runtime::Module build_func(
 
 class FunctionBuilder {
  private:
+  int parallel;
+  double timeout;
   ThreadPool *thread_pool = nullptr;
  public:
-  FunctionBuilder() { thread_pool = new ThreadPool(1); }
+  FunctionBuilder(int parallel=1, double timeout=10) : parallel(parallel), timeout(timeout) {
+    thread_pool = new ThreadPool(parallel, int(timeout*1000));
+  }
   ~FunctionBuilder() { if (thread_pool != nullptr) delete thread_pool; }
-  void reset() { if (thread_pool != nullptr) {delete thread_pool; thread_pool = new ThreadPool(1);} }
+  void reset() {
+    if (thread_pool != nullptr) {
+      delete thread_pool;
+      thread_pool = new ThreadPool(parallel, int(timeout*1000));
+    }
+  }
   std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> >  build_for(
     tvm::tg::ScheduleResult sch_res,
     const tvm::Target& target,

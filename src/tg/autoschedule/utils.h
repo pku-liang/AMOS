@@ -20,6 +20,9 @@ namespace tvm {
 namespace tg {
 
 
+double randdouble(double low=0.0, double high=1.0);
+
+
 int randint(int low=INT_MIN, int high=INT_MAX);
 
 
@@ -27,17 +30,23 @@ bool able_inline(
   const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph);
 
 
+int get_minimal_factor(int value);
+
+
+void get_factor_list(int value, std::vector<int> &factors, std::string policy="normal");
+
+
 void any_part_split(
-  PrimExpr extent,
+  int extent,
   int nparts,
-  Array<Array<PrimExpr> > &ret,
+  std::vector<std::vector<int> > &ret,
   std::string policy="normal");
 
 
-void permutation(int num_axis, Array<Array<IntImm> > &ret);
+void permutation(int num_axis, std::vector<std::vector<int> > &ret);
 
 
-void choose_from(int total, int want, Array<Array<IntImm> > &ret);
+void choose_from(int total, int want, std::vector<std::vector<int> > &ret);
 
 }  // namespace tg
 
@@ -49,7 +58,7 @@ namespace std {
 template <>
 struct hash<std::pair<int, int> > {
   std::size_t operator()(const std::pair<int, int>& k) const {
-    return std::hash<int>{}(k.first) + std::hash<int>{}(k.second);
+    return std::hash<int>{}(k.first) * 19 + std::hash<int>{}(k.second);
   }
 };
 
@@ -57,7 +66,16 @@ struct hash<std::pair<int, int> > {
 template <>
 struct hash<std::pair<int, std::string> > {
   std::size_t operator()(const std::pair<int, std::string>& k) const {
-    return std::hash<int>{}(k.first) + std::hash<std::string>{}(k.second);
+    return std::hash<int>{}(k.first) * 19 + std::hash<std::string>{}(k.second);
+  }
+};
+
+
+template <>
+struct hash<std::tuple<int, int, std::string> > {
+  std::size_t operator()(const std::tuple<int, int, std::string>& k) const {
+    return std::hash<int>{}(get<0>(k)) * 19
+           + std::hash<std::pair<int, std::string>>{}(std::make_pair(get<1>(k), get<2>(k)));
   }
 };
 

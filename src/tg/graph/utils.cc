@@ -389,34 +389,59 @@ std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   std::unordered_set<Operation> visited;
   std::vector<Operation> ret;
   std::unordered_map<Operation, Array<Operation> > down_graph;
-  std::deque<Operation> q;
+  // std::deque<Operation> q;
+
+  std::function<void(Operation)> helper;
+  helper = [&] (Operation op) {
+    if (visited.find(op) != visited.end()) {
+      return;
+    }
+    const ComputeOpNode* as_compute = op.as<ComputeOpNode>();
+    if (as_compute == nullptr) {
+      return;
+    }
+    for (auto t : op->InputTensors()) {
+      helper(t->op);
+      if (down_graph.find(t->op) == down_graph.end()) {
+          Array<Operation> tmp;
+          down_graph[t->op] = tmp;
+      }
+      down_graph[t->op].push_back(op);
+    }
+    ret.push_back(op);
+    visited.insert(op);
+  };
 
   for (auto op : root_ops) {
-    q.push_back(op);
-    visited.insert(op);
+    helper(op);
   }
 
-  while (!q.empty()) {
-    Operation cur = q.front();
-    q.pop_front();
-    const ComputeOpNode *as_compute = cur.as<ComputeOpNode>();
-    if (as_compute != nullptr) {
-      ret.push_back(cur);
-      for (auto t : as_compute->InputTensors()) {
-        if (visited.find(t->op) == visited.end()) {
-          visited.insert(t->op);
-          q.push_back(t->op);
-        }
-        if (down_graph.find(t->op) == down_graph.end()) {
-           Array<Operation> tmp;
-           down_graph[t->op] = tmp;
-        }
-        down_graph[t->op].push_back(cur);
-      }
-    }
-  }
+  // for (auto op : root_ops) {
+  //   q.push_back(op);
+  //   visited.insert(op);
+  // }
 
-  if (!output_first) {
+  // while (!q.empty()) {
+  //   Operation cur = q.front();
+  //   q.pop_front();
+  //   const ComputeOpNode *as_compute = cur.as<ComputeOpNode>();
+  //   if (as_compute != nullptr) {
+  //     ret.push_back(cur);
+  //     for (auto t : as_compute->InputTensors()) {
+  //       if (visited.find(t->op) == visited.end()) {
+  //         visited.insert(t->op);
+  //         q.push_back(t->op);
+  //       }
+  //       if (down_graph.find(t->op) == down_graph.end()) {
+  //          Array<Operation> tmp;
+  //          down_graph[t->op] = tmp;
+  //       }
+  //       down_graph[t->op].push_back(cur);
+  //     }
+  //   }
+  // }
+
+  if (output_first) {
     std::reverse(std::begin(ret), std::end(ret));
   }
   return std::make_pair(Array<Operation>(ret), Map<Operation, Array<Operation> >(down_graph));

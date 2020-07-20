@@ -12,6 +12,11 @@
 #include <stdexcept>
 #include <utility>
 #include <tuple>
+#include <chrono>
+#include <pthread.h>
+#include <iostream>
+#include <exception>
+#include <cstdlib>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
@@ -19,6 +24,7 @@
 #include <tvm/driver/driver_api.h>
 #include <tvm/target/target.h>
 #include <tvm/runtime/module.h>
+#include <tvm/runtime/registry.h>
 
 
 namespace tvm {
@@ -33,31 +39,199 @@ namespace tg {
   }
 
 
-// template<typename ELE>
-// class UnpackVec {
-//  public:
-// 	UnpackVec(const std::vector<ELE>& vec) : vec(vec), index(0) {}
+enum class LogLevel {
+  tINFO,
+  tWARNING,
+  tERROR
+};
 
-//   template<typename T>
-// 	ELE unpack()	{
-// 		return  vec[index++];
-// 	}
+class LazyLogging {
+ private:
+  LogLevel log_level;
+  bool do_print;
+  std::string file_;
+  int lineno_;
+  std::ostringstream oss;
+public:
+  LazyLogging() = default;
+  LazyLogging(const LazyLogging &&other) : log_level(other.log_level), do_print(other.do_print) {}
+  LazyLogging(LogLevel level, bool do_print=true, std::string file=__FILE__, int lineno=__LINE__) :
+    log_level(level), do_print(do_print), file_(file), lineno_(lineno) {}
+  ~LazyLogging() {
+    std::chrono::milliseconds ms = std::chrono::duration_cast< std::chrono::milliseconds >(
+        std::chrono::system_clock::now().time_since_epoch()
+    );
+    if (do_print) {
+      switch (log_level)
+      {
+      case LogLevel::tINFO:
+        std::cerr << "[Info] " << "[time=" << ms.count() << "] ";
+        break;
+      case LogLevel::tWARNING:
+        std::cerr << "[Warning] " << "[time=" << ms.count() << "] file:"
+                  << file_ << " line:" << lineno_ << " ";
+        break;
+      case LogLevel::tERROR:
+        {std::cerr << "[Error] " << "[time=" << ms.count() << "] "
+                  << file_ << " line:" << lineno_ << " ";
+        abort();}
+        break;
+      default:
+        break;
+      }
+      if (oss.str().size() != 0)
+        std::cerr << oss.str() << "\n";
+    }
+  }
 
-//  private:
-// 	const std::vector<ELE>& vec;
-// 	int index;
-// };
+  template<typename T>
+  LazyLogging &operator<<(T &other) {
+      oss << other;
+      return *this;
+  }
 
-// template<typename R, typename... Args, typename ELE>
-// auto call_function(std::function<R(Args...)> f, std::vector<ELE> &v) {
-//     UnpackVec<ELE> unpackvec(v);
-//     return f(unpackvec.unpack<Args>()...);
-// }
+  template<typename T>
+  LazyLogging &operator<<(T &&other) {
+      oss << other;
+      return *this;
+  }
+};
+
+
+#define ASSERT(cond)                                                          \
+  (                                                                           \
+    [&]()-> LazyLogging {                                                     \
+      if (!(cond)) {                                                          \
+        return LazyLogging(LogLevel::tERROR, true, __FILE__, __LINE__);       \
+      } else {                                                                \
+        return LazyLogging(LogLevel::tINFO, false, __FILE__, __LINE__);       \
+      }                                                                       \
+    }()                                                                       \
+  )                                                                           
+
+
+#define ERROR (ASSERT(false))
+
+
+template<typename Function, typename T>
+class CallFunc {
+ public:
+  void call_func_0(Function f) {
+    f();
+  }
+
+  void call_func_1(Function f, std::vector<T> v) {
+    f(v[0]);
+  }
+
+  void call_func_2(Function f, std::vector<T> v) {
+    f(v[0], v[1]);
+  }
+
+  void call_func_3(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2]);
+  }
+
+  void call_func_4(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3]);
+  }
+
+  void call_func_5(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4]);
+  }
+
+  void call_func_6(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5]);
+  }
+
+  void call_func_7(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+  }
+
+  void call_func_8(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+  }
+
+  void call_func_9(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
+  }
+
+  void call_func_any(Function f, std::vector<T> v) {
+    const auto* call_unpack = runtime::Registry::Get("tg.runtime.call_unpack");
+    ASSERT(call_unpack != nullptr) << "Should prepare call_unpack function.";
+    (*call_unpack)(f, Array<T>(v));
+  }
+
+  void operator()(Function f, std::vector<T> v) {
+    int num_args = (int)v.size();
+    switch (num_args) {
+      case 0: call_func_0(f); break;
+      case 1: call_func_1(f, v); break;
+      case 2: call_func_2(f, v); break;
+      case 3: call_func_3(f, v); break;
+      case 4: call_func_4(f, v); break;
+      case 5: call_func_5(f, v); break;
+      case 6: call_func_6(f, v); break;
+      case 7: call_func_7(f, v); break;
+      case 8: call_func_8(f, v); break;
+      case 9: call_func_9(f, v); break;
+      default: call_func_any(f, v);
+    }
+  }
+};
+
+
+int get_evn_value(std::string name);
+
+
+class print{
+ private:
+  bool do_print; 
+ public:
+  print(int level) : do_print(level <= get_evn_value("TG_PRINT_LEVEL")) {}
+
+  template<typename T>
+  print& operator<< (T&& x) {
+    if (do_print) {
+      std::cerr << std::forward<T>(x);
+    }
+    return *this;
+  }
+};
+
+
+class ProgressBar {
+ private:
+  int length;
+ public:
+  ProgressBar(int length=80) : length(length) {}
+
+  void draw(double progress) {
+    if (progress < 0) {
+      progress = 0.0;
+    } else if (progress > 1) {
+      progress = 1.0;
+    }
+    int pos = (int)(progress * (length - 2));
+    print(0) << "[";
+    for (int i = 0; i < length - 2; ++i) {
+      if (i < pos) {
+        print(0) << "#";
+      } else if (i == pos) {
+        print(0) << "X";
+      } else {
+        print(0) << " ";
+      }
+    }
+    print(0) << "]\r";
+  }
+};
 
 
 class ThreadPool {
 public:
-  ThreadPool(size_t threads=std::thread::hardware_concurrency()) : num_threads(threads), stop(true) {
+  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout=1000)
+  : num_threads(threads), stop(true), timeout(_timeout) {
     Init();
   }
 
@@ -95,15 +269,33 @@ public:
     auto task = std::make_shared< std::packaged_task<return_type()> >(
             std::bind(f, std::forward<Args>(args)...)
         );
-        
-    std::shared_future<return_type> res = task->get_future();
+    
+  auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
+    [task, this](){
+      auto ret = task->get_future();
+
+      std::thread th([task](){ (*task)(); });
+
+      auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
+      if(status != std::future_status::ready) {
+        pthread_cancel(th.native_handle());
+        th.join();
+        throw std::runtime_error("time out");
+      } else {
+        th.join();
+        return ret.get();
+      }
+    }
+  );
+
+    std::shared_future<return_type> res = timed_task->get_future();
     {
         std::unique_lock<std::mutex> lock(deque_mutex);
 
         if(stop)
             throw std::runtime_error("push_front on stopped ThreadPool");
 
-        tasks.emplace_front([task](){ (*task)(); });
+        tasks.emplace_front([timed_task]() { (*timed_task)(); });
     }
     condition.notify_one();
     return res;
@@ -116,15 +308,33 @@ public:
     auto task = std::make_shared< std::packaged_task<return_type()> >(
             std::bind(f, std::forward<Args>(args)...)
         );
-        
-    std::shared_future<return_type> res = task->get_future();
+    
+    auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
+      [task, this](){
+        auto ret = task->get_future();
+
+        std::thread th([task](){ (*task)(); });
+
+        auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
+        if(status != std::future_status::ready) {
+          pthread_cancel(th.native_handle());
+          th.detach();
+          throw std::runtime_error("time out in thread pool");
+        } else {
+          th.join();
+          return ret.get();
+        }
+      }
+    );
+
+    std::shared_future<return_type> res = timed_task->get_future();
     {
         std::unique_lock<std::mutex> lock(deque_mutex);
 
         if(stop)
             throw std::runtime_error("push_back on stopped ThreadPool");
 
-        tasks.emplace_back([task](){ (*task)(); });
+        tasks.emplace_back([timed_task]() { (*timed_task)(); });
     }
     condition.notify_one();
     return res;
@@ -184,6 +394,8 @@ private:
   
   std::mutex deque_mutex;
   std::condition_variable condition;
+
+  unsigned int timeout;
 
   static const int REFRESH_EPOCH = 128;
 };

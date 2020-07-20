@@ -98,6 +98,8 @@ def form_body(sch):
     # normalize schedule first
     sch = sch.normalize()
     bounds = schedule.InferBound(sch)
+    # for k, v in bounds.items():
+    #     print(k, v)
     stmt = schedule.ScheduleOps(sch, bounds)
     stmt = ir_pass.InjectPrefetch(stmt)
     return stmt
@@ -136,6 +138,8 @@ def lower(sch,
        The result IRModule, if simple_mode=False
        Then the Stmt before make api is returned.
     """
+    import time
+    beg = time.time()
     cfg = BuildConfig.current()
     add_lower_pass = cfg.add_lower_pass if cfg.add_lower_pass else []
     if cfg.dump_pass_ir:
@@ -152,33 +156,58 @@ def lower(sch,
     for f in lower_phase0:
         stmt = f(stmt)
 
+    # print("after form body", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
+
     compact = ir_pass.VerifyCompactBuffer(stmt)
     binds, arg_list = get_binds(args, compact, binds)
 
     # Phase 1
     stmt = ir_pass.RewriteForTensorCore(stmt, sch, binds)
+    # print("after rewrite tensor core", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     stmt = ir_pass.StorageFlatten(stmt, binds, 64, cfg.instrument_bound_checkers)
+    # print("after storage flatten", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     stmt = ir_pass.NarrowDataType(stmt, 32)
+    # print("after narrow data type", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     stmt = ir_pass.CanonicalSimplify(stmt)
+    # print("after canonical simplify", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     for f in lower_phase1:
         stmt = f(stmt)
 
     # Phase 2
     if not simple_mode:
         stmt = ir_pass.LoopPartition(stmt, cfg.partition_const_loop)
+        # print("after loop partition", (time.time() - beg) * 1e3, "ms")
+        # print(str(stmt))
     if cfg.disable_vectorize:
         stmt = ir_pass.SkipVectorize(stmt)
+        # print("after skip vectorize", (time.time() - beg) * 1e3, "ms")
+        # print(str(stmt))
     else:
         stmt = ir_pass.VectorizeLoop(stmt)
+        # print("after vectorize", (time.time() - beg) * 1e3, "ms")
+        # print(str(stmt))
     stmt = ir_pass.InjectVirtualThread(stmt)
+    # print("after virtual thread", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     stmt = ir_pass.InjectDoubleBuffer(stmt, cfg.double_buffer_split_loop)
+    # print("after double buffer", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     stmt = ir_pass.StorageRewrite(stmt)
+    # print("after storage rewrite", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     stmt = ir_pass.UnrollLoop(
         stmt,
         cfg.auto_unroll_max_step,
         cfg.auto_unroll_max_depth,
         cfg.auto_unroll_max_extent,
         cfg.unroll_explicit)
+    # print("after unroll", (time.time() - beg) * 1e3, "ms")
+    # print(str(stmt))
     for f in lower_phase2:
         stmt = f(stmt)
 

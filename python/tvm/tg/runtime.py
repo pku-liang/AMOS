@@ -7,25 +7,112 @@ from tvm import target as _target
 from . import _ffi_api
 
 
-def create_session(target, dev_id):
+def create_session_option(
+  report_profile=False,
+  report_iteration=True,
+  report_iteration_period=100,
+  autoschedule_trial_ratio=0.5,
+  autoschedule_topk=20,
+  autoschedule_new_trial=4,
+  autoschedule_policy="profile",
+  autoschedule_parallel=1,
+  autoschedule_timeout=10.0,
+  autoschedule_log_file="autoschedule_log.txt",
+  profile_parallel=4,
+  profile_timeout=10.0,
+  build_parallel=1,
+  build_timeout=1.0,
+  execution_explore_probability=0.5,
+  execution_parallel=1,
+  execution_timeout=100.0):
+  """Creates a SessionOption
+
+  Parameters
+  ----------
+  report_profile : bool
+
+  report_iteration : bool
+
+  report_iteration_period : int
+
+  autoschedule_trial_ratio : double
+
+  autoschedule_topk : int
+
+  autoschedule_new_tria : int
+
+  autoschedule_policy : str
+      "profile" or "model"
+
+  autoschedule_parallel : int
+
+  autoschedule_timeout : float
+        in seconds
+
+  autoschedule_log_file : str
+
+  profile_parallel : int
+
+  profile_timeout : float
+        in seconds
+  
+  build_parallel : int
+
+  build_timeout : float
+        in seconds
+
+  execution_explore_probability : double
+  
+  execution_parallel : int
+
+  execution_timeout : float
+        in seconds
+
+  Returns
+  -------
+  SessionOption
+  """
+  return _ffi_api.create_session_option(
+    report_profile,
+    report_iteration,
+    report_iteration_period,
+    autoschedule_trial_ratio,
+    autoschedule_topk,
+    autoschedule_new_trial,
+    autoschedule_policy,
+    autoschedule_parallel,
+    autoschedule_timeout,
+    autoschedule_log_file,
+    profile_parallel,
+    profile_timeout,
+    build_parallel,
+    build_timeout,
+    execution_explore_probability,
+    execution_parallel,
+    execution_timeout)
+
+
+def create_session(target, dev_id, log_option):
   """Creates a TensorGraph Session.
 
-    Parameters
-    ----------
-    target : tvm.target.Target or str
-        Accept llvm and cuda.
+  Parameters
+  ----------
+  target : tvm.target.Target or str
+      Accept llvm and cuda.
 
-    dev_id : int
-        The device id for this Session.
+  dev_id : int
+      The device id for this Session.
 
-    Returns
-    -------
-    session id: int
-        A global Session id.
+  log_option: SessionOption
+
+  Returns
+  -------
+  session id: int
+      A global Session id.
 
   """
   target = _target.create(target)
-  return _ffi_api.create_session(target, dev_id)
+  return _ffi_api.create_session(target, dev_id, log_option)
 
 
 def delete_session(session_id):
