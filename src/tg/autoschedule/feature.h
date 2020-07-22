@@ -3,6 +3,7 @@
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
+#include "tvm/driver/driver_api.h"
 
 #include "schedule_space.h"
 #include "../graph/concrete_graph.h"
@@ -13,7 +14,7 @@ namespace tg {
 
 class FeatureNode : public Object {
  public:
-  Array<FloatImm> features;
+  /*Array<FloatImm>*/std::vector<float> features;
 
   static constexpr const char* _type_key = "tg.autoschedule.Feature";
   TVM_DECLARE_FINAL_OBJECT_INFO(FeatureNode, Object);
@@ -22,7 +23,7 @@ class FeatureNode : public Object {
 
 class Feature : public ObjectRef {
  public:
-  Feature(Array<FloatImm> features);
+  Feature(/*Array<FloatImm>*/std::vector<float> features);
 
   friend std::ostream& operator<<(std::ostream& out, const Feature& self){
     out << "[";
@@ -31,7 +32,7 @@ class Feature : public ObjectRef {
       if (i != 0) {
         out << ", ";
       }
-      out << self->features[i]->value;
+      out << self->features[i];//->value;
     }
     out << "]";
     return out;
@@ -41,7 +42,7 @@ class Feature : public ObjectRef {
 };
 
 
-Feature get_feature(te::Schedule sch, Array<te::Tensor> tensors, Target target);
+Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target);
 
 
 }  // namespace tg

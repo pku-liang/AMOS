@@ -138,6 +138,17 @@ class TouchExtractor : public FeatureVisitor {
   using FeatureVisitor::VisitExpr_;
 };
 
+/*!
+ * \brief Get axis-based feature for all axes and flatten them into a one-dimensional vector.
+ * \param stmt The statement to be extracted
+ * \param bool Whether take log for numerical feature
+ * \param ret_feature The buffer where the return value is stored
+ *
+ * \note See GetItervarFeature for more details about the return value.
+ *       This is an optimized version of GetItervarFeature + Flatten. This runs much faster.
+ */
+void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_feature);
+
 }  // namespace autotvm
 }  // namespace tvm
 
