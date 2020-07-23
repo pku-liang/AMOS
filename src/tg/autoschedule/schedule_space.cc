@@ -143,20 +143,21 @@ ScheduleSkeleton schedule_skeleton_from_string(std::string s) {
 
 
 void ScheduleSkeletonGenerator::generate_schedule_skeletons_merge (
-  te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   if (!is_output) {
     for (int merge = 1; merge < 3; ++merge) {
       auto next = current.copy();
       next->merge = merge;
-      if (merge == 1) {  // compute_at
+      if (merge == 1 && can_compute_at) {  // compute_at
         // next: allreduce
-        generate_schedule_skeletons_allreduce(op, target, is_output, next, to_store);
+        generate_schedule_skeletons_allreduce(op, target, is_output, can_compute_at, next, to_store);
       } else {  // inline
         const ComputeOpNode* as_compute = op.as<ComputeOpNode>();
         if ((as_compute != nullptr) && (as_compute->reduce_axis.size() == 0U)) {
           // accept
-          generate_schedule_skeletons_accept(op, target, is_output, next, to_store);
+          generate_schedule_skeletons_accept(op, target, is_output, can_compute_at, next, to_store);
         }
       }
     }
@@ -164,32 +165,38 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_merge (
   // always try no merge
   auto next = current.copy();
   next->merge = 0;
-  generate_schedule_skeletons_buffer_output(op, target, is_output, next, to_store);
+  generate_schedule_skeletons_buffer_output(op, target, is_output, can_compute_at, next, to_store);
 }
 
 
 void ScheduleSkeletonGenerator::generate_schedule_skeletons_tiling_and_binding(
-  te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   auto next = current.copy();
   next->do_tiling_and_binding = true;
-  generate_schedule_skeletons_buffer_input(op, target, is_output, next, to_store);
+  generate_schedule_skeletons_buffer_input(op, target, is_output, can_compute_at, next, to_store);
 }
 
 
 void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_output (
-  te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   for (int use = 0; use < 2; ++use) {
     auto next = current.copy();
     next->buffer_output = (bool)use;
-    generate_schedule_skeletons_allreduce(op, target, is_output, next, to_store);
+    if (use == 0)
+      generate_schedule_skeletons_allreduce(op, target, is_output, can_compute_at, next, to_store);
+    else
+      generate_schedule_skeletons_tiling_and_binding(op, target, is_output, can_compute_at, next, to_store);
   }
 }
 
 
 void ScheduleSkeletonGenerator::generate_schedule_skeletons_allreduce (
-  te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   const ComputeOpNode* as_compute = op.as<ComputeOpNode>();
   if (as_compute != nullptr) {
@@ -206,20 +213,21 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_allreduce (
       if (worth_trial) {
         auto next = current.copy();
         next->use_allreduce = true;
-        generate_schedule_skeletons_accept(op, target, is_output, next, to_store);
+        generate_schedule_skeletons_accept(op, target, is_output, can_compute_at, next, to_store);
       }
     }
 
     // no use allreduce, always try
     auto next = current.copy();
     next->use_allreduce = false;
-    generate_schedule_skeletons_tiling_and_binding(op, target, is_output, next, to_store);
+    generate_schedule_skeletons_tiling_and_binding(op, target, is_output, can_compute_at, next, to_store);
   }
 }
 
 
 void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_input (
-  te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   const ComputeOpNode* as_compute = op.as<ComputeOpNode>();
   if (as_compute != nullptr) {
@@ -230,7 +238,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_input (
         if (cur == total) {
           auto next = current.copy();
           next->buffer_input = tmp;
-          generate_schedule_skeletons_accept(op, target, is_output, next, to_store);
+          generate_schedule_skeletons_accept(op, target, is_output, can_compute_at, next, to_store);
           return;
         }
 
@@ -251,7 +259,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_input (
       }
       auto next = current.copy();
       next->buffer_input = tmp;
-      generate_schedule_skeletons_accept(op, target, is_output, next, to_store);
+      generate_schedule_skeletons_accept(op, target, is_output, can_compute_at, next, to_store);
     }
   }
   
@@ -259,7 +267,8 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_input (
 
 
 void ScheduleSkeletonGenerator::generate_schedule_skeletons_accept (
-  te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   to_store.push_back(current);
 }
@@ -267,7 +276,8 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_accept (
 
 
 void generate_schedule_skeletons(
-  te::Operation op, Target target, bool is_output, std::vector<ScheduleSkeleton>& to_store
+  te::Operation op, Target target, bool is_output, bool can_compute_at,
+  std::vector<ScheduleSkeleton>& to_store
 ) {
   ScheduleSkeletonGenerator gen;
   ScheduleSkeleton init = ScheduleSkeleton(
@@ -277,7 +287,7 @@ void generate_schedule_skeletons(
     false,
     {}
   );
-  gen.generate_schedule_skeletons_merge(op, target, is_output, init, to_store);
+  gen.generate_schedule_skeletons_merge(op, target, can_compute_at, is_output, init, to_store);
 }
 
 /************** merge *************/
@@ -1275,7 +1285,7 @@ ScheduleEntity schedule_entity_from_string(std::string s) {
 }
 
 
-ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_output) {
+ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_output, bool can_compute_at) {
   auto node = make_object<ScheduleSpaceNode>();
   const ComputeOpNode* as_compute = operation.as<ComputeOpNode>();
   if (as_compute == nullptr) {
@@ -1298,7 +1308,7 @@ ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_out
   }
 
   if (target->target_name == "cuda") {
-    generate_schedule_skeletons(operation, target, is_output, node->skeletons);
+    generate_schedule_skeletons(operation, target, is_output, can_compute_at, node->skeletons);
     node->merge = MergeSubSpace(4);
     node->allreduce = AllreduceSubSpace(as_compute->axis, as_compute->reduce_axis, 2, 2);
     node->tiling_and_binding = TilingAndBindingSubSpace(as_compute->axis, as_compute->reduce_axis, 4, 3);
@@ -1309,7 +1319,7 @@ ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_out
       node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), 1, 2);
     node->unroll = UnrollSubSpace(max_extent);
   } else if (target->target_name == "llvm") {
-    generate_schedule_skeletons(operation, target, is_output, node->skeletons);
+    generate_schedule_skeletons(operation, target, is_output, can_compute_at, node->skeletons);
     node->merge = MergeSubSpace(3);
     node->allreduce = AllreduceSubSpace(as_compute->axis, as_compute->reduce_axis, 2, 2);
     node->tiling_and_binding = TilingAndBindingSubSpace(as_compute->axis, as_compute->reduce_axis, 3, 2);
@@ -1386,7 +1396,10 @@ MultiScheduleSpace::MultiScheduleSpace(TIRGraph graph, Target target) {
   auto node = make_object<MultiScheduleSpaceNode>();
   for (auto op : graph->operation_list) {
     bool is_output = (graph->down_graph.find(op) == graph->down_graph.end());
-    node->spaces.push_back(ScheduleSpace(op, target, is_output));
+    bool can_compute_at = !is_output;
+    if (!is_output)
+      can_compute_at = (graph->down_graph[op].size() == 1U);
+    node->spaces.push_back(ScheduleSpace(op, target, is_output, can_compute_at));
   }
   data_ = std::move(node);
 }

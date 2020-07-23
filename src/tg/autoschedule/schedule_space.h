@@ -62,8 +62,8 @@ class ScheduleSkeletonNode : public Object {
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("merge", &merge);
     v->Visit("buffer_output", &buffer_output);
-    v->Visit("do_tiling_and_binding", &do_tiling_and_binding);
     v->Visit("use_allreduce", &use_allreduce);
+    v->Visit("do_tiling_and_binding", &do_tiling_and_binding);
     v->Visit("buffer_input", &buffer_input);
   }
 
@@ -97,21 +97,28 @@ ScheduleSkeleton schedule_skeleton_from_string(std::string s);
 class ScheduleSkeletonGenerator {
  public:
   void generate_schedule_skeletons_merge (
-    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+    te::Operation op, Target target, bool is_output, bool can_compute_at,
+    ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
   void generate_schedule_skeletons_tiling_and_binding (
-    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+    te::Operation op, Target target, bool is_output, bool can_compute_at,
+    ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
   void generate_schedule_skeletons_buffer_output (
-    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+    te::Operation op, Target target, bool is_output, bool can_compute_at,
+    ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
   void generate_schedule_skeletons_allreduce (
-    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+    te::Operation op, Target target, bool is_output, bool can_compute_at,
+    ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
   void generate_schedule_skeletons_buffer_input (
-    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+    te::Operation op, Target target, bool is_output, bool can_compute_at,
+    ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
   void generate_schedule_skeletons_accept (
-    te::Operation op, Target target, bool is_output, ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
+    te::Operation op, Target target, bool is_output, bool can_compute_at,
+    ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store);
 };
 
 
-void generate_schedule_skeletons(te::Operation op, Target target, bool is_output, std::vector<ScheduleSkeleton>& to_store);
+void generate_schedule_skeletons(te::Operation op, Target target,
+  bool is_output, bool can_compute_at, std::vector<ScheduleSkeleton>& to_store);
 
 
 /************** merge *************/
@@ -565,7 +572,7 @@ class ScheduleSpaceNode : public Object {
 
 class ScheduleSpace : public ObjectRef {
  public:
-  ScheduleSpace(te::Operation operation, Target target, bool is_output);
+  ScheduleSpace(te::Operation operation, Target target, bool is_output, bool can_compute_at);
 
   ScheduleSkeleton choose_skeleton();
   ScheduleEntity choose_one(ScheduleSkeleton skeleton);
