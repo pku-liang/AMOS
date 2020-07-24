@@ -6,6 +6,7 @@
 
 #include "schedule_space.h"
 #include "../graph/concrete_graph.h"
+#include "../utils.h"
 
 namespace tvm {
 

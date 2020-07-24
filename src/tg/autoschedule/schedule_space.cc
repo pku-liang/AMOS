@@ -507,7 +507,7 @@ AllreduceSubSpace::AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_
     int extent = get_const_int(iv->dom->extent);
     extents.push_back(extent);
     
-    if (extent == 1) {
+    if (extent == 1) {  // always no split
       // do not consider axis with extent=1
       node->need_tile.push_back(false);
     } else {
@@ -541,7 +541,7 @@ AllreduceSubSpace::AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_
     if (extent > top1.second) {
       top1 = std::make_pair(count_reduce_axis, extent);
     }
-    node->reduce_need_tile.push_back(true);
+    node->reduce_need_tile.push_back(false);
 
     node->reduce_split_factor_spaces.push_back(SplitFactorSubSpace(extent, reduce_parts, "power2"));
 
@@ -550,6 +550,8 @@ AllreduceSubSpace::AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_
 
   // the axis to parallel reduce
   node->parallel_parent_axis_id = top1.first;
+  if (top1.first >= 0)
+    node->reduce_need_tile[top1.first] = true;  // only tile one reduce axis
 
   node->use_factor = ChoiceSubSpace(2);
 
@@ -1056,17 +1058,21 @@ size_t TilingAndBindingSubSpace::size() {
 
 
 /************** buffer input *************/
-BufferInputEntity::BufferInputEntity(std::vector<MultiChoiceEntity> position) {
+BufferInputEntity::BufferInputEntity(std::vector<MultiChoiceEntity> position, std::vector<ChoiceEntity> use_vectorize) {
   auto node = make_object<BufferInputEntityNode>();
   for (auto p : position) {
     node->compute_at_position.push_back(p);
+  }
+  for (auto u : use_vectorize) {
+    node->use_vectorize.push_back(u);
   }
   data_ = std::move(node);
 }
 
 
 bool BufferInputEntity::operator== (const BufferInputEntity& other) const {
-  return schedule_space::array_equal((*this)->compute_at_position, other->compute_at_position);
+  return schedule_space::array_equal((*this)->compute_at_position, other->compute_at_position)
+         && schedule_space::array_equal((*this)->use_vectorize, other->use_vectorize);
 }
 
 
@@ -1082,8 +1088,14 @@ std::string BufferInputEntity::to_string() const {
   for (auto b : (*this)->compute_at_position) {
     strings.push_back(b.to_string());
   }
+  std::vector<std::string> use_vectorize_strings;
+  for (auto u : (*this)->use_vectorize) {
+    use_vectorize_strings.push_back(u.to_string());
+  }
   oss << "[";
   oss << string_join(", ", strings);
+  oss << "]; [";
+  oss << string_join(", ", use_vectorize_strings);
   oss << "]";
   oss << ")";
   return oss.str();
@@ -1099,13 +1111,22 @@ BufferInputEntity buffer_input_entity_from_string(std::string s) {
   i += key.size();
   i += 1;  // skip '('
   j -= 1;  // skip ')'
-  std::vector<std::string> buffer_inputs = string_split(", ", s.substr(i + 1, j - i - 1));  // skip '[' ']'
+  std::vector<std::string> two_parts = string_split("; ", s.substr(i, j - i + 1));
+  std::string part1 = two_parts[0];
+  std::string part2 = two_parts[1];
+  std::vector<std::string> buffer_inputs = string_split(", ", part1.substr(1, part1.size() - 2));  // skip '[' ']'
   std::vector<MultiChoiceEntity> choices;
   for (auto str : buffer_inputs) {
     MultiChoiceEntity entity = multi_choice_entity_from_string(str);
     choices.push_back(entity);
   }
-  return BufferInputEntity(choices);
+  std::vector<std::string> use_vectorize = string_split(", ", part2.substr(1, part2.size() - 2));  // skip '[' ']'
+  std::vector<ChoiceEntity> vectorize_choice;
+  for (auto str : use_vectorize) {
+    ChoiceEntity entity = choice_entity_from_string(str);
+    vectorize_choice.push_back(entity);
+  }
+  return BufferInputEntity(choices, vectorize_choice);
 }
 
 
@@ -1113,6 +1134,7 @@ BufferInputSubSpace::BufferInputSubSpace(Array<te::Tensor> tensors, int total, i
   auto node = make_object<BufferInputSubSpaceNode>();
   for (auto t : tensors) {
     node->compute_at_position.push_back(MultiChoiceSubSpace(total, want));
+    node->use_vectorize.push_back(ChoiceSubSpace(2));
   }
   data_ = std::move(node);
 }
@@ -1123,13 +1145,20 @@ BufferInputEntity BufferInputSubSpace::choose_one() {
   for (auto sp : (*this)->compute_at_position) {
     choices.push_back(sp.choose_one());
   }
-  return BufferInputEntity(choices);
+  std::vector<ChoiceEntity> vectorize_choices;
+  for (auto uv : (*this)->use_vectorize) {
+    vectorize_choices.push_back(uv.choose_one());
+  }
+  return BufferInputEntity(choices, vectorize_choices);
 }
 
 
 size_t BufferInputSubSpace::size() {
   size_t ret = 1U;
   for (auto s : (*this)->compute_at_position) {
+    ret *= s.size();
+  }
+  for (auto s : (*this)->use_vectorize) {
     ret *= s.size();
   }
   return ret;

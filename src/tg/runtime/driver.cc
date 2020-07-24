@@ -200,7 +200,7 @@ void Session::run_functions(
       std::unordered_set<IntKey>& delete_set) {
       
       auto t0 = std::chrono::steady_clock::now();
-      print(4) << "in run helper\n";
+
       // the mark that indicates this subgraph is done
       bool succ = false;
 
@@ -211,7 +211,6 @@ void Session::run_functions(
        * TODO: handle the order by some other
        * independent logic
        */
-      print(4) << "Preparing arrays...\n";
       std::vector<tvm::runtime::NDArray> arrays;
       // get the inputs
       for (auto tt : subgraph->inputs) {
@@ -287,7 +286,6 @@ void Session::run_functions(
         }
         arrays.push_back(this->persistent_tensors[t]);
       }
-      print(4) << "Arrays prepared!\n";
       auto t1 = std::chrono::steady_clock::now();
       auto t1_t0 = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1e3;
       print(4) << "Array preparation uses " << t1_t0 << " ms.\n";
@@ -303,7 +301,10 @@ void Session::run_functions(
         auto t2 = std::chrono::steady_clock::now();
 
         double explore = randdouble();
-        print(4) << "explore random value: " << explore << " vs " << sess_option->execution_explore_probability << "\n";
+        // print(4) << "explore random value: "
+        //          << explore << " vs "
+        //          << sess_option->execution_explore_probability
+        //          << "\n";
         
         // first, try to get new function
         if ((explore < sess_option->execution_explore_probability) && !this->functions[key].empty()) {
@@ -341,15 +342,16 @@ void Session::run_functions(
               //     return elapsed_time;
               //   }, mod_func, arrays);
 
-              // auto future = thread_pool->push_back(
-              //   [&]() {
-              //     auto start = std::chrono::steady_clock::now();
-              //     (*call_unpack)(mod_func, arrays);
-              //     auto end = std::chrono::steady_clock::now();
-              //     float elapsed_time = (float)(
-              //       std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
-              //     return elapsed_time;
-              //   });
+              auto future = thread_pool->push_back(
+                [&]() {
+                  auto start = std::chrono::steady_clock::now();
+                  (*call_unpack)(mod_func, arrays);
+                  runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+                  auto end = std::chrono::steady_clock::now();
+                  float elapsed_time = (float)(
+                    std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
+                  return elapsed_time;
+                });
 
               auto t6 = std::chrono::steady_clock::now();
               auto t6_t5 = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() / 1e3;
@@ -357,18 +359,15 @@ void Session::run_functions(
               // run this function
               try {
                 print(4) << "Waiting for execution for " << key->value << "...\n";
-                // float elapsed_time = future.get();
-                auto start_exe = std::chrono::steady_clock::now();
-                print(4) << "size of arrays: " << arrays.size() << "\n";
-                (*call_unpack)(mod_func, arrays);
-                auto end_exe = std::chrono::steady_clock::now();
-                float elapsed_time = (float)(
-                  std::chrono::duration_cast<std::chrono::microseconds>(end_exe - start_exe).count()) / 1e3;
+                float elapsed_time = future.get();
+                // auto start_exe = std::chrono::steady_clock::now();
+                // (*call_unpack)(mod_func, arrays);
+                // auto end_exe = std::chrono::steady_clock::now();
+                // float elapsed_time = (float)(
+                //   std::chrono::duration_cast<std::chrono::microseconds>(end_exe - start_exe).count()) / 1e3;
                 print(4) << "Get execution for " << key->value << "!\n";
+                print(4) << "Execution uses " << elapsed_time << " ms.\n";
                 auto t7 = std::chrono::steady_clock::now();
-                auto t7_t6 = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count() / 1e3;
-                print(4) << "Execution uses " << t7_t6 << " ms.\n";
-                // std::cout << "elapsed time: " << elapsed_time << " ms\n";
                 // feedback
                 float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
                 auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
@@ -412,9 +411,9 @@ void Session::run_functions(
           }  // end status == ready
         }  // end try new function
 
-        auto t3 = std::chrono::steady_clock::now();
-        auto t3_t2 = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1e3;
-        print(4) << "Run new function uses " << t3_t2 << " ms.\n";
+        // auto t3 = std::chrono::steady_clock::now();
+        // auto t3_t2 = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1e3;
+        // print(4) << "Run new function uses " << t3_t2 << " ms.\n";
 
         // then, try to use old function
         if (!succ) {
@@ -422,14 +421,19 @@ void Session::run_functions(
           if (best_functions.find(key) != best_functions.end()) {
             // std::cout << "got old function for " << key->value << "\n";
             auto func = best_functions[key].first->GetFunction(get_func_name(key));
+            auto run_beg = std::chrono::steady_clock::now();
             (*call_unpack)(func, arrays);
+            runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+            auto run_end = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_beg).count() / 1e3;
+            print(4) << "Run cached function uses " << duration << " ms.\n";
             succ = true;
           }
         }  // end try old function
 
-        auto t4 = std::chrono::steady_clock::now();
-        auto t4_t3 = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() / 1e3;
-        print(4) << "Run old function uses " << t4_t3 << " ms.\n";
+        // auto t4 = std::chrono::steady_clock::now();
+        // auto t4_t3 = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() / 1e3;
+        // print(4) << "Run old function uses " << t4_t3 << " ms.\n";
 
         // must check taken because chance is that
         // the scheduler is not ready

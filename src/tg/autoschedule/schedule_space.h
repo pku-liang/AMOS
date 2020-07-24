@@ -411,9 +411,11 @@ class TilingAndBindingSubSpace : public ScheduleSubSpace {
 class BufferInputEntityNode : public EntityNode {
  public:
   Array<MultiChoiceEntity> compute_at_position;
+  Array<ChoiceEntity> use_vectorize;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("compute_at_position", &compute_at_position);
+    v->Visit("use_vectorize", &use_vectorize);
   }
   
   static constexpr const char* _type_key = "tg.autoschedule.BufferInputEntity";
@@ -424,7 +426,7 @@ class BufferInputEntityNode : public EntityNode {
 class BufferInputEntity : public Entity {
  public:
   BufferInputEntity(
-    std::vector<MultiChoiceEntity> position);
+    std::vector<MultiChoiceEntity> position, std::vector<ChoiceEntity> use_vectorize);
 
   bool operator== (const BufferInputEntity& other) const;
   bool operator!= (const BufferInputEntity& other) const;
@@ -440,6 +442,7 @@ BufferInputEntity buffer_input_entity_from_string(std::string s);
 class BufferInputSubSpaceNode : public ScheduleSubSpaceNode {
  public:
   std::vector<MultiChoiceSubSpace> compute_at_position;
+  std::vector<ChoiceSubSpace> use_vectorize;
 
   static constexpr const char* _type_key = "tg.autoschedule.BufferInputSubSpace";
   TVM_DECLARE_FINAL_OBJECT_INFO(BufferInputSubSpaceNode, ScheduleSubSpaceNode);

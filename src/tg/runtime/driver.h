@@ -7,6 +7,7 @@
 
 #include <tvm/te/operation.h>
 #include <tvm/runtime/c_runtime_api.h>
+#include <tvm/runtime/device_api.h>
 
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"

@@ -10,6 +10,8 @@ namespace tvm {
 namespace tg {
 
 TVM_REGISTER_NODE_TYPE(SplitFactorEntityNode);
+TVM_REGISTER_NODE_TYPE(ChoiceEntityNode);
+TVM_REGISTER_NODE_TYPE(MultiChoiceEntityNode);
 
 
 namespace parameter {
