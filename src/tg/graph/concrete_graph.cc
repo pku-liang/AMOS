@@ -140,9 +140,11 @@ TIRGraph::TIRGraph(
   std::tie(node->operation_list, node->down_graph) = serialize_compute_dag(finalized_ops);
 
   // get the operation key for each operation
+  node->tag = "";
   for (auto op : node->operation_list) {
     node->operation_key_dict.Set(op, OperationKey(op));
     node->operation_stat_dict.Set(op, OpAttr(op, node->down_graph, node->root_ops));
+    node->tag += op->tag + "$";
   }
 
   data_ = std::move(node);

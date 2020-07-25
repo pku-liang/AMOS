@@ -85,6 +85,7 @@ class TIRGraphNode : public Object {
   Map<Operation, Array<Operation> > down_graph;
   Map<Operation, OperationKey> operation_key_dict;
   Map<Operation, OpAttr> operation_stat_dict;
+  std::string tag;
   
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("inputs", &inputs);
@@ -100,6 +101,7 @@ class TIRGraphNode : public Object {
     v->Visit("down_graph", &down_graph);
     v->Visit("operation_key_dict", &operation_key_dict);
     v->Visit("operation_stat_dict", &operation_stat_dict);
+    v->Visit("tag", &tag);
   }
 
   static constexpr const char* _type_key = "tg.concrete_graph";

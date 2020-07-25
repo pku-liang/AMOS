@@ -188,6 +188,8 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
   // forward the compilation by multiple iterations
   int schedule_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
   for (int ad = 0; ad < schedule_trials; ++ad) {
+    // initialize cache
+    std::unordered_set<std::string> scheduled;
     // initialize call order
     std::unordered_map<IntKey, int> schedule_order;
     std::unordered_set<IntKey> free_set;
@@ -253,12 +255,34 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
           }
         }  // if (!this->emergency_queue.empty())
 
-        // at last, proceed
-        // this check can be removed when the runtime is mature
+        // then, check if need to schedule for it
         ASSERT(multi_graph.Self()->graphs.find(cand) != multi_graph.Self()->graphs.end())
           << "Can't find the subgraph " << cand->value << ".";
         TIRGraph subgraph = multi_graph.Self()->graphs[cand];
 
+        // no need to re-schedule the same subgraph
+        if (scheduled.find(subgraph->tag) != scheduled.end()) {
+          print(4, autoschedule_log) << "Find repteated function " << subgraph->tag << ".\n";
+          // update delete_set
+          delete_set.insert(cand);
+
+          // this check can be removed when the runtime is mature
+          ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
+            << "Can't find subgraph " << cand->value << "'s attributes.";
+          for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
+            schedule_order[succ] -= 1;
+            if (schedule_order[succ] == 0) {
+              update_set.insert(succ);
+            }
+          }
+          
+          // this subgraph is done
+          schedule_count += 1;
+          continue;
+        }
+
+        // at last, proceed
+        // this check can be removed when the runtime is mature
         /*
          * make a schedule
          */
@@ -299,6 +323,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
           
           // this subgraph is done
           schedule_count += 1;
+          scheduled.insert(subgraph->tag);
         } catch (const std::exception& e) {
           /*
            * should tell the thread to stop
@@ -386,6 +411,8 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
   // forward the compilation by multiple iterations
   int build_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
   for (int ad = 0; ad < build_trials; ++ad) {
+    // initialize cache
+    std::unordered_set<std::string> built;
     // initialize call order
     std::unordered_map<IntKey, int> build_order;
     std::unordered_set<IntKey> free_set;
@@ -442,6 +469,26 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
           }
         }  // if (!this->emergency_queue.empty())
 
+        // then, check if need to build
+        TIRGraph subgraph = multi_graph.Self()->graphs[cand];
+        if (built.find(subgraph->tag) != built.end()) {
+          print(4, build_log) << "Find repeated function " << subgraph->tag << ".\n";
+          // update delete_set
+          delete_set.insert(cand);
+
+          // this check can be removed when the runtime is mature
+          ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
+            << "Can't find subgraph " << cand->value << "'s attributes.";
+          for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
+            build_order[succ] -= 1;
+            if (build_order[succ] == 0) {
+              update_set.insert(succ);
+            }
+          }
+          build_count += 1;
+          continue;
+        }
+
         // at last, proceed
         /*
          * make a build
@@ -473,6 +520,7 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
               }
             }
             build_count += 1;
+            built.insert(subgraph->tag);
           } catch (const std::exception &e) {
             print(2, build_log) << "Can't get build for: " << e.what() << "\n";
           }
@@ -555,6 +603,9 @@ void Session::run_functions(
   ProgressBar progress_bar;
 
   for (int ad = 0; ad < advance_number; ++ad) {
+    // initialize cache
+    std::unordered_map<std::string, IntKey> run_cache;
+
     if (sess_option->report_iteration) {
       exe_log << "Iteration: " << ad << "\n";
     }
@@ -579,7 +630,7 @@ void Session::run_functions(
       IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set)> run_helper;
-    run_helper = [this, ad, &multi_graph, &call_order, &bindings, &call_unpack]
+    run_helper = [this, ad, &multi_graph, &run_cache, &call_order, &bindings, &call_unpack]
       (IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set) {
@@ -690,7 +741,7 @@ void Session::run_functions(
         //          << "\n";
         
         // first, try to get new function
-        if ((explore < sess_option->execution_explore_probability) && !this->built_functions[key].empty()) {
+        if (!succ && (explore < sess_option->execution_explore_probability) && !this->built_functions[key].empty()) {
           auto sch_mod_func = this->built_functions[key].front();
           // check if is ready
           auto schedule_result = std::get<0>(sch_mod_func);
@@ -745,6 +796,7 @@ void Session::run_functions(
 
               // success
               succ = true;
+              run_cache[subgraph->tag] = key;
             } catch (const std::exception &e) {
               // can't run the function
               /*
@@ -786,6 +838,7 @@ void Session::run_functions(
 
               // success
               succ = true;
+              run_cache[subgraph->tag] = key;
             } catch (const std::exception &e) {
               // can't run the function
               /*
@@ -814,6 +867,23 @@ void Session::run_functions(
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_beg).count() / 1e3;
             print(4, exe_log) << "Run cached function uses " << duration << " ms.\n";
             succ = true;
+            run_cache[subgraph->tag] = key;
+          } else if (run_cache.find(subgraph->tag) != run_cache.end()) {
+            print(4, exe_log) << "Find repeated function " << subgraph->tag << ".\n";
+            auto func = std::get<1>(best_functions[run_cache[subgraph->tag]]);
+            auto run_beg = std::chrono::steady_clock::now();
+            (*call_unpack)(func, arrays);
+            if (sess_option->synchronize_subgraph) {
+              runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+            } else {
+              /*
+               * TODO: add cuda events for timing for GPU
+               */
+            }
+            auto run_end = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_beg).count() / 1e3;
+            print(4, exe_log) << "Run cached function (reuse) uses " << duration << " ms.\n";
+            succ = true;
           }
         }  // end try old function
 
@@ -826,7 +896,7 @@ void Session::run_functions(
           break;
         }
 
-      }  // end while (1)
+      }  // end while (!succ)
 
       if (succ) {
         // update free set
