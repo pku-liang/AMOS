@@ -9,6 +9,8 @@
 #include "schedule_space.h"
 #include "../graph/utils.h"
 #include "../utils.h"
+#include "../logging.h"
+#include "../thread_pool.h"
 
 namespace tvm {
 

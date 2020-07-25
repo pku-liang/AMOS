@@ -15,6 +15,8 @@
 #include "feature.h"
 #include "measure.h"
 #include "../utils.h"
+#include "../logging.h"
+#include "../thread_pool.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
 
@@ -147,25 +149,27 @@ class AutoScheduler {
   DLContext ctx;
   ThreadPool *thread_pool = nullptr;
   std::unordered_map<IntKey, AutoScheduleContext> contexts;
-  std::ofstream log_out;
+  std::ostream& log_out;
+  std::ofstream profile_log;
   Measurer *measurer = nullptr;
 
   ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
  public:
   AutoScheduler(DLContext context, int topk, int new_trial, std::string policy, int parallel,
   int profile_parallel, double timeout, double profile_timeout, bool report_profile=false,
-  std::string log_file_name="autoschedule_log.txt")
+  std::ostream& log_out=std::cerr, std::string log_file_name="autoschedule_log_profile.txt")
   : topk(topk), new_trial(new_trial), policy(policy), parallel(parallel),
     profile_parallel(profile_parallel), timeout(timeout),
-    profile_timeout(profile_timeout), report_profile(report_profile) {
+    profile_timeout(profile_timeout), report_profile(report_profile), log_out(log_out) {
     ctx = context;
     thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
-    log_out.open(log_file_name, std::ios::app); 
+    std::vector<std::string> parts = string_split(".", log_file_name);
+    profile_log.open(log_file_name, std::ios::app);
     measurer = new Measurer(profile_parallel, profile_timeout);
   }
   ~AutoScheduler() {
     if (thread_pool != nullptr) delete thread_pool;
-    log_out.close();
+    profile_log.close();
     if (measurer != nullptr) delete measurer;
   }
   void reset() {

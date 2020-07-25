@@ -60,8 +60,7 @@ std::vector<double> AutoScheduler::judge_schedule(
         ret.push_back(randdouble());
       }
     } else {
-      std::cerr << "No support for policy: " << policy << ".";
-      abort();
+      ERROR << "No support for policy: " << policy << ".";
     }
   } else {
     Array<FloatImm> tmp = (*f)(schedules, tensors, target, gflop, policy);
@@ -169,11 +168,11 @@ void AutoScheduler::auto_schedule(
   }
 
   if (report_profile) {
-    std::cout << "check judge values:\n";
+    log_out << "check judge values:\n";
     for (auto v : tmp_judges) {
-      std::cout << v << " ";
+      log_out << v << " ";
     }
-    std::cout << "\n";
+    log_out << "\n";
   }
 
   MultiScheduleEntity result_entity = new_candidates[best_ind];
@@ -226,7 +225,7 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
         return this->schedule_func(k, g, t);
         }, key, subgraph, target);
   } else {
-    LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";
+    ERROR << "Unsupported schedule priority: " << priority << "\n";
     throw;
   }
 }
@@ -235,7 +234,7 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
   contexts[key].add_feedback(schedule_result, evaluation);
   Feature feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
-  log_out << feature << " : " << evaluation << "\n";
+  profile_log << feature << " : " << evaluation << "\n";
 }
 
 

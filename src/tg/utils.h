@@ -2,21 +2,16 @@
 #define TVM_TG_UTILS_H_
 
 #include <vector>
-#include <queue>
 #include <memory>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <future>
-#include <functional>
 #include <stdexcept>
 #include <utility>
 #include <tuple>
 #include <chrono>
-#include <pthread.h>
 #include <iostream>
-#include <exception>
 #include <cstdlib>
+#include <sstream>
+#include <random>
+#include <climits>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
@@ -25,6 +20,9 @@
 #include <tvm/target/target.h>
 #include <tvm/runtime/module.h>
 #include <tvm/runtime/registry.h>
+#include <tvm/tir/ir_pass.h>
+
+#include "logging.h"
 
 
 namespace tvm {
@@ -39,78 +37,92 @@ namespace tg {
   }
 
 
-enum class LogLevel {
-  tINFO,
-  tWARNING,
-  tERROR
+double randdouble(double low=0.0, double high=1.0);
+int randint(int low=INT_MIN, int high=INT_MAX);
+
+
+IntImm make_int(int v);
+int get_const_int(PrimExpr value);
+std::string get_const_shape_string(Array<te::IterVar> axis);
+std::string get_const_shape_string(Array<PrimExpr> shape);
+
+
+std::string string_join(std::string tok, std::vector<std::string> strings);
+std::vector<std::string> string_split(std::string tok, std::string str);
+std::string string_strip(std::string str);
+std::string int_array_to_string(Array<IntImm> array);
+std::vector<int> int_vector_from_string(std::string s);
+std::vector<bool> bool_vector_from_string(std::string s);
+
+
+class IntKeyNode : public Object {
+ public:
+  int value;
+ 
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("value", &value);
+  }
+
+  static constexpr const char* _type_key = "tg.int_key";
+  TVM_DECLARE_FINAL_OBJECT_INFO(IntKeyNode, Object);
 };
 
-class LazyLogging {
- private:
-  LogLevel log_level;
-  bool do_print;
-  std::string file_;
-  int lineno_;
-  std::ostringstream oss;
-public:
-  LazyLogging() = default;
-  LazyLogging(const LazyLogging &&other) : log_level(other.log_level), do_print(other.do_print) {}
-  LazyLogging(LogLevel level, bool do_print=true, std::string file=__FILE__, int lineno=__LINE__) :
-    log_level(level), do_print(do_print), file_(file), lineno_(lineno) {}
-  ~LazyLogging() {
-    std::chrono::milliseconds ms = std::chrono::duration_cast< std::chrono::milliseconds >(
-        std::chrono::system_clock::now().time_since_epoch()
-    );
-    if (do_print) {
-      switch (log_level)
-      {
-      case LogLevel::tINFO:
-        std::cerr << "[Info] " << "[time=" << ms.count() << "] " << oss.str();
-        break;
-      case LogLevel::tWARNING:
-        std::cerr << "[Warning] " << "[time=" << ms.count() << "] file:"
-                  << file_ << " line:" << lineno_ << " " << oss.str();
-        break;
-      case LogLevel::tERROR:
-        {std::cerr << "[Error] " << "[time=" << ms.count() << "] "
-                  << file_ << " line:" << lineno_ << " " << oss.str();
-        abort();}
-        break;
-      default:
-        break;
-      }
-      if (oss.str().size() != 0)
-        std::cerr << oss.str() << "\n";
+
+class IntKey : public ObjectRef {
+ public:
+  IntKey(int value);
+
+  inline bool operator== (const ObjectRef& other) const {
+    if (get() == nullptr) return false;
+    const IntKeyNode* another = other.as<IntKeyNode>();
+    if (another == nullptr) {
+      return false;
     }
+    if (get() == another) return true;
+    return ((*this)->value == another->value);
   }
 
-  template<typename T>
-  LazyLogging &operator<<(T &other) {
-      oss << other;
-      return *this;
+  inline bool operator!= (const IntKey &other) const {
+    return !((*this) == other);
   }
 
-  template<typename T>
-  LazyLogging &operator<<(T &&other) {
-      oss << other;
-      return *this;
-  }
+  TVM_DEFINE_OBJECT_REF_METHODS(IntKey, ObjectRef, IntKeyNode);
 };
 
 
-#define ASSERT(cond)                                                          \
-  (                                                                           \
-    [&]()-> LazyLogging {                                                     \
-      if (!(cond)) {                                                          \
-        return LazyLogging(LogLevel::tERROR, true, __FILE__, __LINE__);       \
-      } else {                                                                \
-        return LazyLogging(LogLevel::tINFO, false, __FILE__, __LINE__);       \
-      }                                                                       \
-    }()                                                                       \
-  )                                                                           
+class StringKeyNode : public Object {
+ public:
+  std::string value;
+ 
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("value", &value);
+  }
+
+  static constexpr const char* _type_key = "tg.string_key";
+  TVM_DECLARE_FINAL_OBJECT_INFO(StringKeyNode, Object);
+};
 
 
-#define ERROR (ASSERT(false))
+class StringKey : public ObjectRef {
+ public:
+  StringKey(std::string value);
+
+  inline bool operator== (const ObjectRef& other) const {
+    if (get() == nullptr) return false;
+    const StringKeyNode* another = other.as<StringKeyNode>();
+    if (another == nullptr) {
+      return false;
+    }
+    if (get() == another) return true;
+    return ((*this)->value) == another->value;
+  }
+
+  inline bool operator!= (const StringKey &other) const {
+    return !((*this) == other);
+  }
+
+  TVM_DEFINE_OBJECT_REF_METHODS(StringKey, ObjectRef, StringKeyNode);
+};
 
 
 template<typename Function, typename T>
@@ -180,263 +192,39 @@ class CallFunc {
   }
 };
 
-
-int get_evn_value(std::string name);
-
-
-class print{
- private:
-  bool do_print; 
- public:
-  print(int level) : do_print(level <= get_evn_value("TG_PRINT_LEVEL")) {}
-
-  template<typename T>
-  print& operator<< (T&& x) {
-    if (do_print) {
-      std::cerr << std::forward<T>(x);
-    }
-    return *this;
-  }
-};
-
-
-class ProgressBar {
- private:
-  int length;
- public:
-  ProgressBar(int length=80) : length(length) {}
-
-  void draw(double progress) {
-    if (progress < 0) {
-      progress = 0.0;
-    } else if (progress > 1) {
-      progress = 1.0;
-    }
-    int pos = (int)(progress * (length - 2));
-    print(0) << "[";
-    for (int i = 0; i < length - 2; ++i) {
-      if (i < pos) {
-        print(0) << "#";
-      } else if (i == pos) {
-        print(0) << "X";
-      } else {
-        print(0) << " ";
-      }
-    }
-    print(0) << "]\r";
-  }
-};
-
-
-class ThreadPool {
-public:
-  ThreadPool(size_t threads=std::thread::hardware_concurrency(), unsigned int _timeout=1000)
-  : num_threads(threads), stop(true), timeout(_timeout) {
-    Init();
-  }
-
-  void Init() {
-    size_t threads = num_threads;
-    stop = false;
-    workers.clear();
-    for(size_t i = 0;i<threads;++i) {
-      workers.emplace_back(
-        [this] {
-          for(;;) {
-            std::function<void()> task;
-
-            {
-              std::unique_lock<std::mutex> lock(this->deque_mutex);
-              this->condition.wait(lock,
-                [this]{ return this->stop || !this->tasks.empty(); });
-              if(this->stop && this->tasks.empty())
-                return;
-              task = std::move(this->tasks.front());
-              this->tasks.pop_front();
-            }
-
-            task();
-          }
-        }
-      );
-    }
-  }
-
-  template<typename FType, typename... Args>
-  auto push_front(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
-    using return_type = decltype(f(args...));
-
-    auto task = std::make_shared< std::packaged_task<return_type()> >(
-            std::bind(f, std::forward<Args>(args)...)
-        );
-    
-  auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
-    [task, this](){
-      auto ret = task->get_future();
-
-      std::thread th([task](){ (*task)(); });
-
-      auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
-      if(status != std::future_status::ready) {
-        pthread_cancel(th.native_handle());
-        th.join();
-        throw std::runtime_error("time out");
-      } else {
-        th.join();
-        return ret.get();
-      }
-    }
-  );
-
-    std::shared_future<return_type> res = timed_task->get_future();
-    {
-        std::unique_lock<std::mutex> lock(deque_mutex);
-
-        if(stop)
-            throw std::runtime_error("push_front on stopped ThreadPool");
-
-        tasks.emplace_front([timed_task]() { (*timed_task)(); });
-    }
-    condition.notify_one();
-    return res;
-  }
-
-  template<typename FType, typename... Args>
-  auto push_back(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
-    using return_type = decltype(f(args...));
-
-    auto task = std::make_shared< std::packaged_task<return_type()> >(
-            std::bind(f, std::forward<Args>(args)...)
-        );
-    
-    auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
-      [task, this](){
-        auto ret = task->get_future();
-
-        std::thread th([task](){ (*task)(); });
-
-        auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
-        if(status != std::future_status::ready) {
-          pthread_cancel(th.native_handle());
-          th.detach();
-          throw std::runtime_error("time out in thread pool");
-        } else {
-          th.join();
-          return ret.get();
-        }
-      }
-    );
-
-    std::shared_future<return_type> res = timed_task->get_future();
-    {
-        std::unique_lock<std::mutex> lock(deque_mutex);
-
-        if(stop)
-            throw std::runtime_error("push_back on stopped ThreadPool");
-
-        tasks.emplace_back([timed_task]() { (*timed_task)(); });
-    }
-    condition.notify_one();
-    return res;
-  }
-
-  // static ThreadPool& Global() {
-  //   static ThreadPool* pool = new ThreadPool();
-  
-  //   return *pool;
-  // }
-
-  void DropAll() {
-    Cancel();
-    Stop();
-  }
-
-  void Reset() {
-    DropAll();
-    Join();
-    Init();
-  }
-
-  void Cancel() {
-    {
-        std::unique_lock<std::mutex> lock(deque_mutex);
-
-        tasks.clear();
-    }
-  }
-
-  void Join() {
-    condition.notify_all();
-    for(std::thread &worker: workers)
-      if (worker.joinable())
-        worker.join();
-      else
-        worker.detach();
-  }
-
-  void Stop() {
-    {
-      std::unique_lock<std::mutex> lock(deque_mutex);
-      stop = true;
-    }
-  }
-
-  ~ThreadPool() {
-    Reset();
-    DropAll();
-    Join();
-  }
-private:
-  size_t num_threads;
-  bool stop;
-  std::vector< std::thread > workers;
-  std::deque< std::function<void()> > tasks;
-  
-  std::mutex deque_mutex;
-  std::condition_variable condition;
-
-  unsigned int timeout;
-
-  static const int REFRESH_EPOCH = 128;
-};
-
-
-template<typename T>
-class Queue {
- private:
-  std::queue<T> q;
-  std::mutex mutex;
-
- public:
-  void push(T& value) {
-    std::unique_lock<std::mutex> lock(mutex);
-    q.push(value);
-  }
-
-  void push(T&& value) {
-    std::unique_lock<std::mutex> lock(mutex);
-    q.push(std::move(value));
-  }
-  
-  T& front() {
-    std::unique_lock<std::mutex> lock(mutex);
-    return q.front();
-  }
-
-  void pop() {
-    std::unique_lock<std::mutex> lock(mutex);
-    q.pop();
-  }
-
-  bool empty() {
-    std::unique_lock<std::mutex> lock(mutex);
-    return q.empty();
-  }
-};
-
  
 }  // namespace tg
 
 }  // namespace tvm
+
+
+namespace std {
+
+template <>
+struct hash<::tvm::tg::IntKey> {
+  std::size_t operator()(const ::tvm::tg::IntKey& k) const {
+    ::tvm::ObjectHash hasher;
+    if (k.defined()) {
+      return std::hash<int>{}(k->value);
+    } else{
+      return hasher(k);
+    }
+  }
+};
+
+
+template <>
+struct hash<::tvm::tg::StringKey> {
+  std::size_t operator()(const ::tvm::tg::StringKey& k) const {
+    ::tvm::ObjectHash hasher;
+    if (k.defined()) {
+      return std::hash<std::string>{}(k->value);
+    } else{
+      return hasher(k);
+    }
+  }
+};
+
+}  // namesdpace std
 
 #endif  //  TVM_TG_UTILS_H_

@@ -8,25 +8,6 @@ namespace tvm {
 
 namespace tg {
 
-
-IntKey::IntKey(int value) {
-  auto node = make_object<IntKeyNode>();
-
-  node->value = value;
-
-  data_ = std::move(node);
-}
-
-
-StringKey::StringKey(std::string value) {
-  auto node = make_object<StringKeyNode>();
-
-  node->value = value;
-
-  data_ = std::move(node);
-}
-
-
 void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
   ExprVisitor::VisitExpr_(op);
   if (op->call_type == CallNode::CallType::Halide) {
@@ -446,54 +427,6 @@ std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   }
   return std::make_pair(Array<Operation>(ret), Map<Operation, Array<Operation> >(down_graph));
 }
-
-
-int get_const_int(PrimExpr value) {
-  const IntImmNode *as_int = value.as<IntImmNode>();
-  if (as_int == nullptr) {
-    value = Simplify(value);
-    const IntImmNode *as_int = value.as<IntImmNode>();
-    CHECK(as_int != nullptr) << "Can't get const int from " << value << ".";
-    return as_int->value;
-  } else {
-    return as_int->value;
-  }
-}
-
-
-std::string get_const_shape_string(Array<IterVar> axis) {
-  std::string ret;
-  ret += "(";
-  size_t dim = axis.size();
-  for (size_t i = 0; i < dim; ++i) {
-    int value = get_const_int(axis[i]->dom->extent);
-    ret += std::to_string(value);
-    if (i != (dim - 1)) {
-      ret += ", ";
-    }
-  }
-  ret += ")";
-  return ret;
-}
-
-
-std::string get_const_shape_string(Array<PrimExpr> shape) {
-  std::string ret = "(";
-  size_t dim = shape.size();
-  for (size_t i = 0; i < dim; ++i) {
-    int value = get_const_int(shape[i]);
-    ret += std::to_string(value);
-    if (i != dim - 1) {
-      ret += ", ";
-    }
-  }
-  ret += ")";
-  return ret;
-}
-
-
-TVM_REGISTER_NODE_TYPE(IntKeyNode);
-TVM_REGISTER_NODE_TYPE(StringKeyNode);
 
 
 TVM_REGISTER_GLOBAL("tg.find_fusible_dim")

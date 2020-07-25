@@ -10,6 +10,7 @@
 #include <future>
 #include <functional>
 #include <stdexcept>
+#include <fstream>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>
@@ -20,6 +21,8 @@
 
 
 #include "../utils.h"
+#include "../logging.h"
+#include "../thread_pool.h"
 #include "../autoschedule/auto_schedule.h"
 
 namespace tvm {
@@ -52,8 +55,10 @@ class FunctionBuilder {
   int parallel;
   double timeout;
   ThreadPool *thread_pool = nullptr;
+  std::ostream& log_out;
  public:
-  FunctionBuilder(int parallel=1, double timeout=10) : parallel(parallel), timeout(timeout) {
+  FunctionBuilder(int parallel=1, double timeout=10, std::ostream& out=std::cerr)
+  : parallel(parallel), timeout(timeout), log_out(out) {
     thread_pool = new ThreadPool(parallel, int(timeout*1000));
   }
   ~FunctionBuilder() { if (thread_pool != nullptr) delete thread_pool; }

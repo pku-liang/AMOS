@@ -22,77 +22,6 @@ namespace tvm {
 using namespace te;
 namespace tg {
 
-
-class IntKeyNode : public Object {
- public:
-  int value;
- 
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("value", &value);
-  }
-
-  static constexpr const char* _type_key = "tg.int_key";
-  TVM_DECLARE_FINAL_OBJECT_INFO(IntKeyNode, Object);
-};
-
-
-class IntKey : public ObjectRef {
- public:
-  IntKey(int value);
-
-  inline bool operator== (const ObjectRef& other) const {
-    if (get() == nullptr) return false;
-    const IntKeyNode* another = other.as<IntKeyNode>();
-    if (another == nullptr) {
-      return false;
-    }
-    if (get() == another) return true;
-    return ((*this)->value == another->value);
-  }
-
-  inline bool operator!= (const IntKey &other) const {
-    return !((*this) == other);
-  }
-
-  TVM_DEFINE_OBJECT_REF_METHODS(IntKey, ObjectRef, IntKeyNode);
-};
-
-
-class StringKeyNode : public Object {
- public:
-  std::string value;
- 
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("value", &value);
-  }
-
-  static constexpr const char* _type_key = "tg.string_key";
-  TVM_DECLARE_FINAL_OBJECT_INFO(StringKeyNode, Object);
-};
-
-
-class StringKey : public ObjectRef {
- public:
-  StringKey(std::string value);
-
-  inline bool operator== (const ObjectRef& other) const {
-    if (get() == nullptr) return false;
-    const StringKeyNode* another = other.as<StringKeyNode>();
-    if (another == nullptr) {
-      return false;
-    }
-    if (get() == another) return true;
-    return ((*this)->value) == another->value;
-  }
-
-  inline bool operator!= (const StringKey &other) const {
-    return !((*this) == other);
-  }
-
-  TVM_DEFINE_OBJECT_REF_METHODS(StringKey, ObjectRef, StringKeyNode);
-};
-
-
 class FindBatchLikeDim : public ExprVisitor {
  private:
   Array<Var> spatial_indices_;
@@ -217,46 +146,8 @@ std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   serialize_compute_dag(Array<Operation> root_ops, bool output_first=false);
 
 
-int get_const_int(PrimExpr value);
-
-
-std::string get_const_shape_string(Array<IterVar> axis);
-
-
-std::string get_const_shape_string(Array<PrimExpr> shape);
-
-
 }  // namespace tg
 
 }  // namespace tvm
 
-
-namespace std {
-
-template <>
-struct hash<::tvm::tg::IntKey> {
-  std::size_t operator()(const ::tvm::tg::IntKey& k) const {
-    ::tvm::ObjectHash hasher;
-    if (k.defined()) {
-      return std::hash<int>{}(k->value);
-    } else{
-      return hasher(k);
-    }
-  }
-};
-
-
-template <>
-struct hash<::tvm::tg::StringKey> {
-  std::size_t operator()(const ::tvm::tg::StringKey& k) const {
-    ::tvm::ObjectHash hasher;
-    if (k.defined()) {
-      return std::hash<std::string>{}(k->value);
-    } else{
-      return hasher(k);
-    }
-  }
-};
-
-}  // namesdpace std
 #endif  // TVM_TG_GRAPH_UTILS_H_

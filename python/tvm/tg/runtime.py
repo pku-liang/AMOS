@@ -22,10 +22,12 @@ def create_session_option(
   profile_timeout=10.0,
   build_parallel=1,
   build_timeout=1.0,
+  build_log_file="build_log.txt",
   execution_explore_probability=0.5,
   execution_parallel=1,
   execution_timeout=100.0,
-  synchronize_subgraph=True):
+  synchronize_subgraph=True,
+  execution_log_file="execution_log.txt"):
   """Creates a SessionOption
 
   Parameters
@@ -62,6 +64,8 @@ def create_session_option(
   build_timeout : float
         in seconds
 
+  build_log_file : str
+
   execution_explore_probability : double
   
   execution_parallel : int
@@ -70,6 +74,8 @@ def create_session_option(
         in seconds
 
   synchronize_subgraph : bool
+
+  execution_log_file : str
 
   Returns
   -------
@@ -90,10 +96,12 @@ def create_session_option(
     profile_timeout,
     build_parallel,
     build_timeout,
+    build_log_file,
     execution_explore_probability,
     execution_parallel,
     execution_timeout,
-    synchronize_subgraph)
+    synchronize_subgraph,
+    execution_log_file)
 
 
 def create_session(target, dev_id, log_option):

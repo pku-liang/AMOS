@@ -14,6 +14,8 @@
 #include "../autoschedule/auto_schedule.h"
 #include "../build_function/build_function.h"
 #include "../utils.h"
+#include "../logging.h"
+#include "../thread_pool.h"
 
 namespace tvm {
 
@@ -35,10 +37,12 @@ class SessionOptionNode : public Object {
   double profile_timeout;
   int build_parallel;
   double build_timeout;
+  std::string build_log_file;
   double execution_explore_probability;
   int execution_parallel;
   double execution_timeout;
   bool synchronize_subgraph;
+  std::string execution_log_file;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("report_profile", &report_profile);
@@ -55,10 +59,12 @@ class SessionOptionNode : public Object {
     v->Visit("profile_timeout", &profile_timeout);
     v->Visit("build_parallel", &build_parallel);
     v->Visit("build_timeout", &build_timeout);
+    v->Visit("build_log_file", &build_log_file);
     v->Visit("execution_explore_probability", &execution_explore_probability);
     v->Visit("execution_parallel", &execution_parallel);
     v->Visit("execution_timeout", &execution_timeout);
     v->Visit("synchronize_subgraph", &synchronize_subgraph);
+    v->Visit("execution_log_file", &execution_log_file);
   }
 
   static constexpr const char* _type_key = "tg.autoschedule.SessionOption";
@@ -83,10 +89,12 @@ class SessionOption : public ObjectRef {
     double profile_timeout,
     int build_parallel,
     double build_timeout,
+    std::string build_log_file,
     double execution_explore_probability,
     int execution_parallel,
     double execution_timeout,
-    bool synchronize_subgraph);
+    bool synchronize_subgraph,
+    std::string execution_log_file);
   
   SessionOption(int dummy);
 
@@ -99,6 +107,9 @@ class Session {
   Target target;
   DLContext ctx;
   SessionOption sess_option;
+  std::ofstream autoschedule_log;
+  std::ofstream build_log;
+  std::ofstream exe_log;
   AutoScheduler *auto_scheduler = nullptr;
   FunctionBuilder *function_builder = nullptr;
   ThreadPool *thread_pool = nullptr;
