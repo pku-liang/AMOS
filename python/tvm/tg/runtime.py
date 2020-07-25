@@ -24,7 +24,8 @@ def create_session_option(
   build_timeout=1.0,
   execution_explore_probability=0.5,
   execution_parallel=1,
-  execution_timeout=100.0):
+  execution_timeout=100.0,
+  synchronize_subgraph=True):
   """Creates a SessionOption
 
   Parameters
@@ -68,6 +69,8 @@ def create_session_option(
   execution_timeout : float
         in seconds
 
+  synchronize_subgraph : bool
+
   Returns
   -------
   SessionOption
@@ -89,7 +92,8 @@ def create_session_option(
     build_timeout,
     execution_explore_probability,
     execution_parallel,
-    execution_timeout)
+    execution_timeout,
+    synchronize_subgraph)
 
 
 def create_session(target, dev_id, log_option):
@@ -147,6 +151,36 @@ def get_context_from_session(session_id):
   return _ffi_api.get_context_from_session(session_id)
 
 
+def disable_autoschedule(session_id):
+  """Disable the autoschedule of Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The id of this Session.
+
+    Returns
+    -------
+
+  """
+  _ffi_api.disable_autoschedule(session_id)
+
+
+def enable_autoschedule(session_id):
+  """Enable the autoschedule of Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The id of this Session.
+
+    Returns
+    -------
+
+  """
+  _ffi_api.enable_autoschedule(session_id)
+
+
 def initialize_weights(session_id, tir_graph, bindings):
   """Initialize weights for graph in the Session.
 
@@ -169,8 +203,27 @@ def initialize_weights(session_id, tir_graph, bindings):
   _ffi_api.initialize_weights(session_id, tir_graph, bindings)
 
 
+def add_task(session_id, tir_graph):
+  """Add a task in the Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The Session in which the graph is initialized.
+
+    tir_graph : tvm.tg.TIRGraph
+        The graph for which to initialize weights.
+
+    Returns
+    -------
+    task id: int
+        A task id.
+  """
+  return _ffi_api.add_task(session_id, tir_graph)
+
+
 def run_graph(session_id, tir_graph, bindings):
-  """Initialize weights for graph in the Session.
+  """Run a graph in the Session.
 
     Parameters
     ----------
@@ -186,7 +239,27 @@ def run_graph(session_id, tir_graph, bindings):
 
     Returns
     -------
-    session id: int
-        A global Session id.
+    task id: int
+        Task id.
   """
-  _ffi_api.run_graph(session_id, tir_graph, bindings)
+  return _ffi_api.run_graph(session_id, tir_graph, bindings)
+
+
+def run_task(session_id, task_id, bindings):
+  """Run a task in the Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The Session in which the graph is initialized.
+
+    task_id : int
+
+    bindings : list of dict of tvm.te.Tensor to tvm.runtime.NDArray
+        The length is training iterations.
+        Contains input data, labels, and learning rate.
+
+    Returns
+    -------
+  """
+  _ffi_api.run_task(session_id, task_id, bindings)

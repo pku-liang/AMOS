@@ -38,6 +38,7 @@ class SessionOptionNode : public Object {
   double execution_explore_probability;
   int execution_parallel;
   double execution_timeout;
+  bool synchronize_subgraph;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("report_profile", &report_profile);
@@ -57,6 +58,7 @@ class SessionOptionNode : public Object {
     v->Visit("execution_explore_probability", &execution_explore_probability);
     v->Visit("execution_parallel", &execution_parallel);
     v->Visit("execution_timeout", &execution_timeout);
+    v->Visit("synchronize_subgraph", &synchronize_subgraph);
   }
 
   static constexpr const char* _type_key = "tg.autoschedule.SessionOption";
@@ -83,7 +85,8 @@ class SessionOption : public ObjectRef {
     double build_timeout,
     double execution_explore_probability,
     int execution_parallel,
-    double execution_timeout);
+    double execution_timeout,
+    bool synchronize_subgraph);
   
   SessionOption(int dummy);
 
@@ -100,18 +103,31 @@ class Session {
   FunctionBuilder *function_builder = nullptr;
   ThreadPool *thread_pool = nullptr;
 
+  std::unordered_map<int, TIRMultiGraph> task_cache;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;
   std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
-  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > > > functions;
-  std::unordered_map<IntKey, std::pair<tvm::runtime::Module, float> > best_functions;
-  Queue<IntKey> emergency_queue;
+  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > > > future_functions;
+  std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult, tvm::runtime::Module, tvm::runtime::PackedFunc> > > built_functions;
+  std::unordered_map<IntKey, std::tuple<tvm::runtime::Module, tvm::runtime::PackedFunc, float> > best_functions;
+  Queue<IntKey> emergency_schedule_queue;
+  Queue<IntKey> emergency_build_queue;
   bool finish;
   std::mutex finish_mutex;
+  int task_count;
+  bool cached_all_functions;
+  bool use_autoschedule;
 
  public:
   Session(Target target, int dev_id, SessionOption sess_option);
   ~Session();
+  void clear_autoschedule_context();
+  void disable_autoschedule() {
+    use_autoschedule = false;
+  }
+  void enable_autoschedule() {
+    use_autoschedule = true;
+  }
   void initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
   std::string get_func_name(IntKey key);
@@ -119,11 +135,17 @@ class Session {
   void run_autoschedule(
     TIRMultiGraph multi_graph, int advance_number);
 
+  void run_build(
+    TIRMultiGraph multi_graph, int advance_number);
+
   void run_functions(
     TIRMultiGraph multi_graph,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
   
-  void run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+  int add_task(TIRGraph graph);
+  void run(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+  int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+  void run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
 };
 
 
@@ -140,7 +162,7 @@ void initialize_weights(
   int session_id, TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
 
 
-void run_graph(
+int run_graph(
   int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
 
 

@@ -30,7 +30,8 @@ SessionOption::SessionOption(
   double build_timeout,
   double execution_explore_probability,
   int execution_parallel,
-  double execution_timeout) {
+  double execution_timeout,
+  bool synchronize_subgraph) {
   auto node = make_object<SessionOptionNode>();
   node->report_profile = report_profile;
   node->report_iteration = report_iteration;
@@ -49,6 +50,7 @@ SessionOption::SessionOption(
   node->execution_explore_probability = execution_explore_probability;
   node->execution_parallel = execution_parallel;
   node->execution_timeout = execution_timeout;
+  node->synchronize_subgraph = synchronize_subgraph;
   data_ = std::move(node);
 }
 
@@ -74,13 +76,19 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
     sess_option->autoschedule_log_file);
   function_builder = new FunctionBuilder(sess_option->build_parallel, sess_option->build_timeout);
   thread_pool = new ThreadPool(sess_option->execution_parallel, (int)(sess_option->execution_timeout * 1000));
+
+  task_count = 0;
+  cached_all_functions = false;
+  use_autoschedule = false;
 }
 
 
 Session::~Session() {
+  task_cache.clear();
   persistent_tensors.clear();
   volatile_tensors.clear();
-  functions.clear();
+  future_functions.clear();
+  built_functions.clear();
   best_functions.clear();
 
   if (auto_scheduler != nullptr) {
@@ -94,6 +102,12 @@ Session::~Session() {
   if (thread_pool != nullptr) {
     delete thread_pool;
   }
+}
+
+
+void Session::clear_autoschedule_context() {
+  future_functions.clear();
+  built_functions.clear();
 }
 
 
@@ -155,6 +169,362 @@ void Session::allocate_output_buffer(TIRMultiGraph multi_graph) {
 
 std::string Session::get_func_name(IntKey key) {
   return "subgraph_" + std::to_string(key->value);
+}
+
+
+void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
+  // forward the compilation by multiple iterations
+  int schedule_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
+  for (int ad = 0; ad < schedule_trials; ++ad) {
+    // initialize call order
+    std::unordered_map<IntKey, int> schedule_order;
+    std::unordered_set<IntKey> free_set;
+    for (auto kv : multi_graph->graph_attrs) {
+      schedule_order[kv.first] = kv.second->num_predecessor;
+      if (kv.second->num_predecessor == 0) {
+        free_set.insert(kv.first);
+      }
+    }
+
+    // schedule and build for subgraphs
+    int schedule_count = 0;
+    int num_subgraphs = (int)multi_graph->graphs.size();
+    while (!free_set.empty()) {
+      std::unordered_set<IntKey> update_set;
+      std::unordered_set<IntKey> delete_set;
+
+      for (auto cand : free_set) {
+        // first, check if there is need to add a new schedule
+        // see if not finished
+        bool peek_finish = false;
+        std::unique_lock<std::mutex> lock(this->finish_mutex);
+        peek_finish = this->finish;
+        lock.unlock();
+        if (peek_finish) {
+          // execution done, no need to schedule
+          return;
+        }
+
+        // then, check emergency queue
+        if (!this->emergency_schedule_queue.empty()) {
+          auto& key = this->emergency_schedule_queue.front();
+
+          // the following are repeated
+          // TODO: isolate the logic
+          // handle emergency
+          // get future schedule
+          std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
+            key, multi_graph.Self()->graphs[key], target, 1);  // priority 1
+
+          try {
+            print(4) << "Waiting for emergency schedule for " << key->value << "...\n";
+            ScheduleResult result = schedule_result.get();
+            this->emergency_schedule_queue.pop();
+            print(4) << "Get emergency schedule for " << key->value << "!\n";
+            
+            // get future func
+            std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
+            function_builder->build_for(
+              result,
+              target,
+              Target::Create("llvm"),
+              get_func_name(key),
+              std::unordered_map<te::Tensor, tir::Buffer>(),
+              tvm::BuildConfig::Create(),
+              1  // priority 1
+            );
+
+            future_functions[key].push(sch_func);
+            this->emergency_build_queue.push(key);
+          } catch (const std::exception& e) {
+            print(2) << "Can't get schedule for emergency: " << e.what() << "\n";
+          }
+        }  // if (!this->emergency_queue.empty())
+
+        // at last, proceed
+        // this check can be removed when the runtime is mature
+        ASSERT(multi_graph.Self()->graphs.find(cand) != multi_graph.Self()->graphs.end())
+          << "Can't find the subgraph " << cand->value << ".";
+        TIRGraph subgraph = multi_graph.Self()->graphs[cand];
+
+        /*
+         * make a schedule
+         */
+        print(4) << "schedule for " << cand->value << "\n";
+        std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
+          cand, subgraph, target, 0);
+
+        try {
+          print(4) << "Waiting for schedule for " << cand->value << "...\n";
+          ScheduleResult result = schedule_result.get();
+          print(4) << "Get schedule for " << cand->value << "!\n";
+          
+          // get future func
+          std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
+          function_builder->build_for(
+            result,
+            target,
+            Target::Create("llvm"),
+            get_func_name(cand),
+            std::unordered_map<te::Tensor, tir::Buffer>(),
+            tvm::BuildConfig::Create()
+          );
+
+          future_functions[cand].push(sch_func);
+
+          // update delete_set
+          delete_set.insert(cand);
+
+          // this check can be removed when the runtime is mature
+          ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
+            << "Can't find subgraph " << cand->value << "'s attributes.";
+          for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
+            schedule_order[succ] -= 1;
+            if (schedule_order[succ] == 0) {
+              update_set.insert(succ);
+            }
+          }
+          
+          // this subgraph is done
+          schedule_count += 1;
+        } catch (const std::exception& e) {
+          /*
+           * should tell the thread to stop
+           * TODO: stop the thread
+           */
+          print(2) << "Can't get schedule: " << e.what() << "\n";
+          continue;
+        }
+      }  // for cand
+
+      for (auto deleted : delete_set) {
+        free_set.erase(deleted);
+      }
+      for (auto new_cand : update_set) {
+        free_set.insert(new_cand);
+      }
+    }  // end while (!free_set.empty())
+    
+    // make sure that every subgraph is handled
+    // double check
+    // this can be removed when the runtime is mature
+    if (schedule_count != num_subgraphs) {
+      throw std::runtime_error(
+        "Schedule graph number mismatch "
+        + std::to_string(schedule_count)
+        + " vs. " + std::to_string(num_subgraphs));
+    }
+
+    // print(4) << "before auto_scheduler reset...\n";
+    // auto_scheduler->reset();
+    // print(4) << "after auto_scheduler reset!\n";
+  }  // for ad
+
+  // wait until finished
+  while (1) {
+    // see if not done
+    bool peek_finish = false;
+    std::unique_lock<std::mutex> lock(this->finish_mutex);
+    peek_finish = this->finish;
+    lock.unlock();
+    if (!peek_finish) {
+      if (!this->emergency_schedule_queue.empty()) {
+        auto& key = this->emergency_schedule_queue.front();
+
+        // the following are repeated
+        // TODO: isolate the logic
+        // handle emergency
+        // get future schedule
+        std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
+          key, multi_graph.Self()->graphs[key], target, 1);  // priority 1
+
+        try {
+          print(4) << "Waiting for emergency schedule for " << key->value << "...\n";
+          ScheduleResult result = schedule_result.get();
+          this->emergency_schedule_queue.pop();
+          print(4) << "Get emergency schedule for " << key->value << "!\n";
+          
+          // get future func
+          std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
+          function_builder->build_for(
+            result,
+            target,
+            Target::Create("llvm"),
+            get_func_name(key),
+            std::unordered_map<te::Tensor, tir::Buffer>(),
+            tvm::BuildConfig::Create(),
+            1  // priority 1
+          );
+
+          future_functions[key].push(sch_func);
+          this->emergency_build_queue.push(key);
+        } catch (const std::exception& e) {
+          print(2) << "Can't get schedule for emergency: " << e.what() << "\n";
+          continue;
+        }
+      }
+    } else {
+      break;
+    }
+  }  // while 1
+}
+
+
+void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
+  // forward the compilation by multiple iterations
+  int build_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
+  for (int ad = 0; ad < build_trials; ++ad) {
+    // initialize call order
+    std::unordered_map<IntKey, int> build_order;
+    std::unordered_set<IntKey> free_set;
+    for (auto kv : multi_graph->graph_attrs) {
+      build_order[kv.first] = kv.second->num_predecessor;
+      if (kv.second->num_predecessor == 0) {
+        free_set.insert(kv.first);
+      }
+    }
+
+    // build for subgraphs
+    int build_count = 0;
+    int num_subgraphs = (int)multi_graph->graphs.size();
+    while (!free_set.empty()) {
+      std::unordered_set<IntKey> update_set;
+      std::unordered_set<IntKey> delete_set;
+
+      for (auto cand : free_set) {
+        // first, check if there is need to add a new schedule
+        // see if not finished
+        bool peek_finish = false;
+        std::unique_lock<std::mutex> lock(this->finish_mutex);
+        peek_finish = this->finish;
+        lock.unlock();
+        if (peek_finish) {
+          // execution done, no need to schedule
+          return;
+        }
+
+        // then, check emergency queue
+        if (!this->emergency_build_queue.empty()) {
+          auto& key = this->emergency_build_queue.front();
+
+          // the following are repeated
+          // TODO: isolate the logic
+          // handle emergency
+          // get future schedule
+          if (!future_functions[key].empty()) {
+            auto sch_and_mod = future_functions[key].front();
+            ScheduleResult sch = sch_and_mod.first;
+            auto future_mod = sch_and_mod.second;
+
+            try {
+              print(4) << "Waiting for emergency build for " << key->value << "...\n";
+              tvm::runtime::Module mod = future_mod.get();
+              this->emergency_build_queue.pop();
+              tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
+              print(4) << "Get emergency build for " << key->value << "!\n";
+
+              built_functions[key].push(std::make_tuple(sch, mod, func));
+            } catch (const std::exception &e) {
+              print(2) << "Can't get build for emergency: " << e.what() << "\n";
+            }
+          }
+        }  // if (!this->emergency_queue.empty())
+
+        // at last, proceed
+        /*
+         * make a build
+         */
+        print(4) << "build for " << cand->value << "\n";
+        if (!future_functions[cand].empty()) {
+          auto sch_and_mod = future_functions[cand].front();
+          ScheduleResult sch = sch_and_mod.first;
+          auto future_mod = sch_and_mod.second;
+
+          try {
+            print(4) << "Waiting for build for " << cand->value << "...\n";
+            tvm::runtime::Module mod = future_mod.get();
+            tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(cand));
+            print(4) << "Get build for " << cand->value << "!\n";
+
+            built_functions[cand].push(std::make_tuple(sch, mod, func));
+
+            // update delete_set
+            delete_set.insert(cand);
+
+            // this check can be removed when the runtime is mature
+            ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
+              << "Can't find subgraph " << cand->value << "'s attributes.";
+            for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
+              build_order[succ] -= 1;
+              if (build_order[succ] == 0) {
+                update_set.insert(succ);
+              }
+            }
+            build_count += 1;
+          } catch (const std::exception &e) {
+            print(2) << "Can't get build for: " << e.what() << "\n";
+          }
+        }
+
+      }  // for cand
+
+      for (auto deleted : delete_set) {
+        free_set.erase(deleted);
+      }
+      for (auto new_cand : update_set) {
+        free_set.insert(new_cand);
+      }
+    }  // end while (!free_set.empty())
+    
+    // make sure that every subgraph is handled
+    // double check
+    // this can be removed when the runtime is mature
+    if (build_count != num_subgraphs) {
+      throw std::runtime_error(
+        "Build graph number mismatch "
+        + std::to_string(build_count)
+        + " vs. " + std::to_string(num_subgraphs));
+    }
+
+  }  // for ad
+
+  // wait until finished
+  while (1) {
+    // see if not done
+    bool peek_finish = false;
+    std::unique_lock<std::mutex> lock(this->finish_mutex);
+    peek_finish = this->finish;
+    lock.unlock();
+    if (!peek_finish) {
+      if (!this->emergency_build_queue.empty()) {
+        auto& key = this->emergency_build_queue.front();
+
+        // the following are repeated
+        // TODO: isolate the logic
+        // handle emergency
+        // get future schedule
+        if (!future_functions[key].empty()) {
+          auto sch_and_mod = future_functions[key].front();
+          ScheduleResult sch = sch_and_mod.first;
+          auto future_mod = sch_and_mod.second;
+
+          try {
+            print(4) << "Waiting for emergency build for " << key->value << "...\n";
+            tvm::runtime::Module mod = future_mod.get();
+            this->emergency_build_queue.pop();
+            tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
+            print(4) << "Get emergency build for " << key->value << "!\n";
+
+            built_functions[key].push(std::make_tuple(sch, mod, func));
+          } catch (const std::exception &e) {
+            print(2) << "Can't get build for emergency: " << e.what() << "\n";
+          }
+        }
+      }  // if (!this->emergency_build_queue.empty())
+    } else {
+      break;
+    }
+  }  // while 1
 }
 
 
@@ -298,8 +668,6 @@ void Session::run_functions(
       while (!succ) {
         bool taken = false;  // record taken a function
 
-        auto t2 = std::chrono::steady_clock::now();
-
         double explore = randdouble();
         // print(4) << "explore random value: "
         //          << explore << " vs "
@@ -307,123 +675,126 @@ void Session::run_functions(
         //          << "\n";
         
         // first, try to get new function
-        if ((explore < sess_option->execution_explore_probability) && !this->functions[key].empty()) {
-          auto sch_func = this->functions[key].front();
+        if ((explore < sess_option->execution_explore_probability) && !this->built_functions[key].empty()) {
+          auto sch_mod_func = this->built_functions[key].front();
           // check if is ready
-          auto schedule_result = sch_func.first;
-          auto mod = sch_func.second;
-          auto status = mod.wait_for(std::chrono::milliseconds(0));
-          if (status == std::future_status::ready) {
-            // std::cout << "take new function for " << key->value << "\n";
-            // take away this one
-            this->functions[key].pop();
-            taken = true;   // we will take one function
-   
+          auto schedule_result = std::get<0>(sch_mod_func);
+          auto mod = std::get<1>(sch_mod_func);
+          auto func = std::get<2>(sch_mod_func);
+          ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
+
+          // take away this one
+          this->built_functions[key].pop();
+          taken = true;   // we will take one function       
+
+          if (sess_option->synchronize_subgraph) {
+            /* run the function in another thread
+            */
+            auto t5 = std::chrono::steady_clock::now();
+            auto future = thread_pool->push_back(
+              [&]() {
+                auto start = std::chrono::steady_clock::now();
+                (*call_unpack)(func, arrays);
+                runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+                auto end = std::chrono::steady_clock::now();
+                float elapsed_time = (float)(
+                  std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
+                return elapsed_time;
+              });
+
+            auto t6 = std::chrono::steady_clock::now();
+            auto t6_t5 = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() / 1e3;
+            print(4) << "Push back execution task uses " << t6_t5 << " ms.\n";
+            // run this function
             try {
-              print(4) << "Waiting for build for " << key->value << "...\n";
-              tvm::runtime::Module module = mod.get();
-              print(4) << "Get build for " << key->value << "!\n";
-              auto t5 = std::chrono::steady_clock::now();
-              auto t5_t2 = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t2).count() / 1e3;
-              print(4) << "Get build uses " << t5_t2 << " ms.\n";
-              auto mod_func = module->GetFunction(get_func_name(key));
-              ASSERT(mod_func != nullptr) << "Get null function, don't know how to deal with it.";
+              print(4) << "Waiting for execution for " << key->value << "...\n";
+              float elapsed_time = future.get();
+              print(4) << "Get execution for " << key->value << "!\n";
+              print(4) << "Execution uses " << elapsed_time << " ms.\n";
+              auto t7 = std::chrono::steady_clock::now();
+              // feedback
+              float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
+              auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+              auto t8 = std::chrono::steady_clock::now();
+              auto t8_t7 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() / 1e3;
+              print(4) << "Feedback uses " << t8_t7 << " ms.\n";
 
-              /* run the function in another thread 
-              * TODO: wait this thread to the end
-              */
-              // auto future = thread_pool->push_back(
-              //   [call_unpack](tvm::runtime::PackedFunc& f, Array<tvm::runtime::NDArray>& v) {
-              //     auto start = std::chrono::steady_clock::now();
-              //     (*call_unpack)(f, v);
-              //     auto end = std::chrono::steady_clock::now();
-              //     float elapsed_time = (float)(
-              //       std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
-              //     return elapsed_time;
-              //   }, mod_func, arrays);
-
-              auto future = thread_pool->push_back(
-                [&]() {
-                  auto start = std::chrono::steady_clock::now();
-                  (*call_unpack)(mod_func, arrays);
-                  runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
-                  auto end = std::chrono::steady_clock::now();
-                  float elapsed_time = (float)(
-                    std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
-                  return elapsed_time;
-                });
-
-              auto t6 = std::chrono::steady_clock::now();
-              auto t6_t5 = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() / 1e3;
-              print(4) << "Push back execution task uses " << t6_t5 << " ms.\n";
-              // run this function
-              try {
-                print(4) << "Waiting for execution for " << key->value << "...\n";
-                float elapsed_time = future.get();
-                // auto start_exe = std::chrono::steady_clock::now();
-                // (*call_unpack)(mod_func, arrays);
-                // auto end_exe = std::chrono::steady_clock::now();
-                // float elapsed_time = (float)(
-                //   std::chrono::duration_cast<std::chrono::microseconds>(end_exe - start_exe).count()) / 1e3;
-                print(4) << "Get execution for " << key->value << "!\n";
-                print(4) << "Execution uses " << elapsed_time << " ms.\n";
-                auto t7 = std::chrono::steady_clock::now();
-                // feedback
-                float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
-                auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
-                auto t8 = std::chrono::steady_clock::now();
-                auto t8_t7 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() / 1e3;
-                print(4) << "Feedback uses " << t8_t7 << " ms.\n";
-                /*
-                * feedback is added here
-                * TODO: do feedback here
-                */
-                // sch_func.first.Self()->leaf->update_reward(sch_func.first->configs, gflops);
-                // store function
-                if (best_functions.find(key) == best_functions.end()) {
-                  best_functions[key] = std::make_pair(module, gflops);
-                } else {
-                  if (gflops > best_functions[key].second) {
-                    best_functions[key] = std::make_pair(module, gflops);
-                  }
+              // store function
+              if (best_functions.find(key) == best_functions.end()) {
+                best_functions[key] = std::make_tuple(mod, func, gflops);
+              } else {
+                if (gflops > std::get<2>(best_functions[key])) {
+                  best_functions[key] = std::make_tuple(mod, func, gflops);
                 }
+              }
 
-                // success
-                succ = true;
-              } catch (const std::exception &e) {
-                // can't run the function
-                /*
-                * should kill the thread
-                * TODO: add kill
-                */
-               print(2) << "Can't run function: " << e.what() << "\n";
-              }  // end try run function
-
-            } catch (const std::exception& e) {
-              // can't get module
+              // success
+              succ = true;
+            } catch (const std::exception &e) {
+              // can't run the function
               /*
-              * the thread that produces module
-              * should stop
-              * TODO: stop the thread
+              * should kill the thread
+              * TODO: add kill
               */
-             print(2) << "Can't get schedule module: " << e.what() << "\n";
-            }  // end try get mod
-          }  // end status == ready
-        }  // end try new function
+              print(2) << "Can't run function: " << e.what() << "\n";
+            }  // end try run function
+          } else {
+            // run this function
+            try {
+              print(4) << "Waiting for execution for " << key->value << "...\n";
+              auto start_exe = std::chrono::steady_clock::now();
+              (*call_unpack)(func, arrays);
+              auto end_exe = std::chrono::steady_clock::now();
+              /*
+               * TODO: We need to add cuda events for timing for GPU
+               * */
+              float elapsed_time = (float)(
+                std::chrono::duration_cast<std::chrono::microseconds>(end_exe - start_exe).count()) / 1e3;
+              print(4) << "Get execution for " << key->value << "!\n";
+              print(4) << "Execution uses " << elapsed_time << " ms.\n";
+              auto t7 = std::chrono::steady_clock::now();
+              // feedback
+              float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
+              // auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+              auto t8 = std::chrono::steady_clock::now();
+              auto t8_t7 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() / 1e3;
+              print(4) << "Feedback uses " << t8_t7 << " ms.\n";
 
-        // auto t3 = std::chrono::steady_clock::now();
-        // auto t3_t2 = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count() / 1e3;
-        // print(4) << "Run new function uses " << t3_t2 << " ms.\n";
+              // store function
+              if (best_functions.find(key) == best_functions.end()) {
+                best_functions[key] = std::make_tuple(mod, func, gflops);
+              } else {
+                if (gflops > std::get<2>(best_functions[key])) {
+                  best_functions[key] = std::make_tuple(mod, func, gflops);
+                }
+              }
+
+              // success
+              succ = true;
+            } catch (const std::exception &e) {
+              // can't run the function
+              /*
+              * should kill the thread
+              * TODO: add kill
+              */
+              print(2) << "Can't run function: " << e.what() << "\n";
+            }  // end try run function
+          }  // if sess_option->synchronize_subgraph
+        }  // end try new function
 
         // then, try to use old function
         if (!succ) {
-          // std::cout << "try old function for " << key->value << "\n";
           if (best_functions.find(key) != best_functions.end()) {
-            // std::cout << "got old function for " << key->value << "\n";
-            auto func = best_functions[key].first->GetFunction(get_func_name(key));
+            auto func = std::get<1>(best_functions[key]);
             auto run_beg = std::chrono::steady_clock::now();
             (*call_unpack)(func, arrays);
-            runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+            if (sess_option->synchronize_subgraph) {
+              runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+            } else {
+              /*
+               * TODO: add cuda events for timing for GPU
+               */
+            }
             auto run_end = std::chrono::steady_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_beg).count() / 1e3;
             print(4) << "Run cached function uses " << duration << " ms.\n";
@@ -431,16 +802,12 @@ void Session::run_functions(
           }
         }  // end try old function
 
-        // auto t4 = std::chrono::steady_clock::now();
-        // auto t4_t3 = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() / 1e3;
-        // print(4) << "Run old function uses " << t4_t3 << " ms.\n";
-
         // must check taken because chance is that
         // the scheduler is not ready
-        if (!succ && this->functions[key].empty() && taken) {
+        if (!succ && this->built_functions[key].empty() && taken) {
           // there is no way to run this subgraph
           // report error
-          this->emergency_queue.push(key);
+          this->emergency_schedule_queue.push(key);
           break;
         }
 
@@ -486,12 +853,15 @@ void Session::run_functions(
     }
     if (ad > 0)
       total_execution_time += execution_time;
+    cached_all_functions = true;
   }  // for ad
 
   if (advance_number > 1)
     print(1) << "Average time cost for each iteration: " << total_execution_time / (advance_number-1) << " ms.\n";
   print(1) << "Best iteration takes: " << best_execution_time << " ms.\n";
 
+  // synchronize the stream for this run task
+  runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
   // notify done
   std::unique_lock<std::mutex> lock(this->finish_mutex);
   this->finish = true;
@@ -499,264 +869,16 @@ void Session::run_functions(
 }
 
 
-void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
-  // forward the compilation by multiple iterations
-  int schedule_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
-  for (int ad = 0; ad < schedule_trials; ++ad) {
-    // initialize call order
-    std::unordered_map<IntKey, int> schedule_order;
-    std::unordered_set<IntKey> free_set;
-    for (auto kv : multi_graph->graph_attrs) {
-      schedule_order[kv.first] = kv.second->num_predecessor;
-      if (kv.second->num_predecessor == 0) {
-        free_set.insert(kv.first);
-      }
-    }
-
-    // schedule and build for subgraphs
-    int schedule_count = 0;
-    int num_subgraphs = (int)multi_graph->graphs.size();
-    while (!free_set.empty()) {
-      std::unordered_set<IntKey> update_set;
-      std::unordered_set<IntKey> delete_set;
-
-      for (auto cand : free_set) {
-        // first, check if there is need to add a new schedule
-        // see if not finished
-        bool peek_finish = false;
-        std::unique_lock<std::mutex> lock(this->finish_mutex);
-        peek_finish = this->finish;
-        lock.unlock();
-        if (peek_finish) {
-          // execution done, no need to schedule
-          return;
-        }
-
-        // then, check emergency queue
-        if (!this->emergency_queue.empty()) {
-          auto& key = this->emergency_queue.front();
-
-          // the following are repeated
-          // TODO: isolate the logic
-          // handle emergency
-          // get future schedule
-          std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
-            key, multi_graph.Self()->graphs[key], target, 1);  // priority 1
-
-          // int max_wait_times = 10;
-          // int milliseconds = 1000 * 1000;
-
-          // std::future_status status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-          // int count_wait = 0;
-          // while (status == std::future_status::deferred) {
-          //   count_wait += 1;
-          //   status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-          //   if (count_wait > max_wait_times) {
-          //     throw std::runtime_error("Long time still deferred.");
-          //   }
-          // }
-          // status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-          // if (status == std::future_status::timeout) {
-          //   continue;
-          // }
-
-          try {
-            print(4) << "Waiting for emergency schedule for " << key->value << "...\n";
-            ScheduleResult result = schedule_result.get();
-            this->emergency_queue.pop();
-            print(4) << "Get emergency schedule for " << key->value << "!\n";
-            
-            // get future func
-            std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
-            function_builder->build_for(
-              result,
-              target,
-              Target::Create("llvm"),
-              get_func_name(key),
-              std::unordered_map<te::Tensor, tir::Buffer>(),
-              tvm::BuildConfig::Create(),
-              1  // priority 1
-            );
-
-            functions[key].push(sch_func);
-          } catch (const std::exception& e) {
-            print(2) << "Can't get schedule for emergency: " << e.what() << "\n";
-          }
-        }  // if (!this->emergency_queue.empty())
-
-        // at last, proceed
-        // this check can be removed when the runtime is mature
-        ASSERT(multi_graph.Self()->graphs.find(cand) != multi_graph.Self()->graphs.end())
-          << "Can't find the subgraph " << cand->value << ".";
-        TIRGraph subgraph = multi_graph.Self()->graphs[cand];
-
-        /*
-         * make a schedule
-         */
-        print(4) << "schedule for " << cand->value << "\n";
-        std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
-          cand, subgraph, target, 0);
-
-        /*
-         * these are parameters
-         * should be moved to interface
-         * TODO: move the parameters
-         */
-        // int max_wait_times = 10;
-        // int milliseconds = 1000 * 1000;
-
-        // wait for schedule
-        // std::future_status status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-        // int count_wait = 0;
-        // while (status == std::future_status::deferred) {
-        //   count_wait += 1;
-        //   status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-        //   if (count_wait > max_wait_times) {
-        //     throw std::runtime_error("Long time still deferred.");
-        //   }
-        // }
-        // status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-        // if (status == std::future_status::timeout) {
-        //   /*
-        //    * should tell the thread to stop
-        //    * TODO: stop the thread
-        //    */
-        //   continue;
-        // }
-
-        try {
-          print(4) << "Waiting for schedule for " << cand->value << "...\n";
-          ScheduleResult result = schedule_result.get();
-          print(4) << "Get schedule for " << cand->value << "!\n";
-          
-          // get future func
-          std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
-          function_builder->build_for(
-            result,
-            target,
-            Target::Create("llvm"),
-            get_func_name(cand),
-            std::unordered_map<te::Tensor, tir::Buffer>(),
-            tvm::BuildConfig::Create()
-          );
-
-          functions[cand].push(sch_func);
-
-          // update delete_set
-          delete_set.insert(cand);
-
-          // this check can be removed when the runtime is mature
-          ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
-            << "Can't find subgraph " << cand->value << "'s attributes.";
-          for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
-            schedule_order[succ] -= 1;
-            if (schedule_order[succ] == 0) {
-              update_set.insert(succ);
-            }
-          }
-          
-          // this subgraph is done
-          schedule_count += 1;
-        } catch (const std::exception& e) {
-          /*
-           * should tell the thread to stop
-           * TODO: stop the thread
-           */
-          print(2) << "Can't get schedule: " << e.what() << "\n";
-          continue;
-        }
-      }  // for cand
-
-      for (auto deleted : delete_set) {
-        free_set.erase(deleted);
-      }
-      for (auto new_cand : update_set) {
-        free_set.insert(new_cand);
-      }
-    }  // end while (!free_set.empty())
-    
-    // make sure that every subgraph is handled
-    // double check
-    // this can be removed when the runtime is mature
-    if (schedule_count != num_subgraphs) {
-      throw std::runtime_error(
-        "Schedule graph number mismatch "
-        + std::to_string(schedule_count)
-        + " vs. " + std::to_string(num_subgraphs));
-    }
-
-    // print(4) << "before auto_scheduler reset...\n";
-    // auto_scheduler->reset();
-    // print(4) << "after auto_scheduler reset!\n";
-  }  // for ad
-
-  // wait until finished
-  while (1) {
-    // see if not done
-    bool peek_finish = false;
-    std::unique_lock<std::mutex> lock(this->finish_mutex);
-    peek_finish = this->finish;
-    lock.unlock();
-    if (!peek_finish) {
-      if (!this->emergency_queue.empty()) {
-        auto& key = this->emergency_queue.front();
-
-        // the following are repeated
-        // TODO: isolate the logic
-        // handle emergency
-        // get future schedule
-        std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
-          key, multi_graph.Self()->graphs[key], target, 1);  // priority 1
-
-        // int max_wait_times = 10;
-        // int milliseconds = 1000 * 1000;
-
-        // std::future_status status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-        // int count_wait = 0;
-        // while (status == std::future_status::deferred) {
-        //   count_wait += 1;
-        //   status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-        //   if (count_wait > max_wait_times) {
-        //     throw std::runtime_error("Long time still deferred.");
-        //   }
-        // }
-        // status = schedule_result.wait_for(std::chrono::milliseconds(milliseconds));
-        // if (status == std::future_status::timeout) {
-        //   continue;
-        // }
-
-        try {
-          print(4) << "Waiting for emergency schedule for " << key->value << "...\n";
-          ScheduleResult result = schedule_result.get();
-          this->emergency_queue.pop();
-          print(4) << "Get emergency schedule for " << key->value << "!\n";
-          
-          // get future func
-          std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
-          function_builder->build_for(
-            result,
-            target,
-            Target::Create("llvm"),
-            get_func_name(key),
-            std::unordered_map<te::Tensor, tir::Buffer>(),
-            tvm::BuildConfig::Create(),
-            1  // priority 1
-          );
-
-          functions[key].push(sch_func);
-        } catch (const std::exception& e) {
-          print(2) << "Can't get schedule for emergency: " << e.what() << "\n";
-          continue;
-        }
-      }
-    } else {
-      break;
-    }
-  }  // while 1
+int Session::add_task(TIRGraph graph) {
+  SubGraphPartitionEngine partition_engine;
+  TIRMultiGraph multi_graph(graph, partition_engine);
+  int task_id = task_count++;
+  task_cache[task_id] = multi_graph;
+  return task_id;
 }
 
 
-void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+void Session::run(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
   int advance_number = (int)(bindings.size());
   print(1) << "Advancing " << advance_number << " iterations.\n";
 
@@ -764,10 +886,6 @@ void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm
   std::unique_lock<std::mutex> lock(this->finish_mutex);
   this->finish = false;
   lock.unlock();
-
-  // partition graph
-  SubGraphPartitionEngine partition_engine;
-  TIRMultiGraph multi_graph(graph, partition_engine);
 
   // valide tensor index
   // this can be removed when the runtime is mature
@@ -787,6 +905,14 @@ void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm
   std::thread sch_thread(
     [this](TIRMultiGraph g, int b) {
       run_autoschedule(g, b);
+    }, multi_graph, advance_number);
+
+  /*
+   * launch the run_build thread
+   */
+  std::thread build_thread(
+    [this](TIRMultiGraph g, int b) {
+      run_build(g, b);
     }, multi_graph, advance_number);
 
   /*
@@ -811,8 +937,34 @@ void Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm
   }  // while 1
   // wait for execution
   sch_thread.join();
+  build_thread.join();
   exe_thread.join();
   print(4) << "end run.\n";
+}
+
+
+int Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+  int task_id = add_task(graph);
+  if (!use_autoschedule && cached_all_functions) {
+    clear_autoschedule_context();
+    run_functions(task_cache[task_id], bindings);
+  } else {
+    run(task_cache[task_id], bindings);
+  }
+  
+  return task_id;
+}
+
+
+void Session::run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+  ASSERT(task_cache.find(task_id) != task_cache.end()) << "Can't find the task: " << task_id << ".\n";
+  TIRMultiGraph multi_graph = task_cache[task_id];
+  if (!use_autoschedule && cached_all_functions) {
+    clear_autoschedule_context();
+    run_functions(multi_graph, bindings);
+  } else {
+    run(multi_graph, bindings);
+  }
 }
 
 
@@ -858,6 +1010,18 @@ void delete_session(int session_id) {
 }
 
 
+void disable_autoschedule(int session_id) {
+  auto sess = get_session(session_id);
+  sess->disable_autoschedule();
+}
+
+
+void enable_autoschedule(int session_id) {
+  auto sess = get_session(session_id);
+  sess->enable_autoschedule();
+}
+
+
 void initialize_weights(
   int session_id, TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings) {
 
@@ -866,11 +1030,25 @@ void initialize_weights(
 }
 
 
-void run_graph(
+int add_task(int session_id, TIRGraph graph) {
+  auto sess = get_session(session_id);
+  return sess->add_task(graph);
+}
+
+
+int run_graph(
   int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
   
   auto sess = get_session(session_id);
-  sess->run(graph, bindings);
+  return sess->run(graph, bindings);
+}
+
+
+void run_task(
+  int session_id, int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+  
+  auto sess = get_session(session_id);
+  sess->run(task_id, bindings);
 }
 
 
@@ -892,7 +1070,8 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
   double build_timeout,
   double execution_explore_probability,
   int execution_parallel,
-  double execution_timeout
+  double execution_timeout,
+  bool synchronize_subgraph
 ) {
   SessionOption ret = SessionOption(
     report_profile,
@@ -911,7 +1090,8 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
     build_timeout,
     execution_explore_probability,
     execution_parallel,
-    execution_timeout);
+    execution_timeout,
+    synchronize_subgraph);
   return ret;
 });
 
@@ -935,6 +1115,18 @@ TVM_REGISTER_GLOBAL("tg.get_context_from_session")
 });
 
 
+TVM_REGISTER_GLOBAL("tg.disable_autoschedule")
+.set_body_typed([](int session_id){
+  disable_autoschedule(session_id);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.enable_autoschedule")
+.set_body_typed([](int session_id){
+  enable_autoschedule(session_id);
+});
+
+
 TVM_REGISTER_GLOBAL("tg.initialize_weights")
 .set_body_typed([](int session_id, TIRGraph graph, Array<tvm::runtime::NDArray> bindings){
   std::vector<tvm::runtime::NDArray> _bindings;
@@ -942,6 +1134,13 @@ TVM_REGISTER_GLOBAL("tg.initialize_weights")
     _bindings.push_back(v);
   }
   initialize_weights(session_id, graph, _bindings);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.add_task")
+.set_body_typed([](
+  int session_id, TIRGraph graph){
+  return add_task(session_id, graph);
 });
 
 
@@ -956,7 +1155,22 @@ TVM_REGISTER_GLOBAL("tg.run_graph")
     }
     _bindings.push_back(tmp);
   }
-  run_graph(session_id, graph, _bindings);
+  return run_graph(session_id, graph, _bindings);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.run_task")
+.set_body_typed([](
+  int session_id, int task_id, Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings){
+  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > _bindings;
+  for (auto mp : bindings) {
+    std::unordered_map<te::Tensor, tvm::runtime::NDArray> tmp;
+    for (auto kv : mp) {
+      tmp[kv.first] = kv.second;
+    }
+    _bindings.push_back(tmp);
+  }
+  run_task(session_id, task_id, _bindings);
 });
 
 
