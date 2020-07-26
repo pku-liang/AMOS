@@ -27,6 +27,7 @@
 
 #include <tvm/tir/expr.h>
 #include <tvm/tir/expr_functor.h>
+#include <tvm/tir/ir_pass.h>
 #include <tvm/runtime/registry.h>
 
 #include <stack>
@@ -44,7 +45,7 @@ using TouchedBuffer = std::string;
 
 // touch pattern buf[(stride * var) % mod) + other]
 struct TouchPattern {
-  int64_t stride{0};
+  float stride{0.};
   int64_t mod{-1};  // -1 for +inf
 
   int64_t count{1};
@@ -81,6 +82,8 @@ struct ItervarFeature {
 
   // Memory Touch Feature
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
+
+  int access_type{0};
 };
 
 // extract iter vars and their touch pattern from ir
@@ -126,7 +129,7 @@ class TouchExtractor : public FeatureVisitor {
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
   void ExitItervar_();
-  void EnterMem_(Var buffer_var, PrimExpr index);
+  void EnterMem_(Var buffer_var, PrimExpr index, int access_ann);
   void ExitMem_();
 
   int64_t topdown_product_{1};
