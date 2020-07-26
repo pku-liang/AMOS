@@ -43,11 +43,24 @@ int ParallelLevel(AnnotationType ann) {
   }
 }
 
+class IndexMutator : public ExprMutator {
+public:
+  PrimExpr VisitExpr_(const FloorDivNode* op) {
+    PrimExpr a = this->VisitExpr(op->a);
+    PrimExpr b = this->VisitExpr(op->b);
+    return DivNode::make(a, b);
+  }
+};
+
 // get touch pattern from index expression
 class IndexParser: public ExprVisitor {
  public:
   void Parse(PrimExpr expr) {
     pattern_map.clear();
+
+    expr = IndexMutator()(expr);
+    expr = tvm::tir::CanonicalSimplify(expr);
+    
     this->VisitExpr(expr);
   }
 
@@ -56,13 +69,15 @@ class IndexParser: public ExprVisitor {
     if (pattern_map.count(op) == 0) {
       pattern_map[op] = TouchPattern();
       pattern_map[op].stride = next_stride_;
-      next_stride_ = 1;
+      next_stride_ = 1.;
     }
   }
 
   void VisitExpr_(const MulNode* op) final {
     if (op->a.as<VarNode>()) {
       if (const auto stride = op->b.as<IntImmNode>()) {
+        next_stride_ = stride->value;
+      } else if (const auto stride = op->b.as<FloatImmNode>()) {
         next_stride_ = stride->value;
       }
     }
@@ -72,7 +87,7 @@ class IndexParser: public ExprVisitor {
   std::unordered_map<const VarNode*, TouchPattern> pattern_map;
 
  private:
-  int64_t next_stride_ = 1;
+  float next_stride_ = 1.;
 };
 
 // extract iter vars and their touch pattern from ir

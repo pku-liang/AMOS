@@ -27,6 +27,7 @@
 
 #include <tvm/tir/expr.h>
 #include <tvm/tir/expr_functor.h>
+#include <tvm/tir/ir_pass.h>
 #include <tvm/runtime/registry.h>
 
 #include <stack>
@@ -44,7 +45,7 @@ using TouchedBuffer = std::string;
 
 // touch pattern buf[(stride * var) % mod) + other]
 struct TouchPattern {
-  int64_t stride{0};
+  float stride{0.};
   int64_t mod{-1};  // -1 for +inf
 
   int64_t count{1};
