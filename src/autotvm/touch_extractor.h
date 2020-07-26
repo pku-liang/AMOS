@@ -81,6 +81,8 @@ struct ItervarFeature {
 
   // Memory Touch Feature
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
+
+  int access_type{0};
 };
 
 // extract iter vars and their touch pattern from ir
@@ -126,7 +128,7 @@ class TouchExtractor : public FeatureVisitor {
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
   void ExitItervar_();
-  void EnterMem_(Var buffer_var, PrimExpr index);
+  void EnterMem_(Var buffer_var, PrimExpr index, int access_ann);
   void ExitMem_();
 
   int64_t topdown_product_{1};

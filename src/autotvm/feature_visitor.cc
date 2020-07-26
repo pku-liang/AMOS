@@ -96,13 +96,13 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
 
 // memory access
 void FeatureVisitor::VisitExpr_(const LoadNode* op) {
-  EnterMem_(op->buffer_var, op->index);
+  EnterMem_(op->buffer_var, op->index, BUFFER_READ);
   StmtExprVisitor::VisitExpr_(op);
   ExitMem_();
 }
 
 void FeatureVisitor::VisitStmt_(const StoreNode* op) {
-  EnterMem_(op->buffer_var, op->index);
+  EnterMem_(op->buffer_var, op->index, BUFFER_WRITE);
   StmtExprVisitor::VisitStmt_(op);
   ExitMem_();
 }

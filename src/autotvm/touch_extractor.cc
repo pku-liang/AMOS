@@ -169,7 +169,7 @@ void TouchExtractor::ExitItervar_() {
   }
 }
 
-void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
+void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, int access_ann) {
   std::string name = buffer_var.get()->name_hint;
   TouchedBuffer buf = name + "_" + std::to_string(buffer_counter_[name]++);
 
@@ -185,6 +185,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
     } else {
       itervar_map[var].touch_feature[buf] = TouchPattern();
     }
+    itervar_map[var].access_type |= access_ann;
   }
 }
 
@@ -200,6 +201,7 @@ void TouchExtractor::ExitMem_() {
  * \note The format of return value is
  * ((
  *   ('_itervar_',  var),
+ *   ('_access_type_', write, read),
  *   ('_attr_',     length, nest_level, topdown, bottomup, one_hot_annotation),
  *   ('_arith_',    add_ct, mul_ct, div_ct),
  *   ('data_vec_0', stride, mod, count, reuse, thread_count, thread_reuse),
@@ -253,6 +255,10 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
     Array<Array<PrimExpr> > feature_row;
     ItervarFeature &fea = touch_analyzer.itervar_map[var];
     feature_row.push_back(Array<PrimExpr>{std::string("_itervar_"), var});
+
+    feature_row.push_back(Array<PrimExpr>{std::string("_access_type_"),
+            (fea.access_type & BUFFER_WRITE) != 0,
+            (fea.access_type & BUFFER_READ) != 0});
 
     Array<PrimExpr> attr{std::string("_attr_"),
                      FloatImm(DataType::Float(32), trans(fea.length)),
@@ -337,6 +343,9 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_
   // serialize for front end
   for (auto var : vars) {
     ItervarFeature &fea = touch_analyzer.itervar_map[var];
+
+    ret_feature->push_back((fea.access_type & BUFFER_WRITE) != 0);
+    ret_feature->push_back((fea.access_type & BUFFER_READ) != 0);
 
     ret_feature->push_back(trans(fea.length));
     ret_feature->push_back(fea.nest_level);
