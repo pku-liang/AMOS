@@ -606,6 +606,7 @@ class MultiScheduleEntity : public Entity {
 
   bool operator== (const MultiScheduleEntity& other) const;
   bool operator!= (const MultiScheduleEntity& other) const;
+  std::string to_string() const;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MultiScheduleEntity, Entity, MultiScheduleEntityNode);
 };

@@ -498,6 +498,7 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
           auto sch_and_mod = future_functions[cand].front();
           ScheduleResult sch = sch_and_mod.first;
           auto future_mod = sch_and_mod.second;
+          future_functions[cand].pop();
 
           try {
             print(4, build_log) << "Waiting for build for " << cand->value << "...\n";
@@ -804,6 +805,9 @@ void Session::run_functions(
               * TODO: add kill
               */
               print(2, exe_log) << "Can't run function: " << e.what() << "\n";
+              runtime::Module sub_mod = (mod->imports().at(0));
+              print(4, exe_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
+              thread_pool->Reset();
             }  // end try run function
           } else {
             // run this function

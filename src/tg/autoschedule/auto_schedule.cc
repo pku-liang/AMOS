@@ -176,7 +176,8 @@ void AutoScheduler::auto_schedule(
   }
 
   MultiScheduleEntity result_entity = new_candidates[best_ind];
-
+  print(4, log_out) << "Check subgraph:\n" << subgraph->tag << "\n";
+  print(4, log_out) << "Check schedule entity:\n" << result_entity.to_string() << "\n";
   interpret(sch, tensors, subgraph, context->target, result_entity);
   results = ScheduleResult(sch, tensors, new_candidates[best_ind]);
 }

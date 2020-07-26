@@ -8,7 +8,7 @@ namespace tvm {
 
 namespace tg {
 
-tvm::runtime::Module build_func(
+tvm::runtime::Module FunctionBuilder::build_func(
   tvm::te::Schedule sch,
   const tvm::Array<tvm::te::Tensor>& args,
   const tvm::Target& target,
@@ -17,8 +17,10 @@ tvm::runtime::Module build_func(
   const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
   const tvm::BuildConfig& config) {
   
+  auto lowered = tvm::lower(sch, args, name, binds, config);
+  print(4, log_out) << "Check lowered function:\n" << lowered << "\n";
   tvm::runtime::Module ret = tvm::build(
-    tvm::lower(sch, args, name, binds, config),
+    lowered,
     target,
     target_host,
     config
@@ -78,11 +80,30 @@ std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBui
   auto args = sch_res->tensors;
   if (priority == 0) {
     auto module = thread_pool->push_back(
-      build_func, sch, args, target, target_host, name, binds, config);
+      [this] (
+        tvm::te::Schedule a,
+        const tvm::Array<tvm::te::Tensor>& b,
+        const tvm::Target& c,
+        const tvm::Target& d,
+        const std::string& e,
+        const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& f,
+        const tvm::BuildConfig& g
+      ) {return this->build_func(a, b, c, d, e, f, g); },
+      sch, args, target, target_host, name, binds, config);
     return std::make_pair(sch_res, std::move(module));
   } else if (priority == 1) {
     // high priority
-    auto module = thread_pool->push_front(build_func, sch, args, target, target_host, name, binds, config);
+    auto module = thread_pool->push_front(
+      [this] (
+        tvm::te::Schedule a,
+        const tvm::Array<tvm::te::Tensor>& b,
+        const tvm::Target& c,
+        const tvm::Target& d,
+        const std::string& e,
+        const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& f,
+        const tvm::BuildConfig& g
+      ) {return this->build_func(a, b, c, d, e, f, g); },
+      sch, args, target, target_host, name, binds, config);
     return std::make_pair(sch_res, std::move(module));
   } else {
     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";

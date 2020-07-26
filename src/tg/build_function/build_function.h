@@ -30,16 +30,6 @@ namespace tvm {
 namespace tg {
 
 
-tvm::runtime::Module build_func(
-  tvm::te::Schedule sch,
-  const tvm::Array<tvm::te::Tensor>& args,
-  const tvm::Target& target,
-  const tvm::Target& target_host,
-  const std::string& name,
-  const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-  const tvm::BuildConfig& config);
-
-
 // std::pair<ScheduleResult, tvm::runtime::Module>  build_func_for_future(
 //   std::shared_future<ScheduleResult> &schedule_result,
 //   const tvm::Target& target,
@@ -68,6 +58,16 @@ class FunctionBuilder {
       thread_pool = new ThreadPool(parallel, int(timeout*1000));
     }
   }
+  
+  tvm::runtime::Module build_func(
+    tvm::te::Schedule sch,
+    const tvm::Array<tvm::te::Tensor>& args,
+    const tvm::Target& target,
+    const tvm::Target& target_host,
+    const std::string& name,
+    const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
+    const tvm::BuildConfig& config);
+
   std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> >  build_for(
     tvm::tg::ScheduleResult sch_res,
     const tvm::Target& target,

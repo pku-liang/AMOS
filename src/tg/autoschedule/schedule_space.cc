@@ -1421,6 +1421,27 @@ bool MultiScheduleEntity::operator!= (const MultiScheduleEntity& other) const {
 }
 
 
+std::string MultiScheduleEntity::to_string() const {
+  std::ostringstream oss;
+  std::vector<std::string> strings;
+  for (auto e : (*this)->entities) {
+    strings.push_back(e.to_string());
+  }
+  oss << "{" << string_join("$$ ", strings) << "}";
+  return oss.str();
+}
+
+
+MultiScheduleEntity multi_schedule_entity_from_string(std::string s) {
+  std::vector<std::string> strings = string_split("$$ ", s.substr(1, s.size() - 2));
+  Array<ScheduleEntity> entities;
+  for (auto str : strings) {
+    entities.push_back(schedule_entity_from_string(str));
+  }
+  return MultiScheduleEntity(entities);
+}
+
+
 MultiScheduleSpace::MultiScheduleSpace(TIRGraph graph, Target target) {
   auto node = make_object<MultiScheduleSpaceNode>();
   for (auto op : graph->operation_list) {
