@@ -508,6 +508,26 @@ class FloorDivModEntryHash {
 };
 
 
+class CheckVarExist : public ExprVisitor {
+ public:
+  using ExprVisitor::VisitExpr;
+  std::string target_var_name_;
+  bool exist;
+  CheckVarExist(const std::string &target_var_name) : target_var_name_(target_var_name), exist(false) {}
+
+ protected:
+  // list of functions to override.
+  void VisitExpr_(const VarNode* op) override {
+    if (op->name_hint == target_var_name_) {
+      exist = true;
+    }
+  }
+};
+
+
+PrimExpr flatten_axes(Array<PrimExpr> args, Array<PrimExpr> shape);
+
+
 void solve_floor_div_mod(const SubstituteContext &context,
   std::unordered_set<FloorDivModEntry, FloorDivModEntryHash> &s);
 

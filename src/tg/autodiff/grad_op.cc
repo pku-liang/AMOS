@@ -6,6 +6,9 @@
 
 #include "arith.h"
 #include "arg_util.h"
+#include "../logging.h"
+
+// #define DEBUG_AUTODIFF
 
 
 namespace tvm {
@@ -81,16 +84,19 @@ class GradOp : public ExprMutator {
         // handle args
         for (const PrimExpr &arg : op->args) {
           // eliminate possible mod & div
+#ifdef DEBUG_AUTODIFF
+          std::cout << "check arg:" << arg << "\n";
+#endif          
           PrimExpr new_arg = eliminator_->eliminate(arg);
           // extract coefficients
           ExtractCoefficient extractor(const_tag_);
           extractor.do_extract(new_arg);
           coeffs.push_back(extractor.coefficient_);
         }
-
-        // // std::cout << "check context after elimination:\n";
-        // // std::cout << context_ << "\n";
-
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check context after elimination:\n";
+        std::cout << context_ << "\n";
+#endif
         // assemble coefficents to Matrix
         int cols = (int)context_.index_names.size();
         int rows = (int)coeffs.size();
@@ -109,56 +115,56 @@ class GradOp : public ExprMutator {
             compute_args_.Set(i, SubNode::make(compute_args_[i], coeffs[i][const_tag_]));
           }
         }
-
-        // // std::cout << "check trans before:\n";
-        // for (int i = 0; i < rows; ++i) {
-        //   for (int j = 0; j < cols; ++j) {
-        //     // std::cout << trans[i][j] << " ";
-        //   }
-        //   // std::cout << "\n";
-        // }
-        // // std::cout << "\n";
-
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check trans before:\n";
+        for (int i = 0; i < rows; ++i) {
+          for (int j = 0; j < cols; ++j) {
+            std::cout << trans[i][j] << " ";
+          }
+          std::cout << "\n";
+        }
+        std::cout << "\n";
+#endif
         // compute simith normal form
         Matrix<int> U(rows, rows);
         Matrix<int> V(cols, cols);
         int dims = smith_normalize(trans, U, V);
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check dim=" << dims << "\n";
 
-        // // std::cout << "check dim=" << dims << "\n";
+        std::cout << "check trans after:\n";
+        for (int i = 0; i < rows; ++i) {
+          for (int j = 0; j < cols; ++j) {
+            std::cout << trans[i][j] << " ";
+          }
+          std::cout << "\n";
+        }
+        std::cout << "\n";
 
-        // // std::cout << "check trans after:\n";
-        // for (int i = 0; i < rows; ++i) {
-        //   for (int j = 0; j < cols; ++j) {
-        //     // std::cout << trans[i][j] << " ";
-        //   }
-        //   // std::cout << "\n";
-        // }
-        // // std::cout << "\n";
+        std::cout << "check U:\n";
+        for (int i = 0; i < rows; ++i) {
+          for (int j = 0; j < rows; ++j) {
+            std::cout << U[i][j] << " ";
+          }
+          std::cout << "\n";
+        }
+        std::cout << "\n";
 
-        // // std::cout << "check U:\n";
-        // for (int i = 0; i < rows; ++i) {
-        //   for (int j = 0; j < rows; ++j) {
-        //     // std::cout << U[i][j] << " ";
-        //   }
-        //   // std::cout << "\n";
-        // }
-        // // std::cout << "\n";
-
-        // // std::cout << "check V:\n";
-        // for (int i = 0; i < cols; ++i) {
-        //   for (int j = 0; j < cols; ++j) {
-        //     // std::cout << V[i][j] << " ";
-        //   }
-        //   // std::cout << "\n";
-        // }
-        // // std::cout << "\n";
+        std::cout << "check V:\n";
+        for (int i = 0; i < cols; ++i) {
+          for (int j = 0; j < cols; ++j) {
+            std::cout << V[i][j] << " ";
+          }
+          std::cout << "\n";
+        }
+        std::cout << "\n";
 
         // check if is identity
-        // if (!check_identity(trans, dims)) {
-        //   LOG(FATAL) << "Don't know how to handle non-identity matrix, waiting for more discussion...\n";
-        //   throw;
-        // }
-
+        if (!check_identity(trans, dims)) {
+          LOG(FATAL) << "Don't know how to handle non-identity matrix, waiting for more discussion...\n";
+          throw;
+        }
+#endif
         // explain the results:
         Array<PrimExpr> Ub = relax_matrix_array_product(U, compute_args_);
         // unbounded bindings
@@ -173,23 +179,25 @@ class GradOp : public ExprMutator {
           // these vars are unbounded
           context_.range_map[new_name] = ExtRange();
         }
-
-        // // std::cout << "check relaxes:\n";
-        // for (auto it : relaxes) {
-        //   // std::cout << it << " ";
-        // }
-        // // std::cout << "\n\n";
-
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check relaxes:\n";
+        for (auto it : relaxes) {
+          std::cout << it << " ";
+        }
+        std::cout << "\n\n";
+#endif
         // bindings, transformation from original index to new index
         // one var may have many bindings
         // for example, i = r0, i = r1 * 4 + s0
         std::unordered_map<std::string, std::vector<PrimExpr>> bindings;
         Array<PrimExpr> VUb = relax_matrix_array_product(V, Ub);
-        // // std::cout << "check VUb:\n";
-        // for (auto val : VUb) {
-        //   // std::cout << Simplify(val) << " ";
-        // }
-        // // std::cout << "\n\n";
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check VUb:\n";
+        for (auto val : VUb) {
+          std::cout << Simplify(val) << " ";
+        }
+        std::cout << "\n\n";
+#endif
         for (int i = 0; i < cols; ++i) {
           PrimExpr bind_val = VUb[i];
           if (i < dims) {
@@ -247,17 +255,17 @@ class GradOp : public ExprMutator {
             bindings[it.var_name] = std::vector<PrimExpr>({rhs});
           }
         }
-
-        // std::cout << "check original bindings:\n";
-        // for (auto kv : bindings) {
-          // std::cout << kv.first << " : [ ";
-          // for (auto val : kv.second) {
-            // std::cout << val << " "; 
-          // }
-          // std::cout << "]\n";
-        // }
-        // std::cout << "\n";
-
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check original bindings:\n";
+        for (auto kv : bindings) {
+          std::cout << kv.first << " : [ ";
+          for (auto val : kv.second) {
+            std::cout << val << " "; 
+          }
+          std::cout << "]\n";
+        }
+        std::cout << "\n";
+#endif
         // resolve the bindings
         std::unordered_map<std::string, PrimExpr> results;
         std::unordered_set<std::string> unused;
@@ -290,9 +298,13 @@ class GradOp : public ExprMutator {
           // }
           RangeInference infer(context_.range_map[kv.first]);
           infer.do_infer(kv.second);
-          // // std::cout << "check range inference:\n";
+#ifdef DEBUG_AUTODIFF
+          std::cout << "check range inference:\n";
+#endif
           for (auto kkv : infer.range_map) {
-            // // std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
+#ifdef DEBUG_AUTODIFF
+            std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
+#endif
             if (context_.range_map.count(kkv.first) == 0 ||
                 context_.range_map[kkv.first].range_type() != ExtRangeType::LCRC) {
               if (kkv.second.range_type() == ExtRangeType::LCRC)
@@ -310,21 +322,22 @@ class GradOp : public ExprMutator {
             ));
           }
         }
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check conditions:\n";
+        for (auto it : conditions) {
+          std::cout << it << " ";
+        }
+        std::cout << "\n";
 
-        // std::cout << "check conditions:\n";
-        // for (auto it : conditions) {
-        //   std::cout << it << " ";
-        // }
-        // std::cout << "\n";
-
-        // std::cout << "check bindings:\n";
-        // for (auto kv : results) {
-          // std::cout << kv.first << " = " << kv.second << "\n";
-        // }
-        // std::cout << "\n";
+        std::cout << "check bindings:\n";
+        for (auto kv : results) {
+          std::cout << kv.first << " = " << kv.second << "\n";
+        }
+        std::cout << "\n";
 
         // check if any var his no concrete range
-        // // std::cout << "\ncheck relax ranges:\n";
+        // std::cout << "\ncheck relax ranges:\n";
+#endif
         for (auto it : relaxes) {
           CHECK(context_.range_map.count(it) != 0) << "Internal error: fail to infer range for: "
                                                     << it << ".\n";
@@ -345,7 +358,7 @@ class GradOp : public ExprMutator {
         // prepare axis
         Array<IterVar> new_axis;
         Map<Var, PrimExpr> pos_vmap;
-        for (auto it : relaxes) {
+        for (std::string it : relaxes) {
           ExtRange range = context_.range_map[it];
           // use positive range
           PrimExpr pos_ext = SubNode::make(range.right, range.left);
@@ -370,9 +383,29 @@ class GradOp : public ExprMutator {
         vmap_scope_.push_back(vmap);
         
         result_expr = Substitute(result_expr, vmap);
-        // result_expr = Simplify(SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
+        // eliminate unnecessary reduction axis
+//         Map<Var, PrimExpr> eliminate_map;
+//         PrimExpr simplified_result_expr_args = flatten_axes(result_expr.as<CallNode>()->args, doutput_->shape);
+// #ifdef DEBUG_AUTODIFF
+//         std::cout << "result condition:\n" << Simplify(result_condition) << "\n";
+//         std::cout << "simplified result expr:\n" << simplified_result_expr_args << "\n";
+// #endif
+//         for (std::string it : relaxes) {
+//           IterVar iv = IterVarNode::make(
+//               Range(0, context_.range_map[it].right), context_.var_map[it], kCommReduce);
+//           CheckVarExist cve(it);
+//           cve.VisitExpr(simplified_result_expr_args);
+//           if (!cve.exist) {
+//             eliminate_map.Set(context_.var_map[it], make_const(iv->var.dtype(), 0));
+//           } else {
+//             new_axis.push_back(iv);
+//           }
+//         }
+//         result_expr = Substitute(result_expr, eliminate_map);
+//         result_condition = Substitute(result_condition, eliminate_map);
+
         // no need to produce a reduce
-        if ((int)relaxes.size() == 0) {
+        if ((int)new_axis.size() == 0) {
           result_expr = Simplify(SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
           return result_expr;
         }
@@ -1895,7 +1928,7 @@ PrimExpr ensure_unique_var(const ComputeOpNode *op, SubstituteContext &context,
     // body = ReduceNode::make(red->combiner, new_source, new_iter_vars, new_condition, red->value_index);
   }
 
-  return Simplify(Substitute(body, vmap));
+  return Substitute(body, vmap);
 }
 
 
