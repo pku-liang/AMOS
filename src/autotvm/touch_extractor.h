@@ -48,6 +48,7 @@ struct TouchPattern {
   float stride{0.};
   int64_t mod{-1};  // -1 for +inf
 
+  int64_t bytes{0};
   int64_t count{1};
   int64_t reuse{1};
   int64_t thread_count{0};  // count when move thread axis into innermost
@@ -129,7 +130,7 @@ class TouchExtractor : public FeatureVisitor {
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
   void ExitItervar_();
-  void EnterMem_(Var buffer_var, PrimExpr index, int access_ann);
+  void EnterMem_(Var buffer_var, PrimExpr index, int access_ann, int64_t access_bytes);
   void ExitMem_();
 
   int64_t topdown_product_{1};
