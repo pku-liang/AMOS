@@ -23,6 +23,7 @@ def create_session_option(
   build_parallel=1,
   build_timeout=1.0,
   build_log_file="build_log.txt",
+  evaluate_log_file="evaluate_log.txt",
   execution_explore_probability=0.5,
   execution_parallel=1,
   execution_timeout=100.0,
@@ -65,6 +66,8 @@ def create_session_option(
         in seconds
 
   build_log_file : str
+  
+  evaluate_log_file : str
 
   execution_explore_probability : double
   
@@ -97,6 +100,7 @@ def create_session_option(
     build_parallel,
     build_timeout,
     build_log_file,
+    evaluate_log_file,
     execution_explore_probability,
     execution_parallel,
     execution_timeout,

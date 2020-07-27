@@ -38,6 +38,7 @@ class SessionOptionNode : public Object {
   int build_parallel;
   double build_timeout;
   std::string build_log_file;
+  std::string evaluate_log_file;
   double execution_explore_probability;
   int execution_parallel;
   double execution_timeout;
@@ -60,6 +61,7 @@ class SessionOptionNode : public Object {
     v->Visit("build_parallel", &build_parallel);
     v->Visit("build_timeout", &build_timeout);
     v->Visit("build_log_file", &build_log_file);
+    v->Visit("evaluate_log_file", &evaluate_log_file);
     v->Visit("execution_explore_probability", &execution_explore_probability);
     v->Visit("execution_parallel", &execution_parallel);
     v->Visit("execution_timeout", &execution_timeout);
@@ -90,6 +92,7 @@ class SessionOption : public ObjectRef {
     int build_parallel,
     double build_timeout,
     std::string build_log_file,
+    std::string evaluate_log_file,
     double execution_explore_probability,
     int execution_parallel,
     double execution_timeout,
@@ -109,6 +112,7 @@ class Session {
   SessionOption sess_option;
   std::ofstream autoschedule_log;
   std::ofstream build_log;
+  std::ofstream evaluate_log;
   std::ofstream exe_log;
   AutoScheduler *auto_scheduler = nullptr;
   FunctionBuilder *function_builder = nullptr;
@@ -120,7 +124,7 @@ class Session {
   std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
   std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > > > future_functions;
   std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult, tvm::runtime::Module, tvm::runtime::PackedFunc> > > built_functions;
-  std::unordered_map<IntKey, std::tuple<tvm::runtime::Module, tvm::runtime::PackedFunc, float> > best_functions;
+  std::unordered_map<IntKey, Queue<std::tuple<tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
   Queue<IntKey> emergency_schedule_queue;
   Queue<IntKey> emergency_build_queue;
   bool finish;
@@ -147,6 +151,9 @@ class Session {
     TIRMultiGraph multi_graph, int advance_number);
 
   void run_build(
+    TIRMultiGraph multi_graph, int advance_number);
+
+  void run_evaluate(
     TIRMultiGraph multi_graph, int advance_number);
 
   void run_functions(

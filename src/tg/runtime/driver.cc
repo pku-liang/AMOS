@@ -29,6 +29,7 @@ SessionOption::SessionOption(
   int build_parallel,
   double build_timeout,
   std::string build_log_file,
+  std::string evaluate_log_file,
   double execution_explore_probability,
   int execution_parallel,
   double execution_timeout,
@@ -50,6 +51,7 @@ SessionOption::SessionOption(
   node->build_parallel = build_parallel;
   node->build_timeout = build_timeout;
   node->build_log_file = build_log_file;
+  node->evaluate_log_file = evaluate_log_file;
   node->execution_explore_probability = execution_explore_probability;
   node->execution_parallel = execution_parallel;
   node->execution_timeout = execution_timeout;
@@ -76,6 +78,7 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
 
   autoschedule_log.open(sess_option->autoschedule_log_file, std::ios::app);
   build_log.open(sess_option->build_log_file, std::ios::app);
+  evaluate_log.open(sess_option->evaluate_log_file, std::ios::app);
   exe_log.open(sess_option->execution_log_file, std::ios::app);
   std::string profile_log_name = string_split(".", sess_option->autoschedule_log_file)[0] + "_profile.txt";
   auto_scheduler = new AutoScheduler(ctx, sess_option->autoschedule_topk, sess_option->autoschedule_new_trial,
@@ -95,6 +98,7 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
 Session::~Session() {
   autoschedule_log.close();
   build_log.close();
+  evaluate_log.close();
   exe_log.close();
   task_cache.clear();
   persistent_tensors.clear();
@@ -589,24 +593,186 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
 }
 
 
+void Session::run_evaluate(
+  TIRMultiGraph multi_graph, int advance_number) {
+
+  // prepare the evaluate_performance
+  const auto* evaluate_performance = runtime::Registry::Get("tg.runtime.evaluate_performance");
+  ASSERT(evaluate_performance != nullptr) << "Should prepare tg.runtime.evaluate_performance function.";
+
+  while (true) {
+    // check if finish
+    bool finish = false;
+    std::unique_lock<std::mutex> lock(this->finish_mutex);
+    finish = this->finish;
+    lock.unlock();
+    if (finish) {
+      break;
+    }
+    // initialize cache
+    std::unordered_map<std::string, IntKey> evaluate_cache;
+
+    std::unordered_map<IntKey, int> evaluate_order;
+    std::unordered_set<IntKey> free_set;
+    for (auto kv : multi_graph->graph_attrs) {
+      evaluate_order[kv.first] = kv.second->num_predecessor;
+      if (kv.second->num_predecessor == 0) {
+        free_set.insert(kv.first);
+      }
+    }
+
+    /* the evaluate helper
+     * handles one subgraph at a time
+     * fill the delete set and update set
+     */
+    std::function<void(
+      IntKey key,
+      std::unordered_set<IntKey>& update_set,
+      std::unordered_set<IntKey>& delete_set)> evaluate_helper;
+    evaluate_helper = [this, &multi_graph, &evaluate_cache, &evaluate_order, &evaluate_performance]
+      (IntKey key,
+      std::unordered_set<IntKey>& update_set,
+      std::unordered_set<IntKey>& delete_set) {
+
+      // the mark that indicates this subgraph is done
+      bool succ = false;
+
+      TIRGraph subgraph = multi_graph.Self()->graphs[key];
+      
+      bool taken = false;  // record taken a function
+      
+      // first, try to get new function
+      if (!succ && !this->built_functions[key].empty()) {
+        auto sch_mod_func = this->built_functions[key].front();
+        // take away this one
+        this->built_functions[key].pop();
+        taken = true;   // we will take one function
+        // check if is ready
+        auto schedule_result = std::get<0>(sch_mod_func);
+        auto mod = std::get<1>(sch_mod_func);
+        auto func = std::get<2>(sch_mod_func);
+        ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
+
+        /* 
+          * run the function in another process
+          * to get performance, if return -1
+          * then timeout or fail in execution
+          */
+        double elapsed_time = (*evaluate_performance)(mod, get_func_name(key), schedule_result->tensors);
+
+        if (elapsed_time > 0) {
+          // feedback
+          double gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
+          auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+
+          // store function
+          if (best_functions[key].empty()) {
+            best_functions[key].push(std::make_tuple(mod, func, gflops));
+          } else {
+            auto best = best_functions[key].front();
+            if (gflops > std::get<2>(best)) {
+              best_functions[key].push(std::make_tuple(mod, func, gflops));
+              best_functions[key].pop();
+            }
+          }
+
+          // success
+          succ = true;
+          evaluate_cache[subgraph->tag] = key;
+        } else {
+          // can't run the function
+          print(2, evaluate_log) << "Can't evaluate function: " << "\n";
+          auto sub_mods = mod->imports();
+          if (sub_mods.size() > 0U) {
+            runtime::Module sub_mod = (mod->imports().at(0));
+            print(4, evaluate_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
+          }
+          // feedback
+          auto_scheduler->feedback_for(key, subgraph, schedule_result, 0.0);
+        }  // end try run function
+      }  // end try new function
+
+      // then, try to find repeated subgraph
+      if (!succ) {
+        if (evaluate_cache.find(subgraph->tag) != evaluate_cache.end()) {
+          print(4, evaluate_log) << "Find repeated function, skip evaluation" << subgraph->tag << ".\n";
+          IntKey repeat_key = evaluate_cache[subgraph->tag];
+          if (!best_functions[repeat_key].empty()) {
+            auto mod_func_perf = (best_functions[repeat_key].front());
+            if (best_functions[key].empty()) {
+              best_functions[key].push(mod_func_perf);
+            } else {
+              best_functions[key].push(mod_func_perf);
+              best_functions[key].pop();
+            }
+            
+            print(4, evaluate_log) << "Push cache function.\n";
+            succ = true;
+          }
+        }
+      }  // end try use repeated function
+
+      // must check taken because chance is that
+      // the scheduler is not ready
+      if (!succ && this->best_functions[key].empty() && taken) {
+        // there is no way to run this subgraph
+        // report error
+        this->emergency_schedule_queue.push(key);
+      }
+
+      if (succ) {
+        // update free set
+        delete_set.insert(key);
+        for (auto v : multi_graph.Self()->graph_attrs[key]->successors) {
+          evaluate_order[v] -= 1;
+          if (evaluate_order[v] == 0) {
+            update_set.insert(v);
+          }
+        }
+      }
+
+    };  // end evaluate helper
+
+    while (!free_set.empty()) {
+      // check if finish
+      bool finish = false;
+      std::unique_lock<std::mutex> lock(this->finish_mutex);
+      finish = this->finish;
+      lock.unlock();
+      if (finish) {
+        break;
+      }
+      std::unordered_set<IntKey> update_set, delete_set;
+
+      for (auto k : free_set) {
+        auto start = std::chrono::steady_clock::now();
+        evaluate_helper(k, update_set, delete_set);
+        auto stop = std::chrono::steady_clock::now();
+        double evaluate_helper_time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count() / 1e3;
+        print(4, evaluate_log) << "evaluate helper uses " << evaluate_helper_time << " ms.\n";
+      }
+      for (auto k : delete_set) {
+        free_set.erase(k);
+      }
+      for (auto k : update_set) {
+        free_set.insert(k);
+      }
+    }  // while (!free_set.empty())
+    cached_all_functions = true;
+  }  // while (true)
+}
+
+
 void Session::run_functions(
   TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
-
-  // prepare the call_unpack
-  // const auto* call_unpack = runtime::Registry::Get("tg.runtime.call_unpack");
-  // ASSERT(call_unpack != nullptr) << "Should prepare call_unpack function.";
 
   auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
 
   int advance_number = (int)bindings.size();
-  double total_execution_time = 0.0;
-  double best_execution_time = 1e10;
   ProgressBar progress_bar;
 
+  auto beg = std::chrono::steady_clock::now();
   for (int ad = 0; ad < advance_number; ++ad) {
-    // initialize cache
-    std::unordered_map<std::string, IntKey> run_cache;
-
     if (sess_option->report_iteration) {
       exe_log << "Iteration: " << ad << "\n";
     }
@@ -631,7 +797,7 @@ void Session::run_functions(
       IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set)> run_helper;
-    run_helper = [this, ad, &multi_graph, &run_cache, &call_order, &bindings, &call_unpack]
+    run_helper = [this, ad, &multi_graph, &call_order, &bindings, &call_unpack]
       (IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set) {
@@ -731,176 +897,19 @@ void Session::run_functions(
        * or break if there is no way to execute this subgraph
        * in such case, emit an error in emergency queue
        * to tell the scheduler to re-schedule.
-       */
-      while (!succ) {
-        bool taken = false;  // record taken a function
+       */  
+      if (!succ && !this->best_functions[key].empty()) {
+        auto mod_func = this->best_functions[key].front();
 
-        double explore = randdouble();
-        // print(4) << "explore random value: "
-        //          << explore << " vs "
-        //          << sess_option->execution_explore_probability
-        //          << "\n";
-        
-        // first, try to get new function
-        if (!succ && (explore < sess_option->execution_explore_probability) && !this->built_functions[key].empty()) {
-          auto sch_mod_func = this->built_functions[key].front();
-          // check if is ready
-          auto schedule_result = std::get<0>(sch_mod_func);
-          auto mod = std::get<1>(sch_mod_func);
-          auto func = std::get<2>(sch_mod_func);
-          ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
+        auto mod = std::get<0>(mod_func);
+        auto func = std::get<1>(mod_func);
+        ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
 
-          // take away this one
-          this->built_functions[key].pop();
-          taken = true;   // we will take one function       
+        (*call_unpack)(func, arrays);
 
-          if (sess_option->synchronize_subgraph) {
-            /* run the function in another thread
-            */
-            auto t5 = std::chrono::steady_clock::now();
-            auto future = thread_pool->push_back(
-              [&]() {
-                auto start = std::chrono::steady_clock::now();
-                (*call_unpack)(func, arrays);
-                runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
-                auto end = std::chrono::steady_clock::now();
-                float elapsed_time = (float)(
-                  std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()) / 1e3;
-                return elapsed_time;
-              });
-
-            auto t6 = std::chrono::steady_clock::now();
-            auto t6_t5 = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() / 1e3;
-            print(4, exe_log) << "Push back execution task uses " << t6_t5 << " ms.\n";
-            // run this function
-            try {
-              print(4, exe_log) << "Waiting for execution for " << key->value << "...\n";
-              float elapsed_time = future.get();
-              print(4, exe_log) << "Get execution for " << key->value << "!\n";
-              print(4, exe_log) << "Execution uses " << elapsed_time << " ms.\n";
-              auto t7 = std::chrono::steady_clock::now();
-              // feedback
-              float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
-              auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
-              auto t8 = std::chrono::steady_clock::now();
-              auto t8_t7 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() / 1e3;
-              print(4, exe_log) << "Feedback uses " << t8_t7 << " ms.\n";
-
-              // store function
-              if (best_functions.find(key) == best_functions.end()) {
-                best_functions[key] = std::make_tuple(mod, func, gflops);
-              } else {
-                if (gflops > std::get<2>(best_functions[key])) {
-                  best_functions[key] = std::make_tuple(mod, func, gflops);
-                }
-              }
-
-              // success
-              succ = true;
-              run_cache[subgraph->tag] = key;
-            } catch (const std::exception &e) {
-              // can't run the function
-              /*
-              * should kill the thread
-              * TODO: add kill
-              */
-              print(2, exe_log) << "Can't run function: " << e.what() << "\n";
-              runtime::Module sub_mod = (mod->imports().at(0));
-              print(4, exe_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
-              thread_pool->Reset();
-            }  // end try run function
-          } else {
-            // run this function
-            try {
-              print(4, exe_log) << "Waiting for execution for " << key->value << "...\n";
-              auto start_exe = std::chrono::steady_clock::now();
-              (*call_unpack)(func, arrays);
-              auto end_exe = std::chrono::steady_clock::now();
-              /*
-               * TODO: We need to add cuda events for timing for GPU
-               * */
-              float elapsed_time = (float)(
-                std::chrono::duration_cast<std::chrono::microseconds>(end_exe - start_exe).count()) / 1e3;
-              print(4, exe_log) << "Get execution for " << key->value << "!\n";
-              print(4, exe_log) << "Execution uses " << elapsed_time << " ms.\n";
-              auto t7 = std::chrono::steady_clock::now();
-              // feedback
-              float gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
-              // auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
-              auto t8 = std::chrono::steady_clock::now();
-              auto t8_t7 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() / 1e3;
-              print(4, exe_log) << "Feedback uses " << t8_t7 << " ms.\n";
-
-              // store function
-              if (best_functions.find(key) == best_functions.end()) {
-                best_functions[key] = std::make_tuple(mod, func, gflops);
-              } else {
-                if (gflops > std::get<2>(best_functions[key])) {
-                  best_functions[key] = std::make_tuple(mod, func, gflops);
-                }
-              }
-
-              // success
-              succ = true;
-              run_cache[subgraph->tag] = key;
-            } catch (const std::exception &e) {
-              // can't run the function
-              /*
-              * should kill the thread
-              * TODO: add kill
-              */
-              print(2, exe_log) << "Can't run function: " << e.what() << "\n";
-            }  // end try run function
-          }  // if sess_option->synchronize_subgraph
-        }  // end try new function
-
-        // then, try to use old function
-        if (!succ) {
-          if (best_functions.find(key) != best_functions.end()) {
-            auto func = std::get<1>(best_functions[key]);
-            auto run_beg = std::chrono::steady_clock::now();
-            (*call_unpack)(func, arrays);
-            if (sess_option->synchronize_subgraph) {
-              runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
-            } else {
-              /*
-               * TODO: add cuda events for timing for GPU
-               */
-            }
-            auto run_end = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_beg).count() / 1e3;
-            print(4, exe_log) << "Run cached function uses " << duration << " ms.\n";
-            succ = true;
-            run_cache[subgraph->tag] = key;
-          } else if (run_cache.find(subgraph->tag) != run_cache.end()) {
-            print(4, exe_log) << "Find repeated function " << subgraph->tag << ".\n";
-            auto func = std::get<1>(best_functions[run_cache[subgraph->tag]]);
-            auto run_beg = std::chrono::steady_clock::now();
-            (*call_unpack)(func, arrays);
-            if (sess_option->synchronize_subgraph) {
-              runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
-            } else {
-              /*
-               * TODO: add cuda events for timing for GPU
-               */
-            }
-            auto run_end = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(run_end - run_beg).count() / 1e3;
-            print(4, exe_log) << "Run cached function (reuse) uses " << duration << " ms.\n";
-            succ = true;
-          }
-        }  // end try old function
-
-        // must check taken because chance is that
-        // the scheduler is not ready
-        if (!succ && this->built_functions[key].empty() && taken) {
-          // there is no way to run this subgraph
-          // report error
-          this->emergency_schedule_queue.push(key);
-          break;
-        }
-
-      }  // end while (!succ)
+        // success
+        succ = true;
+      }  // end try new function
 
       if (succ) {
         // update free set
@@ -915,16 +924,11 @@ void Session::run_functions(
 
     };  // end run helper
 
-    auto beg = std::chrono::steady_clock::now();
     while (!free_set.empty()) {
       std::unordered_set<IntKey> update_set, delete_set;
 
       for (auto k : free_set) {
-        auto start = std::chrono::steady_clock::now();
         run_helper(k, update_set, delete_set);
-        auto stop = std::chrono::steady_clock::now();
-        double run_helper_time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count() / 1e3;
-        print(4, exe_log) << "run helper uses " << run_helper_time << " ms.\n";
       }
       for (auto k : delete_set) {
         free_set.erase(k);
@@ -933,21 +937,16 @@ void Session::run_functions(
         free_set.insert(k);
       }
     }
-    auto end = std::chrono::steady_clock::now();
-    double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
-    if (execution_time < best_execution_time)
-      best_execution_time = execution_time;
-    if (sess_option->report_iteration && ((ad + 1) % sess_option->report_iteration_period == 0)) {
-      exe_log << "Time cost: " << execution_time << " ms.\n";
-    }
-    if (ad > 0)
-      total_execution_time += execution_time;
-    cached_all_functions = true;
+
+    
+    if (ad > 0)  // skip the first iteration
+      beg = std::chrono::steady_clock::now();
   }  // for ad
+  auto end = std::chrono::steady_clock::now();
+  double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
 
   if (advance_number > 1)
-    print(1, exe_log) << "Average time cost for each iteration: " << total_execution_time / (advance_number-1) << " ms.\n";
-  print(1, exe_log) << "Best iteration takes: " << best_execution_time << " ms.\n";
+    print(1, exe_log) << "Average time cost for each iteration: " << execution_time / (advance_number-1) << " ms.\n";
 
   // synchronize the stream for this run task
   runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
@@ -1005,6 +1004,14 @@ void Session::run(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::
     }, multi_graph, advance_number);
 
   /*
+   * launch the run_evaluate thread
+   */
+  std::thread evaluate_thread(
+    [this](TIRMultiGraph g, int b) {
+      run_evaluate(g, b);
+    }, multi_graph, advance_number);
+
+  /*
    * launch the run_function thread
    */
   std::thread exe_thread(
@@ -1027,6 +1034,7 @@ void Session::run(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::
   // wait for execution
   sch_thread.join();
   build_thread.join();
+  evaluate_thread.join();
   exe_thread.join();
   print(1) << "end run.\n";
 }
@@ -1168,6 +1176,7 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
   int build_parallel,
   double build_timeout,
   std::string build_log_file,
+  std::string evaluate_log_file,
   double execution_explore_probability,
   int execution_parallel,
   double execution_timeout,
@@ -1190,6 +1199,7 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
     build_parallel,
     build_timeout,
     build_log_file,
+    evaluate_log_file,
     execution_explore_probability,
     execution_parallel,
     execution_timeout,
