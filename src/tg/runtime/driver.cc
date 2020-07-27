@@ -659,6 +659,7 @@ void Session::run_evaluate(
           * then timeout or fail in execution
           */
         double elapsed_time = (*evaluate_performance)(mod, get_func_name(key), schedule_result->tensors);
+        print(4, evaluate_log) << "evaluate result for " << key->value << " is " << elapsed_time << "ms.\n";
 
         if (elapsed_time > 0) {
           // feedback
@@ -745,11 +746,7 @@ void Session::run_evaluate(
       std::unordered_set<IntKey> update_set, delete_set;
 
       for (auto k : free_set) {
-        auto start = std::chrono::steady_clock::now();
         evaluate_helper(k, update_set, delete_set);
-        auto stop = std::chrono::steady_clock::now();
-        double evaluate_helper_time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count() / 1e3;
-        print(4, evaluate_log) << "evaluate helper uses " << evaluate_helper_time << " ms.\n";
       }
       for (auto k : delete_set) {
         free_set.erase(k);
