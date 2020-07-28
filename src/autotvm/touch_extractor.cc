@@ -193,15 +193,18 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, int access_ann, i
   parser.Parse(index);
 
   // push up mem access info
+  bool loop_reuse_tag = false;
   for (auto var : itervar_stack_) {
     auto x = parser.pattern_map.find(var.get());
     if (x != parser.pattern_map.end()) {
       itervar_map[var].touch_feature[buf] = x->second;
     } else {
       itervar_map[var].touch_feature[buf] = TouchPattern();
+      loop_reuse_tag = true;
     }
     itervar_map[var].access_type |= access_ann;
     itervar_map[var].touch_feature[buf].bytes = access_bytes;
+    itervar_map[var].touch_feature[buf].loop_reuse = loop_reuse_tag;
   }
 }
 
@@ -311,6 +314,7 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
                 FloatImm(DataType::Float(32), trans(v.reuse)),
                 FloatImm(DataType::Float(32), trans(v.thread_count)),
                 FloatImm(DataType::Float(32), trans(v.thread_reuse)),
+                v.loop_reuse
                 });
     }
 
@@ -392,6 +396,7 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_
       ret_feature->push_back(trans(v.reuse));
       ret_feature->push_back(trans(v.thread_count));
       ret_feature->push_back(trans(v.thread_reuse));
+      ret_feature->push_back(v.loop_reuse);
     }
   }
 }
