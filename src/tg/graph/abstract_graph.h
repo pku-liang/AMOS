@@ -49,6 +49,8 @@ class ExprReMapper : public tir::ExprMutator {
 
 std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body);
 
+std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>&& body);
+
 
 }  // namespace tg
 

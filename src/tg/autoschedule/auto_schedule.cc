@@ -12,33 +12,33 @@ namespace tg {
 std::pair<te::Schedule, Array<te::Tensor> >
 empty_schedule (TIRGraph subgraph) {
   te::Schedule sch = te::create_schedule(subgraph->root_ops);
-  Array<te::Tensor> tensors;
-  for (auto t : subgraph->inputs) {
-    tensors.push_back(t);
-  }
-  for (auto t : subgraph->labels) {
-    tensors.push_back(t);
-  }
-  for (auto t : subgraph->outputs) {
-    tensors.push_back(t);
-  }
-  for (auto t : subgraph->weights) {
-    tensors.push_back(t);
-  }
-  if (subgraph->loss.defined()) {
-    tensors.push_back(subgraph->loss);
-  }
-  for (auto t : subgraph->gradients) {
-    tensors.push_back(t);
-  }
-  if (subgraph->lr.defined()) {
-    tensors.push_back(subgraph->lr);
-  }
-  for (auto t : subgraph->updates) {
-    tensors.push_back(t);
-  }
+  // Array<te::Tensor> tensors;
+  // for (auto t : subgraph->inputs) {
+  //   tensors.push_back(t);
+  // }
+  // for (auto t : subgraph->labels) {
+  //   tensors.push_back(t);
+  // }
+  // for (auto t : subgraph->outputs) {
+  //   tensors.push_back(t);
+  // }
+  // for (auto t : subgraph->weights) {
+  //   tensors.push_back(t);
+  // }
+  // if (subgraph->loss.defined()) {
+  //   tensors.push_back(subgraph->loss);
+  // }
+  // for (auto t : subgraph->gradients) {
+  //   tensors.push_back(t);
+  // }
+  // if (subgraph->lr.defined()) {
+  //   tensors.push_back(subgraph->lr);
+  // }
+  // for (auto t : subgraph->updates) {
+  //   tensors.push_back(t);
+  // }
 
-  return std::make_pair(sch, tensors);
+  return std::make_pair(sch, subgraph->tensors);
 }
 
 

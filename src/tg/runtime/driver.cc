@@ -280,6 +280,10 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
         // no need to re-schedule the same subgraph
         if (scheduled.find(subgraph->tag) != scheduled.end()) {
           print(4, autoschedule_log) << "Find repteated function " << subgraph->tag << ".\n";
+          print(4, autoschedule_log) << "tag: " << subgraph->tag << "\n";
+          for (auto op : subgraph->operation_list) {
+          print(4, autoschedule_log) << "body: " << op.as<ComputeOpNode>()->body << "\n";
+        }
           // update delete_set
           delete_set.insert(cand);
 
@@ -304,6 +308,10 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
          * make a schedule
          */
         print(4, autoschedule_log) << "schedule for " << cand->value << "\n";
+        print(4, autoschedule_log) << "tag: " << subgraph->tag << "\n";
+        for (auto op : subgraph->operation_list) {
+          print(4, autoschedule_log) << "body: " << op.as<ComputeOpNode>()->body << "\n";
+        }
         std::shared_future<ScheduleResult> schedule_result = auto_scheduler->schedule_for(
           cand, subgraph, target, 0);
 

@@ -141,6 +141,42 @@ TIRGraph::TIRGraph(
 
   // get the operation key for each operation
   node->tag = "";
+  Array<te::Tensor> tensors;
+  for (auto t : inputs) {
+    tensors.push_back(t);
+    node->tag +=  get_const_shape_string(t->shape) + " ";
+  }
+  for (auto t : labels) {
+    tensors.push_back(t);
+    node->tag +=  get_const_shape_string(t->shape) + " ";
+  }
+  for (auto t : outputs) {
+    tensors.push_back(t);
+    node->tag +=  get_const_shape_string(t->shape) + " ";
+  }
+  for (auto t : weights) {
+    tensors.push_back(t);
+    node->tag +=  get_const_shape_string(t->shape) + " ";
+  }
+  if (loss.defined()) {
+    tensors.push_back(loss);
+    node->tag +=  get_const_shape_string(loss->shape) + " ";
+  }
+  for (auto t : gradients) {
+    tensors.push_back(t);
+    node->tag +=  get_const_shape_string(t->shape) + " ";
+  }
+  if (lr.defined()) {
+    tensors.push_back(lr);
+    node->tag +=  get_const_shape_string(lr->shape) + " ";
+  }
+  for (auto t : updates) {
+    tensors.push_back(t);
+    node->tag +=  get_const_shape_string(t->shape) + " ";
+  }
+
+  node->tensors = tensors;
+
   for (auto op : node->operation_list) {
     node->operation_key_dict.Set(op, OperationKey(op));
     node->operation_stat_dict.Set(op, OpAttr(op, node->down_graph, node->root_ops));
@@ -183,7 +219,6 @@ TVM_REGISTER_GLOBAL("tg.make_tir_graph_training")
 ){
   return TIRGraph(inputs, labels, outputs, weights, loss, gradients, lr, updates);
 });
-
 
 
 }  // namespace tg

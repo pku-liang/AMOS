@@ -126,6 +126,9 @@ class TIRMultiGraph : public ObjectRef {
 };
 
 
+Map<IntKey, TIRGraph> get_subgraphs(TIRMultiGraph multi_graph);
+
+
 
 }  // namespace tg
 

@@ -6,6 +6,7 @@
 #include <tvm/tg/graph.h>
 
 #include "utils.h"
+#include "../utils.h"
 
 
 namespace tvm {
@@ -86,6 +87,7 @@ class TIRGraphNode : public Object {
   Map<Operation, OperationKey> operation_key_dict;
   Map<Operation, OpAttr> operation_stat_dict;
   std::string tag;
+  Array<Tensor> tensors;
   
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("inputs", &inputs);
@@ -102,6 +104,7 @@ class TIRGraphNode : public Object {
     v->Visit("operation_key_dict", &operation_key_dict);
     v->Visit("operation_stat_dict", &operation_stat_dict);
     v->Visit("tag", &tag);
+    v->Visit("tensors", &tensors);
   }
 
   static constexpr const char* _type_key = "tg.concrete_graph";

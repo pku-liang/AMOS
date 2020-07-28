@@ -470,6 +470,15 @@ TIRMultiGraph::TIRMultiGraph(TIRGraph graph, FType partiton_func) {
 }
 
 
+Map<IntKey, TIRGraph> get_subgraphs(TIRMultiGraph multi_graph) {
+  Map<IntKey, TIRGraph> ret;
+  for (auto kv : multi_graph->graphs) {
+    ret.Set(kv.first, kv.second);
+  }
+  return ret;
+}
+
+
 TVM_REGISTER_NODE_TYPE(TIRMultiGraphNode);
 TVM_REGISTER_NODE_TYPE(GraphAttrNode);
 

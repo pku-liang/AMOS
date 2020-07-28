@@ -979,6 +979,7 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
   if (count_split_axis == 0) {
     // all the spatial axis extents are 1
     // just bind the outer most axis
+    node->need_tile[0] = true;
     binder(0, node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
   } else if (count_split_axis == 1) {
     binder(axis_id_to_split[0], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);

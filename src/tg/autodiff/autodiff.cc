@@ -8,6 +8,8 @@
 #include <vector>
 #include <string>
 
+#include "../graph/abstract_graph.h"
+
 namespace tvm {
 namespace tg {
 
@@ -19,7 +21,8 @@ Tensor ones_like(const Tensor &tensor) {
   func = [&tensor](const Array<Var> &input_indices){
     return make_const(tensor->dtype, 1);
   };
-  return te::compute(shape, func, "ones_" + tensor->op->name, "ones_" + tensor->op->tag, {}, false);
+  std::string tag = generate_tag_from_body(shape, {make_const(tensor->dtype, 1)});
+  return te::compute(shape, func, "ones_" + tensor->op->name, tag, {}, false);
 }
 
 
@@ -29,7 +32,8 @@ Tensor zeros_like(const Tensor &tensor) {
   func = [&tensor](const Array<Var> &input_indices) {
     return make_const(tensor->dtype, 0);
   };
-  return te::compute(shape, func, "zeros_" + tensor->op->name, "zeros_" + tensor->op->tag, {}, false);
+  std::string tag = generate_tag_from_body(shape, {make_const(tensor->dtype, 0)});
+  return te::compute(shape, func, "zeros_" + tensor->op->name, tag, {}, false);
 }
 
 
@@ -57,9 +61,18 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
     }
     return res;
   };
-  std::string dim = std::to_string(input->shape.size());
-  std::string num = std::to_string(num_outputs);
-  return te::compute(shape, func, "collect_" + input->op->name, "collect_" + num + "_dim" + dim, {}, true);
+  // std::string dim = std::to_string(input->shape.size());
+  // std::string num = std::to_string(num_outputs);
+  Array<Var> indices;
+  for (auto s : shape) {
+    indices.push_back(Var(""));
+  }
+  PrimExpr res = partial_grads[0](indices);
+  for (size_t i = 1; i < num_outputs; ++i) {
+    res = AddNode::make(res, partial_grads[i](indices));
+  }
+  std::string tag = generate_tag_from_body(shape, {res});
+  return te::compute(shape, func, "collect_" + input->op->name, tag, {}, true);
 }
 
 

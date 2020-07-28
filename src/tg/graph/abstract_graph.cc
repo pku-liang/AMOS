@@ -119,6 +119,7 @@ std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body
   std::ostringstream oss;
   oss.str("");
   if (body.size() == 0U) {
+    std::cout << "here\n";
     return oss.str();
   }
 
@@ -190,6 +191,12 @@ std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body
   }
 
   return oss.str();
+}
+
+
+std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>&& body) {
+  Array<PrimExpr> tmp = std::move(body);
+  return generate_tag_from_body(shape, tmp);
 }
 
 
