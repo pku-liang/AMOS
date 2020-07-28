@@ -87,8 +87,6 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
     autoschedule_log, profile_log_name);
   function_builder = new FunctionBuilder(
     sess_option->build_parallel, sess_option->build_timeout, build_log);
-  thread_pool = new ThreadPool(sess_option->execution_parallel, (int)(sess_option->execution_timeout * 1000));
-
   task_count = 0;
 }
 
@@ -132,10 +130,6 @@ Session::~Session() {
 
   if (function_builder != nullptr) {
     delete function_builder;
-  }
-
-  if (thread_pool != nullptr) {
-    delete thread_pool;
   }
 }
 

@@ -65,7 +65,6 @@ void SubstituteContext::add(std::string &name, Var var, PrimExpr expr, ExtRange 
 PrimExpr EliminateFloorDivAndMod::VisitExpr_(const FloorDivNode* op) {
   PrimExpr new_a = Simplify(VisitExpr(op->a));
   PrimExpr new_b = Simplify(VisitExpr(op->b));
-  std::cout << "check floordiv " << new_a << " // " << new_b << "\n";
   const VarNode *a_as_var = new_a.as<VarNode>();
   const IntImmNode *b_as_int = new_b.as<IntImmNode>();
   CHECK(b_as_int != nullptr) << "Only support floor_div on type int, but find " << new_b.dtype() << "\n";
@@ -295,7 +294,6 @@ void solve_floor_div_mod(const SubstituteContext &context,
   std::unordered_set<FloorDivModEntry, FloorDivModEntryHash> &s) {
   for (auto kv : context.var2expr) {
     FloorDivModEntry entry;
-    std::cout << "check solve " << kv.second << "\n";
     const FloorDivNode *as_div = kv.second.as<FloorDivNode>();
     const FloorModNode *as_mod = kv.second.as<FloorModNode>();
     CHECK(as_div != nullptr || as_mod != nullptr) << "Only can solve floor_div or floor_mod now.\n";

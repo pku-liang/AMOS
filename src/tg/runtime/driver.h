@@ -116,11 +116,10 @@ class Session {
   std::ofstream exe_log;
   AutoScheduler *auto_scheduler = nullptr;
   FunctionBuilder *function_builder = nullptr;
-  ThreadPool *thread_pool = nullptr;
   std::unordered_map<int, std::thread> sch_threads;
   std::unordered_map<int, std::thread> build_threads;
   std::unordered_map<int, std::thread> evaluate_threads;
-  
+
   std::unordered_map<int, TIRMultiGraph> task_cache;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;

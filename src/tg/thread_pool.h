@@ -51,30 +51,31 @@ public:
   }
 
   template<typename FType, typename... Args>
-  auto push_front(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
+  auto push_front_with_timeout(FType&& f, Args&&... args)
+    -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
     using return_type = decltype(f(args...));
 
     auto task = std::make_shared< std::packaged_task<return_type()> >(
             std::bind(f, std::forward<Args>(args)...)
         );
-    
-  auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
-    [task, this](){
-      auto ret = task->get_future();
+      
+    auto timed_task = std::make_shared< std::packaged_task<return_type()> >(
+      [task, this](){
+        auto ret = task->get_future();
 
-      std::thread th([task](){ (*task)(); });
+        std::thread th([task](){ (*task)(); });
 
-      auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
-      if(status != std::future_status::ready) {
-        pthread_cancel(th.native_handle());
-        th.join();
-        throw std::runtime_error("time out");
-      } else {
-        th.join();
-        return ret.get();
+        auto status = ret.wait_for(std::chrono::milliseconds(this->timeout));
+        if(status != std::future_status::ready) {
+          pthread_cancel(th.native_handle());
+          th.join();
+          throw std::runtime_error("time out");
+        } else {
+          th.join();
+          return ret.get();
+        }
       }
-    }
-  );
+    );
 
     std::shared_future<return_type> res = timed_task->get_future();
     {
@@ -90,7 +91,29 @@ public:
   }
 
   template<typename FType, typename... Args>
-  auto push_back(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
+  auto push_front(FType&& f, Args&&... args)
+    -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
+    using return_type = decltype(f(args...));
+
+    auto task = std::make_shared< std::packaged_task<return_type()> >(
+            std::bind(f, std::forward<Args>(args)...)
+        );
+
+    std::shared_future<return_type> res = task->get_future();
+    {
+        std::unique_lock<std::mutex> lock(deque_mutex);
+
+        if(stop)
+            throw std::runtime_error("push_front on stopped ThreadPool");
+
+        tasks.emplace_front([task]() { (*task)(); });
+    }
+    condition.notify_one();
+    return res;
+  }
+
+  template<typename FType, typename... Args>
+  auto push_back_with_timeout(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
     using return_type = decltype(f(args...));
 
     auto task = std::make_shared< std::packaged_task<return_type()> >(
@@ -123,6 +146,27 @@ public:
             throw std::runtime_error("push_back on stopped ThreadPool");
 
         tasks.emplace_back([timed_task]() { (*timed_task)(); });
+    }
+    condition.notify_one();
+    return res;
+  }
+
+  template<typename FType, typename... Args>
+  auto push_back(FType&& f, Args&&... args) -> std::shared_future<typename std::result_of<FType(Args...)>::type> {
+    using return_type = decltype(f(args...));
+
+    auto task = std::make_shared< std::packaged_task<return_type()> >(
+            std::bind(f, std::forward<Args>(args)...)
+        );
+
+    std::shared_future<return_type> res = task->get_future();
+    {
+        std::unique_lock<std::mutex> lock(deque_mutex);
+
+        if(stop)
+            throw std::runtime_error("push_back on stopped ThreadPool");
+
+        tasks.emplace_back([task]() { (*task)(); });
     }
     condition.notify_one();
     return res;
