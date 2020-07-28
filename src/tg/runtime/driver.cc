@@ -90,8 +90,6 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
   thread_pool = new ThreadPool(sess_option->execution_parallel, (int)(sess_option->execution_timeout * 1000));
 
   task_count = 0;
-  cached_all_functions = false;
-  use_autoschedule = true;
 }
 
 
@@ -106,6 +104,27 @@ Session::~Session() {
   future_functions.clear();
   built_functions.clear();
   best_functions.clear();
+
+  for (auto& th : sch_threads) {
+    if (th.second.joinable()) {
+      th.second.join();
+    }
+  }
+  sch_threads.clear();
+
+  for (auto& th : build_threads) {
+    if (th.second.joinable()) {
+      th.second.join();
+    }
+  }
+  build_threads.clear();
+
+  for (auto& th : evaluate_threads) {
+    if (th.second.joinable()) {
+      th.second.join();
+    }
+  }
+  evaluate_threads.clear();
 
   if (auto_scheduler != nullptr) {
     delete auto_scheduler;
@@ -188,9 +207,9 @@ std::string Session::get_func_name(IntKey key) {
 }
 
 
-void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
+void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advance_number) {
   // forward the compilation by multiple iterations
-  int schedule_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
+  int schedule_trials = advance_number;  // std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
   for (int ad = 0; ad < schedule_trials; ++ad) {
     // initialize cache
     std::unordered_set<std::string> scheduled;
@@ -216,7 +235,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
         // see if not finished
         bool peek_finish = false;
         std::unique_lock<std::mutex> lock(this->finish_mutex);
-        peek_finish = this->finish;
+        peek_finish = this->finish[task_id];
         lock.unlock();
         if (peek_finish) {
           // execution done, no need to schedule
@@ -366,7 +385,7 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
     // see if not done
     bool peek_finish = false;
     std::unique_lock<std::mutex> lock(this->finish_mutex);
-    peek_finish = this->finish;
+    peek_finish = this->finish[task_id];
     lock.unlock();
     if (!peek_finish) {
       if (!this->emergency_schedule_queue.empty()) {
@@ -411,9 +430,9 @@ void Session::run_autoschedule(TIRMultiGraph multi_graph, int advance_number) {
 }
 
 
-void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
+void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_number) {
   // forward the compilation by multiple iterations
-  int build_trials = std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
+  int build_trials = advance_number;  // std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
   for (int ad = 0; ad < build_trials; ++ad) {
     // initialize cache
     std::unordered_set<std::string> built;
@@ -439,7 +458,7 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
         // see if not finished
         bool peek_finish = false;
         std::unique_lock<std::mutex> lock(this->finish_mutex);
-        peek_finish = this->finish;
+        peek_finish = this->finish[task_id];
         lock.unlock();
         if (peek_finish) {
           // execution done, no need to schedule
@@ -558,7 +577,7 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
     // see if not done
     bool peek_finish = false;
     std::unique_lock<std::mutex> lock(this->finish_mutex);
-    peek_finish = this->finish;
+    peek_finish = this->finish[task_id];
     lock.unlock();
     if (!peek_finish) {
       if (!this->emergency_build_queue.empty()) {
@@ -594,7 +613,7 @@ void Session::run_build(TIRMultiGraph multi_graph, int advance_number) {
 
 
 void Session::run_evaluate(
-  TIRMultiGraph multi_graph, int advance_number) {
+  int task_id, TIRMultiGraph multi_graph, int advance_number) {
 
   // prepare the evaluate_performance
   const auto* evaluate_performance = runtime::Registry::Get("tg.runtime.evaluate_performance");
@@ -604,7 +623,7 @@ void Session::run_evaluate(
     // check if finish
     bool finish = false;
     std::unique_lock<std::mutex> lock(this->finish_mutex);
-    finish = this->finish;
+    finish = this->finish[task_id];
     lock.unlock();
     if (finish) {
       break;
@@ -738,7 +757,7 @@ void Session::run_evaluate(
       // check if finish
       bool finish = false;
       std::unique_lock<std::mutex> lock(this->finish_mutex);
-      finish = this->finish;
+      finish = this->finish[task_id];
       lock.unlock();
       if (finish) {
         break;
@@ -755,7 +774,7 @@ void Session::run_evaluate(
         free_set.insert(k);
       }
     }  // while (!free_set.empty())
-    cached_all_functions = true;
+    cached_all_functions[task_id] = true;
   }  // while (true)
 }
 
@@ -798,8 +817,6 @@ void Session::run_functions(
       (IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set) {
-      
-      auto t0 = std::chrono::steady_clock::now();
 
       // the mark that indicates this subgraph is done
       bool succ = false;
@@ -886,9 +903,6 @@ void Session::run_functions(
         }
         arrays.push_back(this->persistent_tensors[t]);
       }
-      auto t1 = std::chrono::steady_clock::now();
-      auto t1_t0 = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1e3;
-      print(4, exe_log) << "Array preparation uses " << t1_t0 << " ms.\n";
       
       /* loop until this subgraph is handled
        * or break if there is no way to execute this subgraph
@@ -936,7 +950,7 @@ void Session::run_functions(
     }
 
     
-    if (ad > 0)  // skip the first iteration
+    if (ad == 0)  // skip the first iteration
       beg = std::chrono::steady_clock::now();
   }  // for ad
   auto end = std::chrono::steady_clock::now();
@@ -948,127 +962,145 @@ void Session::run_functions(
   // synchronize the stream for this run task
   runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
   // notify done
-  std::unique_lock<std::mutex> lock(this->finish_mutex);
-  this->finish = true;
-  lock.unlock();
+  // std::unique_lock<std::mutex> lock(this->finish_mutex);
+  // this->finish = true;
+  // lock.unlock();
 }
 
 
 int Session::add_task(TIRGraph graph) {
   SubGraphPartitionEngine partition_engine;
   TIRMultiGraph multi_graph(graph, partition_engine);
+
+  // allocate output/loss/gradients/updates buffer
+  // the weight buffers should be initialized before
+  allocate_output_buffer(multi_graph);
+
   int task_id = task_count++;
   task_cache[task_id] = multi_graph;
   return task_id;
 }
 
 
-void Session::run(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
-  int advance_number = (int)(bindings.size());
-  print(1) << "Advancing " << advance_number << " iterations.\n";
+void Session::begin_tuning(int task_id, int advance_number) {
+  ASSERT(task_cache.find(task_id) != task_cache.end()) << "No such task " << task_id << "\n";
+  TIRMultiGraph multi_graph = task_cache[task_id];
 
   // begin
   std::unique_lock<std::mutex> lock(this->finish_mutex);
-  this->finish = false;
+  this->finish[task_id] = false;
   lock.unlock();
 
-  // valide tensor index
-  // this can be removed when the runtime is mature
-  for (auto kv : multi_graph->graphs) {
-    for (auto t : kv.second->weights) {
-      ASSERT(multi_graph->tensor_index.find(t) != multi_graph->tensor_index.end()) << "Can't find " << t << ".";
-    }
-  }
-
-  // allocate output/loss/gradients/updates buffer
-  // the weight buffers should be initialized before
-  allocate_output_buffer(multi_graph);
+  autoschedule_log << "[time= " << current_time().count() << "] " << "New autoschedule task.\n"
+                   << "######################################################################\n";
+  build_log << "[time= " << current_time().count() << "] " << "New build task.\n"
+            << "######################################################################\n";
+  exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n"
+          << "######################################################################\n";
 
   /*
    * launch the run_autoschedule thread
    */
-  std::thread sch_thread(
-    [this](TIRMultiGraph g, int b) {
-      run_autoschedule(g, b);
-    }, multi_graph, advance_number);
+  if (this->sch_threads.find(task_id) == this->sch_threads.end()) {
+    this->sch_threads[task_id] = std::thread(
+      [this](int id, TIRMultiGraph g, int b) {
+        run_autoschedule(id, g, b);
+      }, task_id, multi_graph, advance_number);
+  }
 
   /*
    * launch the run_build thread
    */
-  std::thread build_thread(
-    [this](TIRMultiGraph g, int b) {
-      run_build(g, b);
-    }, multi_graph, advance_number);
+  if (this->build_threads.find(task_id) == this->build_threads.end()) {
+    this->build_threads[task_id] = std::thread(
+      [this](int id, TIRMultiGraph g, int b) {
+        run_build(id, g, b);
+      }, task_id, multi_graph, advance_number);
+  }
 
   /*
    * launch the run_evaluate thread
    */
-  std::thread evaluate_thread(
-    [this](TIRMultiGraph g, int b) {
-      run_evaluate(g, b);
-    }, multi_graph, advance_number);
+  if (this->evaluate_threads.find(task_id) == this->evaluate_threads.end()) {
+    this->evaluate_threads[task_id] = std::thread(
+      [this](int id, TIRMultiGraph g, int b) {
+        run_evaluate(id, g, b);
+      }, task_id, multi_graph, advance_number);
+  }
+
+  in_tuning[task_id] = true;
+}
+
+
+void Session::end_tuning(int task_id) {
+  // wait until cached
+  while(cached_all_functions.find(task_id) == cached_all_functions.end() || !cached_all_functions[task_id]) {
+
+  }
+  // end
+  std::unique_lock<std::mutex> lock(this->finish_mutex);
+  this->finish[task_id] = true;
+  lock.unlock();
+
+  in_tuning[task_id] = false;
+  in_tuning.erase(task_id);
 
   /*
-   * launch the run_function thread
+   * end the run_autoschedule thread
    */
-  std::thread exe_thread(
-    [this](TIRMultiGraph g, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > b) {
-      run_functions(g, b);
-    }, multi_graph, bindings);
-  
-  // wait until finished
-  while (1) {
-    // see if not done
-    bool peek_finish = false;
-    std::unique_lock<std::mutex> lock(this->finish_mutex);
-    peek_finish = this->finish;
-    lock.unlock();
-
-    if (peek_finish) {
-      break;
-    }
-  }  // while 1
-  // wait for execution
-  sch_thread.join();
-  build_thread.join();
-  evaluate_thread.join();
-  exe_thread.join();
-  print(1) << "end run.\n";
-}
-
-
-int Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
-  int task_id = add_task(graph);
-  if (!use_autoschedule && cached_all_functions) {
-    print(1) << "No autoschedule overhead, pure execution!\n";
-    exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n";
-    clear_autoschedule_context();
-    run_functions(task_cache[task_id], bindings);
-  } else {
-    autoschedule_log << "[time= " << current_time().count() << "] " << "New autoschedule task.\n";
-    build_log << "[time= " << current_time().count() << "] " << "New build task.\n";
-    exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n";
-    run(task_cache[task_id], bindings);
+  if (this->sch_threads.find(task_id) == this->sch_threads.end()) {
+    this->sch_threads[task_id].join();
+    this->sch_threads.erase(task_id);
   }
-  
-  return task_id;
+
+  /*
+   * end the run_build thread
+   */
+  if (this->build_threads.find(task_id) == this->build_threads.end()) {
+    this->build_threads[task_id].join();
+    this->build_threads.erase(task_id);
+  }
+
+  /*
+   * launch the run_evaluate thread
+   */
+  if (this->evaluate_threads.find(task_id) == this->evaluate_threads.end()) {
+    this->evaluate_threads[task_id].join();
+    this->evaluate_threads.erase(task_id);
+  }
 }
+
+
+// int Session::run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+//   int task_id = add_task(graph);
+//   if (!use_autoschedule && cached_all_functions) {
+//     print(1) << "No autoschedule overhead, pure execution!\n";
+//     exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n";
+//     clear_autoschedule_context();
+//     run_functions(task_cache[task_id], bindings);
+//   } else {
+//     autoschedule_log << "[time= " << current_time().count() << "] " << "New autoschedule task.\n";
+//     build_log << "[time= " << current_time().count() << "] " << "New build task.\n";
+//     exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n";
+//     run(task_cache[task_id], bindings);
+//   }
+  
+//   return task_id;
+// }
 
 
 void Session::run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "Can't find the task: " << task_id << ".\n";
-  TIRMultiGraph multi_graph = task_cache[task_id];
-  if (!use_autoschedule && cached_all_functions) {
-    print(1) << "No autoschedule overhead, pure execution!\n";
-    exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n";
-    clear_autoschedule_context();
-    run_functions(multi_graph, bindings);
-  } else {
-    autoschedule_log << "[time= " << current_time().count() << "] " << "New autoschedule task.\n";
-    build_log << "[time= " << current_time().count() << "] " << "New build task.\n";
-    exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n";
-    run(multi_graph, bindings);
+  if (cached_all_functions.find(task_id) == cached_all_functions.end() || !cached_all_functions[task_id]) {
+    if (in_tuning.find(task_id) == in_tuning.end() || !in_tuning[task_id]) {
+      ERROR << "Functions of task " << task_id << " are not ready, but the tuning is stopped!\n";
+    }
   }
+  int advance_number = (int)(bindings.size());
+  print(1) << "Advancing " << advance_number << " iterations.\n";
+
+  TIRMultiGraph multi_graph = task_cache[task_id];
+  run_functions(multi_graph, bindings);
 }
 
 
@@ -1114,16 +1146,16 @@ void delete_session(int session_id) {
 }
 
 
-void disable_autoschedule(int session_id) {
-  auto sess = get_session(session_id);
-  sess->disable_autoschedule();
-}
+// void disable_autoschedule(int session_id) {
+//   auto sess = get_session(session_id);
+//   sess->disable_autoschedule();
+// }
 
 
-void enable_autoschedule(int session_id) {
-  auto sess = get_session(session_id);
-  sess->enable_autoschedule();
-}
+// void enable_autoschedule(int session_id) {
+//   auto sess = get_session(session_id);
+//   sess->enable_autoschedule();
+// }
 
 
 void initialize_weights(
@@ -1140,12 +1172,12 @@ int add_task(int session_id, TIRGraph graph) {
 }
 
 
-int run_graph(
-  int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+// int run_graph(
+//   int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
   
-  auto sess = get_session(session_id);
-  return sess->run(graph, bindings);
-}
+//   auto sess = get_session(session_id);
+//   return sess->run(graph, bindings);
+// }
 
 
 void run_task(
@@ -1225,15 +1257,29 @@ TVM_REGISTER_GLOBAL("tg.get_context_from_session")
 });
 
 
-TVM_REGISTER_GLOBAL("tg.disable_autoschedule")
-.set_body_typed([](int session_id){
-  disable_autoschedule(session_id);
+// TVM_REGISTER_GLOBAL("tg.disable_autoschedule")
+// .set_body_typed([](int session_id){
+//   disable_autoschedule(session_id);
+// });
+
+
+// TVM_REGISTER_GLOBAL("tg.enable_autoschedule")
+// .set_body_typed([](int session_id){
+//   enable_autoschedule(session_id);
+// });
+
+
+TVM_REGISTER_GLOBAL("tg.begin_tuning")
+.set_body_typed([](int session_id, int task_id, int advance_number){
+  auto sess = get_session(session_id);
+  sess->begin_tuning(task_id, advance_number);
 });
 
 
-TVM_REGISTER_GLOBAL("tg.enable_autoschedule")
-.set_body_typed([](int session_id){
-  enable_autoschedule(session_id);
+TVM_REGISTER_GLOBAL("tg.end_tuning")
+.set_body_typed([](int session_id, int task_id){
+  auto sess = get_session(session_id);
+  sess->end_tuning(task_id);
 });
 
 
@@ -1254,19 +1300,19 @@ TVM_REGISTER_GLOBAL("tg.add_task")
 });
 
 
-TVM_REGISTER_GLOBAL("tg.run_graph")
-.set_body_typed([](
-  int session_id, TIRGraph graph, Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings){
-  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > _bindings;
-  for (auto mp : bindings) {
-    std::unordered_map<te::Tensor, tvm::runtime::NDArray> tmp;
-    for (auto kv : mp) {
-      tmp[kv.first] = kv.second;
-    }
-    _bindings.push_back(tmp);
-  }
-  return run_graph(session_id, graph, _bindings);
-});
+// TVM_REGISTER_GLOBAL("tg.run_graph")
+// .set_body_typed([](
+//   int session_id, TIRGraph graph, Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings){
+//   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > _bindings;
+//   for (auto mp : bindings) {
+//     std::unordered_map<te::Tensor, tvm::runtime::NDArray> tmp;
+//     for (auto kv : mp) {
+//       tmp[kv.first] = kv.second;
+//     }
+//     _bindings.push_back(tmp);
+//   }
+//   return run_graph(session_id, graph, _bindings);
+// });
 
 
 TVM_REGISTER_GLOBAL("tg.run_task")

@@ -163,19 +163,55 @@ def get_context_from_session(session_id):
   return _ffi_api.get_context_from_session(session_id)
 
 
-def disable_autoschedule(session_id):
-  """Disable the autoschedule of Session.
+# def disable_autoschedule(session_id):
+#   """Disable the autoschedule of Session.
+
+#     Parameters
+#     ----------
+#     session_id : int
+#         The id of this Session.
+
+#     Returns
+#     -------
+
+#   """
+#   _ffi_api.disable_autoschedule(session_id)
+
+
+def begin_tuning(session_id, task_id, advance_number):
+  """Start the tuning for one task in Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The id of this Session.
+    
+    task_id : int
+
+    advance_number : int
+
+    Returns
+    -------
+
+  """
+  _ffi_api.begin_tuning(session_id, task_id, advance_number)
+
+
+def end_tuning(session_id, task_id):
+  """End the tuning for one task in Session.
 
     Parameters
     ----------
     session_id : int
         The id of this Session.
 
+    task_id : int
+
     Returns
     -------
 
   """
-  _ffi_api.disable_autoschedule(session_id)
+  _ffi_api.end_tuning(session_id, task_id)
 
 
 def enable_autoschedule(session_id):
@@ -234,27 +270,27 @@ def add_task(session_id, tir_graph):
   return _ffi_api.add_task(session_id, tir_graph)
 
 
-def run_graph(session_id, tir_graph, bindings):
-  """Run a graph in the Session.
+# def run_graph(session_id, tir_graph, bindings):
+#   """Run a graph in the Session.
 
-    Parameters
-    ----------
-    session_id : int
-        The Session in which the graph is initialized.
+#     Parameters
+#     ----------
+#     session_id : int
+#         The Session in which the graph is initialized.
 
-    tir_graph : tvm.tg.TIRGraph
-        The graph for which to initialize weights.
+#     tir_graph : tvm.tg.TIRGraph
+#         The graph for which to initialize weights.
 
-    bindings : list of dict of tvm.te.Tensor to tvm.runtime.NDArray
-        The length is training iterations.
-        Contains input data, labels, and learning rate.
+#     bindings : list of dict of tvm.te.Tensor to tvm.runtime.NDArray
+#         The length is training iterations.
+#         Contains input data, labels, and learning rate.
 
-    Returns
-    -------
-    task id: int
-        Task id.
-  """
-  return _ffi_api.run_graph(session_id, tir_graph, bindings)
+#     Returns
+#     -------
+#     task id: int
+#         Task id.
+#   """
+#   return _ffi_api.run_graph(session_id, tir_graph, bindings)
 
 
 def run_task(session_id, task_id, bindings):

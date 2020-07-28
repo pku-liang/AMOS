@@ -117,7 +117,10 @@ class Session {
   AutoScheduler *auto_scheduler = nullptr;
   FunctionBuilder *function_builder = nullptr;
   ThreadPool *thread_pool = nullptr;
-
+  std::unordered_map<int, std::thread> sch_threads;
+  std::unordered_map<int, std::thread> build_threads;
+  std::unordered_map<int, std::thread> evaluate_threads;
+  
   std::unordered_map<int, TIRMultiGraph> task_cache;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;
@@ -127,42 +130,44 @@ class Session {
   std::unordered_map<IntKey, Queue<std::tuple<tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
   Queue<IntKey> emergency_schedule_queue;
   Queue<IntKey> emergency_build_queue;
-  bool finish;
+  std::unordered_map<int, bool> finish;
   std::mutex finish_mutex;
   int task_count;
-  bool cached_all_functions;
-  bool use_autoschedule;
+  std::unordered_map<int, bool> in_tuning;
+  std::unordered_map<int, bool> cached_all_functions;
+  // bool use_autoschedule;
 
  public:
   Session(Target target, int dev_id, SessionOption sess_option);
   ~Session();
   void clear_autoschedule_context();
-  void disable_autoschedule() {
-    use_autoschedule = false;
-  }
-  void enable_autoschedule() {
-    use_autoschedule = true;
-  }
+  // void disable_autoschedule() {
+  //   use_autoschedule = false;
+  // }
+  // void enable_autoschedule() {
+  //   use_autoschedule = true;
+  // }
   void initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
   std::string get_func_name(IntKey key);
 
   void run_autoschedule(
-    TIRMultiGraph multi_graph, int advance_number);
+    int task_id, TIRMultiGraph multi_graph, int advance_number);
 
   void run_build(
-    TIRMultiGraph multi_graph, int advance_number);
+    int task_id, TIRMultiGraph multi_graph, int advance_number);
 
   void run_evaluate(
-    TIRMultiGraph multi_graph, int advance_number);
+    int task_id, TIRMultiGraph multi_graph, int advance_number);
 
   void run_functions(
     TIRMultiGraph multi_graph,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
   
   int add_task(TIRGraph graph);
-  void run(TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
-  int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+  void begin_tuning(int task_id, int advance_number);
+  void end_tuning(int task_id);
+  // int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
   void run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
 };
 
@@ -180,8 +185,8 @@ void initialize_weights(
   int session_id, TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
 
 
-int run_graph(
-  int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+// int run_graph(
+//   int session_id, TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
 
 
 
