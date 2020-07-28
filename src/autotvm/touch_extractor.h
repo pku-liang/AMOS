@@ -53,6 +53,8 @@ struct TouchPattern {
   int64_t reuse{1};
   int64_t thread_count{0};  // count when move thread axis into innermost
   int64_t thread_reuse{0};  // reuse ratio move thread axis into innermost
+
+  bool loop_reuse{false};
 };
 
 // all the feature of an iter var
