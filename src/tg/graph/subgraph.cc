@@ -420,7 +420,11 @@ std::unordered_map<IntKey, GraphAttr> SubGraphPartitionEngine::validate_subgraph
     for (auto v : graph_successor[mark]) {
       val.push_back(IntKey(v));
     }
-    graph_attr[IntKey(key->value)] = GraphAttr(graph_num_predecessor[mark], val);
+    if (graph_predecessor.find(mark) == graph_predecessor.end()) {
+      graph_attr[IntKey(key->value)] = GraphAttr(0, val);
+    } else {
+      graph_attr[IntKey(key->value)] = GraphAttr(graph_predecessor[mark].size(), val);
+    }
   }
 
   // validate

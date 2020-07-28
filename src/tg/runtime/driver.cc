@@ -211,6 +211,11 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
     std::unordered_map<IntKey, int> schedule_order;
     std::unordered_set<IntKey> free_set;
     for (auto kv : multi_graph->graph_attrs) {
+      // print(4, autoschedule_log) << "check for " << kv.first->value << ": " << kv.second->num_predecessor << "\n";
+      // for (auto val : kv.second->successors) {
+      //   print(4, autoschedule_log) << val->value << " ";
+      // }
+      // print(4, autoschedule_log) << "\n";
       schedule_order[kv.first] = kv.second->num_predecessor;
       if (kv.second->num_predecessor == 0) {
         free_set.insert(kv.first);
