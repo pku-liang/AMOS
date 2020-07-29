@@ -516,11 +516,12 @@ class GradOp : public ExprMutator {
         PrimExpr new_y = grad(y);
         for (auto kv : vmap_scope_.back()) {
           if (vmap.count(kv.first) != 0) {
-            LOG(WARNING) << "find repeated bindings, but still going ahead"
+            LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                          << "old: " << vmap[kv.first] << "\n"
                          << "new: " << kv.second << "\n";
+          } else {
+            vmap.Set(kv.first, kv.second);
           }
-          vmap.Set(kv.first, kv.second);
         }
         
         if (!vmap_scope_.back().empty()) {
@@ -565,11 +566,12 @@ class GradOp : public ExprMutator {
 
         for (auto kv : vmap_scope_.back()) {
           if (vmap.count(kv.first) != 0) {
-            LOG(WARNING) << "find repeated bindings, but still going ahead"
+            LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                          << "old: " << vmap[kv.first] << "\n"
                          << "new: " << kv.second << "\n";
+          } else {
+            vmap.Set(kv.first, kv.second);
           }
-          vmap.Set(kv.first, kv.second);
         }
 
         if (!vmap_scope_.back().empty()) {
@@ -604,11 +606,12 @@ class GradOp : public ExprMutator {
     PrimExpr new_b = grad(op->b);
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
@@ -625,11 +628,12 @@ class GradOp : public ExprMutator {
     PrimExpr new_b = grad(op->b);
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
@@ -661,11 +665,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
 
     vmap_scope_.pop_back();
@@ -681,11 +686,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
 
     if (!vmap_scope_.back().empty()) {
@@ -699,11 +705,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
 
     if (!vmap_scope_.back().empty()) {
@@ -743,11 +750,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
 
     if (!vmap_scope_.back().empty()) {
@@ -787,11 +795,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
 
     if (!vmap_scope_.back().empty()) {
@@ -826,11 +835,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
 
     if (!vmap_scope_.back().empty()) {
@@ -892,11 +902,12 @@ class GradOp : public ExprMutator {
 
     for (auto kv : vmap_scope_.back()) {
       if (vmap.count(kv.first) != 0) {
-        LOG(WARNING) << "find repeated bindings, but still going ahead"
+        LOG(WARNING) << "find repeated bindings, but still going ahead\n"
                       << "old: " << vmap[kv.first] << "\n"
                       << "new: " << kv.second << "\n";
+      } else {
+        vmap.Set(kv.first, kv.second);
       }
-      vmap.Set(kv.first, kv.second);
     }
     if (!vmap_scope_.back().empty()) {
       sub_cond = Substitute(sub_cond, vmap_scope_.back());
