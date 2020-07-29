@@ -205,6 +205,19 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, int access_ann, i
     itervar_map[var].access_type |= access_ann;
     itervar_map[var].touch_feature[buf].bytes = access_bytes;
     itervar_map[var].touch_feature[buf].loop_reuse = loop_reuse_tag;
+
+    bool &serial_reuse_flag = itervar_map[var].serial_reuse;
+    if (serial_reuse_flag == true)
+      continue;
+    StructuralEqual equal;
+    for (auto &expr : itervar_map[var].pattern_set[buffer_var])
+      if (equal(index, expr)) {
+        serial_reuse_flag = true;
+        break;
+      }
+    if (serial_reuse_flag == false) {
+      itervar_map[var].pattern_set[buffer_var].push_back(index);
+    }
   }
 }
 
@@ -221,7 +234,7 @@ void TouchExtractor::ExitMem_() {
  * ((
  *   ('_itervar_',  var),
  *   ('_access_type_', write, read),
- *   ('_attr_',     length, nest_level, topdown, bottomup, one_hot_annotation),
+ *   ('_attr_',     length, nest_level, topdown, bottomup, one_hot_annotation, serial_reuse),
  *   ('_arith_',    add_ct, mul_ct, div_ct),
  *   ('data_vec_0', stride, mod, bytes, reuse, thread_count, thread_reuse),
  *   ('conv_0',     stride, mod, bytes, reuse, thread_count, thread_reuse),
@@ -289,6 +302,7 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
     for (int i = 0; i < kNum; i++) {
       attr.push_back(i == fea.ann);
     }
+    attr.push_back(fea.serial_reuse);
     feature_row.push_back(attr);
 
     // arithmetic
@@ -376,6 +390,8 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_
     for (int i = 0; i < kNum; i++) {
       ret_feature->push_back(i == fea.ann);
     }
+
+    ret_feature->push_back(fea.serial_reuse);
 
     // arithmetic
     ret_feature->push_back(trans(fea.add_ct));
