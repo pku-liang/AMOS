@@ -29,6 +29,7 @@
 #include <tvm/tir/expr_functor.h>
 #include <tvm/tir/ir_pass.h>
 #include <tvm/runtime/registry.h>
+#include <tvm/node/structural_equal.h>
 
 #include <stack>
 #include <vector>
@@ -87,6 +88,8 @@ struct ItervarFeature {
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
 
   int access_type{0};
+  std::unordered_map<Var, Array<PrimExpr>, tvm::ObjectHash, tvm::ObjectEqual> pattern_set;
+  bool serial_reuse{false};
 };
 
 // extract iter vars and their touch pattern from ir
