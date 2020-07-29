@@ -167,6 +167,7 @@ class Session {
   int add_task(TIRGraph graph);
   void begin_tuning(int task_id, int advance_number, std::string reference="");
   void end_tuning(int task_id);
+  void prepare_for_test(int task_id, std::string reference);
   // int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
   void run(
     int task_id,

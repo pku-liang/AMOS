@@ -19,13 +19,13 @@ tvm::runtime::Module FunctionBuilder::build_func(
   
   auto lowered = tvm::lower(sch, args, name, binds, config);
   print(4, log_out) << "Check lowered function:\n" << lowered << "\n";
+
   tvm::runtime::Module ret = tvm::build(
     lowered,
     target,
     target_host,
     config
   );
-
   return ret;
 }
 
@@ -75,7 +75,6 @@ std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBui
   const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
   const tvm::BuildConfig& config,
   int priority) {
-  
   auto sch = sch_res->schedule;
   auto args = sch_res->tensors;
   if (priority == 0) {

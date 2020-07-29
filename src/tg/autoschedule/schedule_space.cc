@@ -1165,10 +1165,15 @@ BufferInputEntity buffer_input_entity_from_string(std::string s) {
   std::vector<std::string> two_parts = string_split("; ", s.substr(i, j - i + 1));
   std::string part1 = two_parts[0];
   std::string part2 = two_parts[1];
-  std::vector<std::string> buffer_inputs = string_split(", ", part1.substr(1, part1.size() - 2));  // skip '[' ']'
+  std::vector<std::string> buffer_inputs = string_split("], ", part1.substr(1, part1.size() - 2));  // skip '[' ']'
   std::vector<MultiChoiceEntity> choices;
-  for (auto str : buffer_inputs) {
-    MultiChoiceEntity entity = multi_choice_entity_from_string(str);
+  for (size_t i = 0; i < buffer_inputs.size(); ++i) {
+    MultiChoiceEntity entity;
+    if (i + 1 != buffer_inputs.size()) {
+      entity = multi_choice_entity_from_string(buffer_inputs[i] + "]");  // fix the missing ']'
+    } else {
+      entity = multi_choice_entity_from_string(buffer_inputs[i]);
+    }
     choices.push_back(entity);
   }
   std::vector<std::string> use_vectorize = string_split(", ", part2.substr(1, part2.size() - 2));  // skip '[' ']'

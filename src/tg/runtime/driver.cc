@@ -386,7 +386,6 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
     // auto_scheduler->reset();
     // print(4) << "after auto_scheduler reset!\n";
   }  // for ad
-
   // wait until finished
   while (1) {
     // see if not done
@@ -529,7 +528,6 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
           ScheduleResult sch = sch_and_mod.first;
           auto future_mod = sch_and_mod.second;
           future_functions[cand].pop();
-
           try {
             print(4, build_log) << "Waiting for build for " << cand->value << "...\n";
             tvm::runtime::Module mod = future_mod.get();
@@ -1004,6 +1002,56 @@ int Session::add_task(TIRGraph graph) {
 }
 
 
+void Session::prepare_for_test(int task_id, std::string reference) {
+  // load reference
+  // this will add additional schedule results
+  std::unordered_map<std::string, IntKey> cache;
+  ASSERT(task_cache.find(task_id) != task_cache.end()) << "No such task " << task_id << "\n";
+  TIRMultiGraph multi_graph = task_cache[task_id];
+
+  std::ifstream fin(reference);
+  if (fin) {
+    std::string line;
+    while (std::getline(fin, line)) {
+      std::vector<std::string> parts = string_split("|", line);
+      ASSERT(parts.size() >= 2U) << "Bad line: " << line << ".\n";
+      IntKey key(std::stoi(parts[0]));
+      MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
+      ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
+        key, multi_graph.Self()->graphs[key], target, entity);
+
+      std::string name = get_func_name(key);
+      
+      auto module = function_builder->build_func(
+        schedule_result->schedule, schedule_result->tensors, target, Target::Create("llvm"),
+        name, std::unordered_map<te::Tensor, tir::Buffer>(), tvm::BuildConfig::Create());
+
+      auto func = module->GetFunction(name);
+
+      built_functions[key].push(std::make_tuple(schedule_result, module, func));
+      best_functions[key].push(std::make_tuple(schedule_result, module, func, 0.0));
+
+      TIRGraph subgraph = multi_graph.Self()->graphs[key];
+      if (cache.find(subgraph->tag) == cache.end()) {
+        cache[subgraph->tag] = key;
+      }
+    }
+    fin.close();
+  } else {
+    ERROR << "Can't open schedule reference file " << reference << ".\n";
+  }
+
+  for (auto kv : multi_graph.Self()->graphs) {
+    if ((best_functions.find(kv.first) == best_functions.end()) || (best_functions[kv.first].empty())) {
+      ASSERT(cache.find(kv.second->tag) != cache.end()) << "Can't find the function for subgraph " << kv.second->tag << "\n";
+      best_functions[kv.first].push(best_functions[cache[kv.second->tag]].front());
+    }
+  }
+
+  cached_all_functions[task_id] = true;
+}
+
+
 void Session::begin_tuning(int task_id, int advance_number, std::string reference) {
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "No such task " << task_id << "\n";
   TIRMultiGraph multi_graph = task_cache[task_id];
@@ -1014,69 +1062,31 @@ void Session::begin_tuning(int task_id, int advance_number, std::string referenc
   lock.unlock();
 
   autoschedule_log << "[time= " << current_time().count() << "] " << "New autoschedule task.\n"
-                   << "######################################################################\n";
+                   << "######################################################################\n" << std::flush;
   build_log << "[time= " << current_time().count() << "] " << "New build task.\n"
-            << "######################################################################\n";
+            << "######################################################################\n" << std::flush;
+  evaluate_log << "[time= " << current_time().count() << "] " << "New evaluate task.\n"
+            << "######################################################################\n" << std::flush;
   exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n"
-          << "######################################################################\n";
+          << "######################################################################\n" << std::flush;
 
   // load reference
+  // touch all the keys
+  for (auto& kv : multi_graph->graphs) {
+    if (future_functions[kv.first].empty()) {
+      // pass
+    }
+    if (built_functions[kv.first].empty()) {
+      // pass
+    }
+    if (best_functions[kv.first].empty()) {
+      // pass
+    }
+  }
   // this will add additional schedule results
   int additional_build = 0;
   if (reference != "") {
-    std::ifstream fin(reference);
-    if (fin) {
-      additional_build += 1;
-      std::string line;
-      while (std::getline(fin, line)) {
-        std::vector<std::string> parts = string_split("|", line);
-        ASSERT(parts.size() >= 2U) << "Bad line: " << line << ".\n";
-        IntKey key(std::stoi(parts[0]));
-        MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
-        ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
-          key, multi_graph.Self()->graphs[key], target, entity);
-        // get future func
-        try {
-          std::string name = get_func_name(key);
-          std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
-            function_builder->build_for(
-              schedule_result,
-              target,
-              Target::Create("llvm"),
-              name,
-              std::unordered_map<te::Tensor, tir::Buffer>(),
-              tvm::BuildConfig::Create()
-            );
-          // std::cout << "check " << future_functions[key].empty() << "\n";
-          // std::cout << "check key " << key->value << "\n";
-          future_functions[key].push(sch_func);
-          if (built_functions[key].empty()) {
-            // pass
-          }
-          if (best_functions[key].empty()) {
-            // pass
-          }
-        } catch (const std::exception& e) {
-          ERROR << e.what() << "\n";
-        }
-      }
-      fin.close();
-    } else {
-      ERROR << "Can't open schedule reference file " << reference << ".\n";
-    }
-  } else {
-    // touch all the keys
-    for (auto& kv : multi_graph->graphs) {
-      if (future_functions[kv.first].empty()) {
-        // pass
-      }
-      if (built_functions[kv.first].empty()) {
-        // pass
-      }
-      if (best_functions[kv.first].empty()) {
-        // pass
-      }
-    }
+    prepare_for_test(task_id, reference);
   }
 
   /*
@@ -1115,8 +1125,10 @@ void Session::begin_tuning(int task_id, int advance_number, std::string referenc
 
 void Session::end_tuning(int task_id) {
   // wait until cached
-  while(cached_all_functions.find(task_id) == cached_all_functions.end() || !cached_all_functions[task_id]) {
-
+  while (true) {
+    if(cached_all_functions.find(task_id) != cached_all_functions.end() && cached_all_functions[task_id]) {
+      break;
+    }
   }
   // end
   std::unique_lock<std::mutex> lock(this->finish_mutex);
@@ -1180,6 +1192,7 @@ void Session::run(
       ERROR << "Functions of task " << task_id << " are not ready, but the tuning is stopped!\n";
     }
   }
+
   int advance_number = (int)(bindings.size());
   print(1) << "Advancing " << advance_number << " iterations.\n";
 
@@ -1371,8 +1384,7 @@ TVM_REGISTER_GLOBAL("tg.end_tuning")
 TVM_REGISTER_GLOBAL("tg.test_schedule_reference")
 .set_body_typed([](int session_id, int task_id, std::string reference){
   auto sess = get_session(session_id);
-  sess->begin_tuning(task_id, 0, reference);
-  sess->end_tuning(task_id);
+  sess->prepare_for_test(task_id, reference);
 });
 
 
