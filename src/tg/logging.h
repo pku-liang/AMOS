@@ -39,15 +39,15 @@ public:
       switch (log_level)
       {
       case LogLevel::tINFO:
-        std::cerr << "[Info] " << "[time=" << ms.count() << "] " << oss.str();
+        std::cerr << "[Info] " << "[time=" << ms.count() << "] " << oss.str() << std::flush;
         break;
       case LogLevel::tWARNING:
         std::cerr << "[Warning] " << "[time=" << ms.count() << "] file:"
-                  << file_ << " line:" << lineno_ << " " << oss.str();
+                  << file_ << " line:" << lineno_ << " " << oss.str() << std::flush;
         break;
       case LogLevel::tERROR:
         {std::cerr << "[Error] " << "[time=" << ms.count() << "] "
-                  << file_ << " line:" << lineno_ << " " << oss.str();
+                  << file_ << " line:" << lineno_ << " " << oss.str() << std::flush;
         abort();}
         break;
       default:
@@ -95,7 +95,7 @@ class print{
   template<typename T>
   print& operator<< (T&& x) {
     if (do_print) {
-      out << std::forward<T>(x);
+      out << std::forward<T>(x) << std::flush;
     }
     return *this;
   }
@@ -125,11 +125,11 @@ class ProgressBar {
         std::cerr << " ";
       }
     }
-    std::cerr << "]\r";
+    std::cerr << "]\r" << std::flush;
   }
 
   void end() {
-    std::cerr << "\n";
+    std::cerr << "\n" << std::flush;
   }
 };
 

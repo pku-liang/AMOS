@@ -106,17 +106,11 @@ void AutoScheduler::auto_schedule(
   // choose a seed
   bool use_seed = false;
   EvaluatedScheduleResult seed;
-  std::vector<ScheduleSkeleton> skeletons;
   for (int j = 0; j < num_candidates; ++j) {
     if (randdouble() < p[j]) {
       use_seed = true;
       seed = reverse_sort[j];
       break;
-    }
-  }
-  if (use_seed) {
-    for (auto se : seed->schedule_result->schedule_entities->entities) {
-      skeletons.push_back(se->schedule_skeleton);
     }
   }
 
@@ -127,7 +121,7 @@ void AutoScheduler::auto_schedule(
     for (int i = 0; i < context->new_trial; ++i) {
       MultiScheduleEntity new_one;
       if (use_seed) {
-        new_one = context->spaces.choose_one(skeletons);
+        new_one = context->spaces.choose_one(seed->schedule_result->schedule_entities);
       } else {
         // pure random
         new_one = context->spaces.choose_one();
@@ -209,6 +203,20 @@ ScheduleResult AutoScheduler::schedule_func(IntKey key, TIRGraph subgraph, Targe
   auto_schedule(subgraph, context, results);
   
   return results;
+}
+
+
+ScheduleResult AutoScheduler::schedule_with_entity(
+  IntKey key, TIRGraph subgraph, Target target, MultiScheduleEntity entity) {
+  if (contexts.find(key) == contexts.end()) {
+    contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
+  }
+
+  te::Schedule sch;
+  Array<te::Tensor> tensors;
+  std::tie(sch, tensors) = empty_schedule(subgraph);
+  interpret(sch, tensors, subgraph, target, entity);
+  return ScheduleResult(sch, tensors, entity);
 }
 
 

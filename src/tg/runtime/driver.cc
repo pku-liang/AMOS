@@ -201,7 +201,7 @@ std::string Session::get_func_name(IntKey key) {
 }
 
 
-void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advance_number) {
+void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advance_number, std::string reference) {
   // forward the compilation by multiple iterations
   int schedule_trials = advance_number;  // std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
   for (int ad = 0; ad < schedule_trials; ++ad) {
@@ -694,11 +694,11 @@ void Session::run_evaluate(
 
           // store function
           if (best_functions[key].empty()) {
-            best_functions[key].push(std::make_tuple(mod, func, gflops));
+            best_functions[key].push(std::make_tuple(schedule_result, mod, func, gflops));
           } else {
             auto best = best_functions[key].front();
-            if (gflops > std::get<2>(best)) {
-              best_functions[key].push(std::make_tuple(mod, func, gflops));
+            if (gflops > std::get<3>(best)) {
+              best_functions[key].push(std::make_tuple(schedule_result, mod, func, gflops));
               best_functions[key].pop();
             }
           }
@@ -787,7 +787,9 @@ void Session::run_evaluate(
 
 
 void Session::run_functions(
-  TIRMultiGraph multi_graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+  TIRMultiGraph multi_graph,
+  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
+  std::string save_to) {
 
   auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
 
@@ -919,8 +921,8 @@ void Session::run_functions(
       if (!succ && !this->best_functions[key].empty()) {
         auto mod_func = this->best_functions[key].front();
 
-        auto mod = std::get<0>(mod_func);
-        auto func = std::get<1>(mod_func);
+        auto mod = std::get<1>(mod_func);
+        auto func = std::get<2>(mod_func);
         ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
 
         (*call_unpack)(func, arrays);
@@ -965,6 +967,19 @@ void Session::run_functions(
 
   if (advance_number > 1)
     print(1, exe_log) << "Average time cost for each iteration: " << execution_time / (advance_number-1) << " ms.\n";
+  // save the functions
+  if (save_to != "") {
+    std::ofstream fout(save_to, std::ios::out);
+    for (auto& kv : best_functions) {
+      if (!kv.second.empty()) {
+        auto sch_mod_func_perf = kv.second.front();
+        std::string line = \
+          std::to_string(kv.first->value) + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string();
+        fout << line << "\n";
+      }
+    }
+    fout.close();
+  }
 
   // synchronize the stream for this run task
   runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
@@ -989,7 +1004,7 @@ int Session::add_task(TIRGraph graph) {
 }
 
 
-void Session::begin_tuning(int task_id, int advance_number) {
+void Session::begin_tuning(int task_id, int advance_number, std::string reference) {
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "No such task " << task_id << "\n";
   TIRMultiGraph multi_graph = task_cache[task_id];
 
@@ -1005,14 +1020,73 @@ void Session::begin_tuning(int task_id, int advance_number) {
   exe_log << "[time= " << current_time().count() << "] " << "New execution task.\n"
           << "######################################################################\n";
 
+  // load reference
+  // this will add additional schedule results
+  int additional_build = 0;
+  if (reference != "") {
+    std::ifstream fin(reference);
+    if (fin) {
+      additional_build += 1;
+      std::string line;
+      while (std::getline(fin, line)) {
+        std::vector<std::string> parts = string_split("|", line);
+        ASSERT(parts.size() >= 2U) << "Bad line: " << line << ".\n";
+        IntKey key(std::stoi(parts[0]));
+        MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
+        ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
+          key, multi_graph.Self()->graphs[key], target, entity);
+        // get future func
+        try {
+          std::string name = get_func_name(key);
+          std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > sch_func = \
+            function_builder->build_for(
+              schedule_result,
+              target,
+              Target::Create("llvm"),
+              name,
+              std::unordered_map<te::Tensor, tir::Buffer>(),
+              tvm::BuildConfig::Create()
+            );
+          // std::cout << "check " << future_functions[key].empty() << "\n";
+          // std::cout << "check key " << key->value << "\n";
+          future_functions[key].push(sch_func);
+          if (built_functions[key].empty()) {
+            // pass
+          }
+          if (best_functions[key].empty()) {
+            // pass
+          }
+        } catch (const std::exception& e) {
+          ERROR << e.what() << "\n";
+        }
+      }
+      fin.close();
+    } else {
+      ERROR << "Can't open schedule reference file " << reference << ".\n";
+    }
+  } else {
+    // touch all the keys
+    for (auto& kv : multi_graph->graphs) {
+      if (future_functions[kv.first].empty()) {
+        // pass
+      }
+      if (built_functions[kv.first].empty()) {
+        // pass
+      }
+      if (best_functions[kv.first].empty()) {
+        // pass
+      }
+    }
+  }
+
   /*
    * launch the run_autoschedule thread
    */
   if (this->sch_threads.find(task_id) == this->sch_threads.end()) {
     this->sch_threads[task_id] = std::thread(
-      [this](int id, TIRMultiGraph g, int b) {
-        run_autoschedule(id, g, b);
-      }, task_id, multi_graph, advance_number);
+      [this](int id, TIRMultiGraph g, int b, std::string r) {
+        run_autoschedule(id, g, b, r);
+      }, task_id, multi_graph, advance_number, reference);
   }
 
   /*
@@ -1022,7 +1096,7 @@ void Session::begin_tuning(int task_id, int advance_number) {
     this->build_threads[task_id] = std::thread(
       [this](int id, TIRMultiGraph g, int b) {
         run_build(id, g, b);
-      }, task_id, multi_graph, advance_number);
+      }, task_id, multi_graph, advance_number + additional_build);
   }
 
   /*
@@ -1032,7 +1106,7 @@ void Session::begin_tuning(int task_id, int advance_number) {
     this->evaluate_threads[task_id] = std::thread(
       [this](int id, TIRMultiGraph g, int b) {
         run_evaluate(id, g, b);
-      }, task_id, multi_graph, advance_number);
+      }, task_id, multi_graph, advance_number + additional_build);
   }
 
   in_tuning[task_id] = true;
@@ -1096,7 +1170,10 @@ void Session::end_tuning(int task_id) {
 // }
 
 
-void Session::run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+void Session::run(
+  int task_id,
+  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
+  std::string save_to) {
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "Can't find the task: " << task_id << ".\n";
   if (cached_all_functions.find(task_id) == cached_all_functions.end() || !cached_all_functions[task_id]) {
     if (in_tuning.find(task_id) == in_tuning.end() || !in_tuning[task_id]) {
@@ -1107,7 +1184,7 @@ void Session::run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::r
   print(1) << "Advancing " << advance_number << " iterations.\n";
 
   TIRMultiGraph multi_graph = task_cache[task_id];
-  run_functions(multi_graph, bindings);
+  run_functions(multi_graph, bindings, save_to);
 }
 
 
@@ -1188,10 +1265,11 @@ int add_task(int session_id, TIRGraph graph) {
 
 
 void run_task(
-  int session_id, int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings) {
+  int session_id, int task_id,
+  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to) {
   
   auto sess = get_session(session_id);
-  sess->run(task_id, bindings);
+  sess->run(task_id, bindings, save_to);
 }
 
 
@@ -1277,15 +1355,23 @@ TVM_REGISTER_GLOBAL("tg.get_context_from_session")
 
 
 TVM_REGISTER_GLOBAL("tg.begin_tuning")
-.set_body_typed([](int session_id, int task_id, int advance_number){
+.set_body_typed([](int session_id, int task_id, int advance_number, std::string reference){
   auto sess = get_session(session_id);
-  sess->begin_tuning(task_id, advance_number);
+  sess->begin_tuning(task_id, advance_number, reference);
 });
 
 
 TVM_REGISTER_GLOBAL("tg.end_tuning")
 .set_body_typed([](int session_id, int task_id){
   auto sess = get_session(session_id);
+  sess->end_tuning(task_id);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.test_schedule_reference")
+.set_body_typed([](int session_id, int task_id, std::string reference){
+  auto sess = get_session(session_id);
+  sess->begin_tuning(task_id, 0, reference);
   sess->end_tuning(task_id);
 });
 
@@ -1324,7 +1410,8 @@ TVM_REGISTER_GLOBAL("tg.add_task")
 
 TVM_REGISTER_GLOBAL("tg.run_task")
 .set_body_typed([](
-  int session_id, int task_id, Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings){
+  int session_id, int task_id,
+  Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to){
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > _bindings;
   for (auto mp : bindings) {
     std::unordered_map<te::Tensor, tvm::runtime::NDArray> tmp;
@@ -1333,7 +1420,7 @@ TVM_REGISTER_GLOBAL("tg.run_task")
     }
     _bindings.push_back(tmp);
   }
-  run_task(session_id, task_id, _bindings);
+  run_task(session_id, task_id, _bindings, save_to);
 });
 
 

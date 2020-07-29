@@ -126,7 +126,7 @@ class Session {
   std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
   std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > > > future_functions;
   std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult, tvm::runtime::Module, tvm::runtime::PackedFunc> > > built_functions;
-  std::unordered_map<IntKey, Queue<std::tuple<tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
+  std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult, tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
   Queue<IntKey> emergency_schedule_queue;
   Queue<IntKey> emergency_build_queue;
   std::unordered_map<int, bool> finish;
@@ -151,7 +151,7 @@ class Session {
   std::string get_func_name(IntKey key);
 
   void run_autoschedule(
-    int task_id, TIRMultiGraph multi_graph, int advance_number);
+    int task_id, TIRMultiGraph multi_graph, int advance_number, std::string reference="");
 
   void run_build(
     int task_id, TIRMultiGraph multi_graph, int advance_number);
@@ -161,13 +161,17 @@ class Session {
 
   void run_functions(
     TIRMultiGraph multi_graph,
-    std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+    std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
+    std::string save_to="saved_schedules.txt");
   
   int add_task(TIRGraph graph);
-  void begin_tuning(int task_id, int advance_number);
+  void begin_tuning(int task_id, int advance_number, std::string reference="");
   void end_tuning(int task_id);
   // int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
-  void run(int task_id, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
+  void run(
+    int task_id,
+    std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
+    std::string save_to="saved_schedules.txt");
 };
 
 

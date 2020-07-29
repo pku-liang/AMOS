@@ -170,6 +170,7 @@ class MergeSubSpace : public ScheduleSubSpace {
  public:
   MergeSubSpace(int levels);
   MergeEntity choose_one();
+  MergeEntity choose_one(MergeEntity hint);
   size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MergeSubSpace, ScheduleSubSpace, MergeSubSpaceNode);
@@ -255,6 +256,7 @@ class AllreduceSubSpace : public ScheduleSubSpace {
  public:
   AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_axis, int parts, int reduce_parts);
   AllreduceEntity choose_one();
+  AllreduceEntity choose_one(AllreduceEntity hint);
   size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AllreduceSubSpace, ScheduleSubSpace, AllreduceSubSpaceNode);
@@ -400,6 +402,7 @@ class TilingAndBindingSubSpace : public ScheduleSubSpace {
   TilingAndBindingSubSpace(Array<IterVar> axis, Array<IterVar> reduce_axis, int parts, int reduce_parts);
 
   TilingAndBindingEntity choose_one();
+  TilingAndBindingEntity choose_one(TilingAndBindingEntity hint);
 
   size_t size() final;
 
@@ -453,6 +456,7 @@ class BufferInputSubSpace : public ScheduleSubSpace {
  public:
   BufferInputSubSpace(Array<te::Tensor> tensors, int total, int want);
   BufferInputEntity choose_one();
+  BufferInputEntity choose_one(BufferInputEntity hint);
   size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferInputSubSpace, ScheduleSubSpace, BufferInputSubSpaceNode);
@@ -507,6 +511,7 @@ class UnrollSubSpace : public ScheduleSubSpace {
  public:
   UnrollSubSpace(int max_depth);
   UnrollEntity choose_one();
+  UnrollEntity choose_one(UnrollEntity hint);
   size_t size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(UnrollSubSpace, ScheduleSubSpace, UnrollSubSpaceNode);
@@ -579,6 +584,7 @@ class ScheduleSpace : public ObjectRef {
 
   ScheduleSkeleton choose_skeleton();
   ScheduleEntity choose_one(ScheduleSkeleton skeleton);
+  ScheduleEntity choose_one(ScheduleEntity hint);
 
   size_t size();
 
@@ -612,6 +618,9 @@ class MultiScheduleEntity : public Entity {
 };
 
 
+MultiScheduleEntity multi_schedule_entity_from_string(std::string s);
+
+
 class MultiScheduleSpaceNode : public Object {
  public:
   std::vector<ScheduleSpace> spaces;
@@ -627,6 +636,7 @@ class MultiScheduleSpace : public ObjectRef {
 
   MultiScheduleEntity choose_one();
   MultiScheduleEntity choose_one(std::vector<ScheduleSkeleton> skeletons);
+  MultiScheduleEntity choose_one(MultiScheduleEntity hint);
 
   size_t size();
 

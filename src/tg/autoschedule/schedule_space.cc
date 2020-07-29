@@ -360,6 +360,12 @@ MergeEntity MergeSubSpace::choose_one() {
 }
 
 
+MergeEntity MergeSubSpace::choose_one(MergeEntity hint) {
+  ChoiceEntity choice = (*this)->compute_at_positions.choose_one(hint->compute_at_position);
+  return MergeEntity(choice);
+}
+
+
 size_t MergeSubSpace::size() {
   return (*this)->compute_at_positions.size();
 }
@@ -570,6 +576,32 @@ AllreduceEntity AllreduceSubSpace::choose_one() {
   TilingEntity tiling = TilingEntity(
     (*this)->need_tile, split_factor_entities, (*this)->reduce_need_tile, reduce_split_factor_entities);
   ChoiceEntity use_factor = (*this)->use_factor.choose_one();
+  return AllreduceEntity(
+    (*this)->need_tile,
+    split_factor_entities,
+    (*this)->reduce_need_tile,
+    reduce_split_factor_entities,
+    (*this)->parallel_parent_axis_id,
+    use_factor
+  );
+}
+
+
+AllreduceEntity AllreduceSubSpace::choose_one(AllreduceEntity hint) {
+  std::vector<SplitFactorEntity> split_factor_entities, reduce_split_factor_entities;
+  int i = 0;
+  for (auto space : (*this)->split_factor_spaces) {
+    split_factor_entities.push_back(space.choose_one(hint->split_factor_entities[i]));
+    i += 1;
+  }
+  i = 0;
+  for (auto space : (*this)->reduce_split_factor_spaces) {
+    reduce_split_factor_entities.push_back(space.choose_one(hint->reduce_split_factor_entities[i]));
+    i += 1;
+  }
+  TilingEntity tiling = TilingEntity(
+    (*this)->need_tile, split_factor_entities, (*this)->reduce_need_tile, reduce_split_factor_entities);
+  ChoiceEntity use_factor = (*this)->use_factor.choose_one(hint->use_factor);
   return AllreduceEntity(
     (*this)->need_tile,
     split_factor_entities,
@@ -1046,6 +1078,24 @@ TilingAndBindingEntity TilingAndBindingSubSpace::choose_one() {
 }
 
 
+TilingAndBindingEntity TilingAndBindingSubSpace::choose_one(TilingAndBindingEntity hint) {
+  std::vector<SplitFactorEntity> split_factor_entities, reduce_split_factor_entities;
+  int i = 0;
+  for (auto space : (*this)->split_factor_spaces) {
+    split_factor_entities.push_back(space.choose_one(hint->tiling->split_factor_entities[i]));
+    i += 1;
+  }
+  i = 0;
+  for (auto space : (*this)->reduce_split_factor_spaces) {
+    reduce_split_factor_entities.push_back(space.choose_one(hint->tiling->reduce_split_factor_entities[i]));
+    i += 1;
+  }
+  TilingEntity tiling = TilingEntity(
+    (*this)->need_tile, split_factor_entities, (*this)->reduce_need_tile, reduce_split_factor_entities);
+  return TilingAndBindingEntity(tiling, (*this)->binding);
+}
+
+
 size_t TilingAndBindingSubSpace::size() {
   size_t ret = 1U;
   for (auto s : (*this)->split_factor_spaces) {
@@ -1154,6 +1204,23 @@ BufferInputEntity BufferInputSubSpace::choose_one() {
 }
 
 
+BufferInputEntity BufferInputSubSpace::choose_one(BufferInputEntity hint) {
+  std::vector<MultiChoiceEntity> choices;
+  int i = 0;
+  for (auto sp : (*this)->compute_at_position) {
+    choices.push_back(sp.choose_one(hint->compute_at_position[i]));
+    i += 1;
+  }
+  std::vector<ChoiceEntity> vectorize_choices;
+  i = 0;
+  for (auto uv : (*this)->use_vectorize) {
+    vectorize_choices.push_back(uv.choose_one(hint->use_vectorize[i]));
+    i += 1;
+  }
+  return BufferInputEntity(choices, vectorize_choices);
+}
+
+
 size_t BufferInputSubSpace::size() {
   size_t ret = 1U;
   for (auto s : (*this)->compute_at_position) {
@@ -1234,6 +1301,13 @@ UnrollSubSpace::UnrollSubSpace(int max_depth) {
 
 UnrollEntity UnrollSubSpace::choose_one() {
   ChoiceEntity choice = (*this)->choices.choose_one();
+  auto tmp = (*this)->choices_[choice->choice];
+  return UnrollEntity(choice, tmp.first, tmp.second);
+}
+
+
+UnrollEntity UnrollSubSpace::choose_one(UnrollEntity hint) {
+  ChoiceEntity choice = (*this)->choices.choose_one(hint->choice);
   auto tmp = (*this)->choices_[choice->choice];
   return UnrollEntity(choice, tmp.first, tmp.second);
 }
@@ -1394,6 +1468,24 @@ ScheduleEntity ScheduleSpace::choose_one(ScheduleSkeleton skeleton) {
 }
 
 
+ScheduleEntity ScheduleSpace::choose_one(ScheduleEntity hint) {
+  auto self = (*this);
+  MergeEntity merge = self->merge.choose_one(hint->merge);
+  AllreduceEntity allreduce = self->allreduce.choose_one(hint->allreduce);
+  TilingAndBindingEntity tiling_and_binding = self->tiling_and_binding.choose_one(hint->tiling_and_binding);
+  BufferInputEntity buffer_input = self->buffer_input.choose_one(hint->buffer_input);
+  UnrollEntity unroll = self->unroll.choose_one(hint->unroll);
+  return ScheduleEntity(
+          hint->schedule_skeleton,
+          merge,
+          allreduce,
+          tiling_and_binding,
+          buffer_input,
+          unroll
+        );
+}
+
+
 size_t ScheduleSpace::size() {
   auto self = (*this);
   return self->merge.size()
@@ -1472,6 +1564,17 @@ MultiScheduleEntity MultiScheduleSpace::choose_one(std::vector<ScheduleSkeleton>
   int i = 0;
   for (auto space : (*this)->spaces) {
     entities.push_back(space.choose_one(skeletons[i]));
+    i += 1;
+  }
+  return MultiScheduleEntity(entities);
+}
+
+
+MultiScheduleEntity MultiScheduleSpace::choose_one(MultiScheduleEntity hint) {
+  Array<ScheduleEntity> entities;
+  int i = 0;
+  for (auto space : (*this)->spaces) {
+    entities.push_back(space.choose_one(hint->entities[i]));
     i += 1;
   }
   return MultiScheduleEntity(entities);

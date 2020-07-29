@@ -178,7 +178,7 @@ def get_context_from_session(session_id):
 #   _ffi_api.disable_autoschedule(session_id)
 
 
-def begin_tuning(session_id, task_id, advance_number):
+def begin_tuning(session_id, task_id, advance_number, reference=""):
   """Start the tuning for one task in Session.
 
     Parameters
@@ -190,11 +190,13 @@ def begin_tuning(session_id, task_id, advance_number):
 
     advance_number : int
 
+    reference : str
+
     Returns
     -------
 
   """
-  _ffi_api.begin_tuning(session_id, task_id, advance_number)
+  _ffi_api.begin_tuning(session_id, task_id, advance_number, reference)
 
 
 def end_tuning(session_id, task_id):
@@ -214,19 +216,37 @@ def end_tuning(session_id, task_id):
   _ffi_api.end_tuning(session_id, task_id)
 
 
-def enable_autoschedule(session_id):
-  """Enable the autoschedule of Session.
+def test_schedule_reference(session_id, task_id, reference):
+  """Start the tuning for one task in Session.
 
     Parameters
     ----------
     session_id : int
         The id of this Session.
+    
+    task_id : int
+
+    reference : str
 
     Returns
     -------
-
   """
-  _ffi_api.enable_autoschedule(session_id)
+  _ffi_api.test_schedule_reference(session_id, task_id, reference)
+
+
+# def enable_autoschedule(session_id):
+#   """Enable the autoschedule of Session.
+
+#     Parameters
+#     ----------
+#     session_id : int
+#         The id of this Session.
+
+#     Returns
+#     -------
+
+#   """
+#   _ffi_api.enable_autoschedule(session_id)
 
 
 def initialize_weights(session_id, tir_graph, bindings):
@@ -293,7 +313,7 @@ def add_task(session_id, tir_graph):
 #   return _ffi_api.run_graph(session_id, tir_graph, bindings)
 
 
-def run_task(session_id, task_id, bindings):
+def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt"):
   """Run a task in the Session.
 
     Parameters
@@ -307,7 +327,9 @@ def run_task(session_id, task_id, bindings):
         The length is training iterations.
         Contains input data, labels, and learning rate.
 
+    save_to : str
+
     Returns
     -------
   """
-  _ffi_api.run_task(session_id, task_id, bindings)
+  _ffi_api.run_task(session_id, task_id, bindings, save_to)
