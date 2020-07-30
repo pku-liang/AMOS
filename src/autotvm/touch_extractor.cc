@@ -328,7 +328,7 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
                 FloatImm(DataType::Float(32), trans(v.reuse)),
                 FloatImm(DataType::Float(32), trans(v.thread_count)),
                 FloatImm(DataType::Float(32), trans(v.thread_reuse)),
-                v.loop_reuse
+                v.loop_reuse,  // IntImm(DataType::Int(32), v.loop_reuse),
                 });
     }
 
