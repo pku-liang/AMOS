@@ -285,6 +285,10 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
               1  // priority 1
             );
 
+            while (future_functions[key].size() > 200U) {
+              // wait consumers to drain the queue
+              usleep(200);
+            }
             future_functions[key].push(sch_func);
             this->emergency_build_queue.push(key);
           } catch (const std::exception& e) {
@@ -351,6 +355,10 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
             tvm::BuildConfig::Create()
           );
 
+          while (future_functions[cand].size() > 200U) {
+            // wait consumers to drain the queue
+            usleep(200);
+          }
           future_functions[cand].push(sch_func);
 
           // update delete_set
@@ -437,6 +445,10 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
             1  // priority 1
           );
 
+          while (future_functions[key].size() > 200U) {
+            // wait consumers to drain the queue
+            usleep(200);
+          }
           future_functions[key].push(sch_func);
           this->emergency_build_queue.push(key);
         } catch (const std::exception& e) {
@@ -506,6 +518,10 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
               tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
               print(4, build_log) << "Get emergency build for " << key->value << "!\n";
 
+              while (built_functions[key].size() > 200U) {
+                // wait consumers to drain the queue
+                usleep(200);
+              }
               built_functions[key].push(std::make_tuple(sch, mod, func));
             } catch (const std::exception &e) {
               print(2, build_log) << "Can't get build for emergency: " << e.what() << "\n";
@@ -549,6 +565,10 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(cand));
             print(4, build_log) << "Get build for " << cand->value << "!\n";
 
+            while (built_functions[cand].size() > 200U) {
+              // wait consumers to drain the queue
+              usleep(200);
+            }
             built_functions[cand].push(std::make_tuple(sch, mod, func));
 
             // update delete_set
@@ -619,6 +639,10 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
             print(4, build_log) << "Get emergency build for " << key->value << "!\n";
 
+            while (built_functions[key].size() > 200U) {
+              // wait consumers to drain the queue
+              usleep(200);
+            }
             built_functions[key].push(std::make_tuple(sch, mod, func));
           } catch (const std::exception &e) {
             print(2, build_log) << "Can't get build for emergency: " << e.what() << "\n";

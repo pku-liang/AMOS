@@ -107,6 +107,7 @@ class AutoScheduleContextNode : public Object {
         std::vector<EvaluatedScheduleResult>,
         std::greater<EvaluatedScheduleResult> > topk_schedules;
   std::unordered_set<MultiScheduleEntity, ObjectHash> known_schedules;
+  std::unordered_set<MultiScheduleEntity, ObjectHash> knowing_schedules;
   std::string policy;
 
   static constexpr const char* _type_key = "tg.autoschedule.AutoScheduleContext";

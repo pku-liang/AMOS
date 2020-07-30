@@ -131,10 +131,18 @@ void AutoScheduler::auto_schedule(
         if (context->known_schedules.find(new_one) == context->known_schedules.end()) {
           new_candidates.push_back(new_one);
         }
+        if (context->knowing_schedules.find(new_one) == context->knowing_schedules.end()) {
+          new_candidates.push_back(new_one);
+        }
       } else {
         new_candidates.push_back(new_one);
       }
-      context->known_schedules.insert(new_one);
+      context->knowing_schedules.insert(new_one);
+      if (context->knowing_schedules.size() > 500U) {
+        context->known_schedules.clear();
+        context->known_schedules = context->knowing_schedules;
+        context->knowing_schedules.clear();
+      }
     }
     must_new = false;  // the second round, just relaxed
   }
