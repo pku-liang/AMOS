@@ -824,56 +824,30 @@ void Session::run_evaluate(
 
 
 void Session::run_functions(
+  int task_id,
   TIRMultiGraph multi_graph,
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
-  std::string save_to) {
+  std::string save_to,
+  bool profile) {
+  ASSERT(static_call_order.find(task_id) != static_call_order.end()) << "Can't find task " << task_id
+      << "\nDid you forget to add task first?\n";
 
   auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
 
   int advance_number = (int)bindings.size();
   ProgressBar progress_bar;
 
-  auto beg = std::chrono::steady_clock::now();
+  std::vector<std::unordered_map<IntKey, std::vector<tvm::runtime::NDArray> > > ad_arrays;
+
   for (int ad = 0; ad < advance_number; ++ad) {
-    if (sess_option->report_iteration) {
-      exe_log << "Iteration: " << ad << "\n";
-    }
-    progress_bar.draw(((double)(ad + 1) / advance_number));
-    if (ad == advance_number - 1) {
-      progress_bar.end();
-    }
-    std::unordered_map<IntKey, int> call_order;
-    std::unordered_set<IntKey> free_set;
-    for (auto kv : multi_graph->graph_attrs) {
-      call_order[kv.first] = kv.second->num_predecessor;
-      if (kv.second->num_predecessor == 0) {
-        free_set.insert(kv.first);
-      }
-    }
-
-    /* the run helper
-     * handles one subgraph at a time
-     * fill the delete set and update set
-     */
-    std::function<void(
-      IntKey key,
-      std::unordered_set<IntKey>& update_set,
-      std::unordered_set<IntKey>& delete_set)> run_helper;
-    run_helper = [this, ad, &multi_graph, &call_order, &bindings, &call_unpack]
-      (IntKey key,
-      std::unordered_set<IntKey>& update_set,
-      std::unordered_set<IntKey>& delete_set) {
-
-      // the mark that indicates this subgraph is done
-      bool succ = false;
-
+    std::unordered_map<IntKey, std::vector<tvm::runtime::NDArray> > array_map;
+    for (auto key : static_call_order[task_id]) {
       TIRGraph subgraph = multi_graph.Self()->graphs[key];
-
       /* get the runtime array
-       * the order is the same as build
-       * TODO: handle the order by some other
-       * independent logic
-       */
+        * the order is the same as build
+        * TODO: handle the order by some other
+        * independent logic
+        */
       std::vector<tvm::runtime::NDArray> arrays;
       // get the inputs
       for (auto tt : subgraph->inputs) {
@@ -949,13 +923,43 @@ void Session::run_functions(
         }
         arrays.push_back(this->persistent_tensors[t]);
       }
-      
-      /* loop until this subgraph is handled
-       * or break if there is no way to execute this subgraph
-       * in such case, emit an error in emergency queue
-       * to tell the scheduler to re-schedule.
-       */  
-      if (!succ && !this->best_functions[key].empty()) {
+
+      array_map[key] = arrays;
+    }
+
+    ad_arrays.push_back(array_map);
+  }
+
+  std::priority_queue<double> time_queue;
+  for (int ad = 0; ad < advance_number; ++ad) {
+    if (sess_option->report_iteration) {
+      exe_log << "Iteration: " << ad << "\n";
+    }
+    progress_bar.draw(((double)(ad + 1) / advance_number));
+    if (ad == advance_number - 1) {
+      progress_bar.end();
+    }
+
+    /* the run helper
+     * handles one subgraph at a time
+     * fill the delete set and update set
+     */
+    std::function<bool(IntKey key)> run_helper;
+    run_helper = [&] (IntKey key) {
+
+      // the mark that indicates this subgraph is done
+      bool succ = false;
+
+      TIRGraph subgraph = multi_graph.Self()->graphs[key];
+
+      /* get the runtime array
+       * the order is the same as build
+       * TODO: handle the order by some other
+       * independent logic
+       */
+      std::vector<tvm::runtime::NDArray> arrays = ad_arrays[ad][key];
+
+      if (!this->best_functions[key].empty()) {
         auto mod_func = this->best_functions[key].front();
 
         auto mod = std::get<1>(mod_func);
@@ -968,42 +972,44 @@ void Session::run_functions(
         succ = true;
       }  // end try new function
 
-      if (succ) {
-        // update free set
-        delete_set.insert(key);
-        for (auto v : multi_graph.Self()->graph_attrs[key]->successors) {
-          call_order[v] -= 1;
-          if (call_order[v] == 0) {
-            update_set.insert(v);
-          }
-        }
-      }
+      return succ;
 
     };  // end run helper
+    
+    auto beg = std::chrono::steady_clock::now();
+    for (auto k : static_call_order[task_id]) {
+      while (!run_helper(k)) {
 
-    while (!free_set.empty()) {
-      std::unordered_set<IntKey> update_set, delete_set;
-
-      for (auto k : free_set) {
-        run_helper(k, update_set, delete_set);
-      }
-      for (auto k : delete_set) {
-        free_set.erase(k);
-      }
-      for (auto k : update_set) {
-        free_set.insert(k);
       }
     }
 
-    
-    if (ad == 0)  // skip the first iteration
-      beg = std::chrono::steady_clock::now();
+    if (profile) {
+      // synchronize the stream for this run task
+      runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+      auto end = std::chrono::steady_clock::now();
+      double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
+      time_queue.push(execution_time);
+      print(1, exe_log) << "time cost: " << execution_time << " ms.\n";
+    }
   }  // for ad
-  auto end = std::chrono::steady_clock::now();
-  double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
-
-  if (advance_number > 1)
-    print(1, exe_log) << "Average time cost for each iteration: " << execution_time / (advance_number-1) << " ms.\n";
+  
+  if (profile) {
+    double max_time = time_queue.top();
+    double median_time, min_time;
+    size_t total_num = time_queue.size();
+    for (size_t i = 0; i <= total_num / 2; ++i) {
+      median_time = time_queue.top();
+      min_time = median_time;
+      time_queue.pop();
+    }
+    while (time_queue.size() > 1) {
+      min_time = time_queue.top();
+      time_queue.pop();
+    }
+    print(1, exe_log) << "Time report: min=[" << min_time
+                      << " ms], med=[" << median_time
+                      << " ms], max=[" << max_time << " ms]\n";
+  }
   // save the functions
   if (save_to != "") {
     std::ofstream fout(save_to, std::ios::out);
@@ -1011,7 +1017,8 @@ void Session::run_functions(
       if (!kv.second.empty()) {
         auto sch_mod_func_perf = kv.second.front();
         std::string line = \
-          std::to_string(kv.first->value) + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string();
+          std::to_string(kv.first->value) + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() \
+          + "|" + std::to_string(std::get<3>(sch_mod_func_perf));
         fout << line << "\n";
       }
     }
@@ -1037,6 +1044,36 @@ int Session::add_task(TIRGraph graph) {
 
   int task_id = task_count++;
   task_cache[task_id] = multi_graph;
+
+  std::vector<IntKey> order;
+
+  std::unordered_map<IntKey, int> call_order;
+  std::unordered_set<IntKey> free_set;
+  for (auto kv : multi_graph->graph_attrs) {
+    call_order[kv.first] = kv.second->num_predecessor;
+    if (kv.second->num_predecessor == 0) {
+      free_set.insert(kv.first);
+    }
+  }
+
+  while (!free_set.empty()) {
+    std::unordered_set<IntKey> update_set;
+    for (auto k : free_set) {
+      order.push_back(k);
+      for (auto v : multi_graph.Self()->graph_attrs[k]->successors) {
+        call_order[v] -= 1;
+        if (call_order[v] == 0) {
+          update_set.insert(v);
+        }
+      }
+    }
+    free_set.clear();
+    for (auto k : update_set) {
+      free_set.insert(k);
+    }
+  }
+
+  static_call_order[task_id] = order;
   return task_id;
 }
 
@@ -1224,7 +1261,8 @@ void Session::end_tuning(int task_id) {
 void Session::run(
   int task_id,
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
-  std::string save_to) {
+  std::string save_to,
+  bool profile) {
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "Can't find the task: " << task_id << ".\n";
   if (cached_all_functions.find(task_id) == cached_all_functions.end() || !cached_all_functions[task_id]) {
     if (in_tuning.find(task_id) == in_tuning.end() || !in_tuning[task_id]) {
@@ -1236,7 +1274,7 @@ void Session::run(
   print(1) << "Advancing " << advance_number << " iterations.\n";
 
   TIRMultiGraph multi_graph = task_cache[task_id];
-  run_functions(multi_graph, bindings, save_to);
+  run_functions(task_id, multi_graph, bindings, save_to, profile);
 }
 
 
@@ -1318,10 +1356,10 @@ int add_task(int session_id, TIRGraph graph) {
 
 void run_task(
   int session_id, int task_id,
-  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to) {
+  std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to, bool profile) {
   
   auto sess = get_session(session_id);
-  sess->run(task_id, bindings, save_to);
+  sess->run(task_id, bindings, save_to, profile);
 }
 
 
@@ -1469,7 +1507,7 @@ TVM_REGISTER_GLOBAL("tg.add_task")
 TVM_REGISTER_GLOBAL("tg.run_task")
 .set_body_typed([](
   int session_id, int task_id,
-  Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to){
+  Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to, bool profile){
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > _bindings;
   for (auto mp : bindings) {
     std::unordered_map<te::Tensor, tvm::runtime::NDArray> tmp;
@@ -1478,7 +1516,7 @@ TVM_REGISTER_GLOBAL("tg.run_task")
     }
     _bindings.push_back(tmp);
   }
-  run_task(session_id, task_id, _bindings, save_to);
+  run_task(session_id, task_id, _bindings, save_to, profile);
 });
 
 

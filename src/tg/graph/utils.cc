@@ -117,43 +117,50 @@ void CountOperationNum::VisitExpr_(const CallNode *op) {
 
 void CountOperationNum::VisitExpr_(const AddNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_add += 1;
+  if (op->dtype.is_float())
+    this->num_add += 1;
 }
 
 
 void CountOperationNum::VisitExpr_(const SubNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_add += 1;
+  if (op->dtype.is_float())
+    this->num_add += 1;
 }
 
 
 void CountOperationNum::VisitExpr_(const MulNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_mul += 1;
+  if (op->dtype.is_float())
+    this->num_mul += 1;
 }
 
 
 void CountOperationNum::VisitExpr_(const DivNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_div += 1;
+  if (op->dtype.is_float())
+    this->num_div += 1;
 }
 
 
 void CountOperationNum::VisitExpr_(const ModNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_special += 1;
+  if (op->dtype.is_float())
+    this->num_special += 1;
 }
 
 
 void CountOperationNum::VisitExpr_(const FloorDivNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_div += 1;
+  if (op->dtype.is_float())
+    this->num_div += 1;
 }
 
 
 void CountOperationNum::VisitExpr_(const FloorModNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_special += 1;
+  if (op->dtype.is_float())
+    this->num_special += 1;
 }
 
 
@@ -195,7 +202,7 @@ void CountOperationNum::VisitExpr_(const SelectNode *op) {
 
 void CountOperationNum::VisitExpr_(const CastNode *op) {
   ExprVisitor::VisitExpr_(op);
-  this->num_special += 1;
+  // this->num_special += 1;
 }
 
 

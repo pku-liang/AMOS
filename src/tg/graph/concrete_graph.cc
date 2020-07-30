@@ -60,6 +60,27 @@ OpAttr::OpAttr(
 }
 
 
+double get_gflop(Operation op) {
+  const ComputeOpNode* as_compute = op.as<ComputeOpNode>();
+  if (as_compute == nullptr) {
+    return 0;
+  }
+  int total_num = 0;
+  for (auto b : as_compute->body) {
+    CountOperationNum con;
+    con.VisitExpr(b);
+    total_num += (con.num_add + con.num_mul + con.num_div + con.num_special);
+  }
+  for (auto sp : as_compute->axis) {
+    total_num *= get_const_int(sp->dom->extent);
+  }
+  for (auto re : as_compute->reduce_axis) {
+    total_num *= get_const_int(re->dom->extent);
+  }
+  return total_num / 1e9;
+}
+
+
 TIRGraph::TIRGraph(
   Array<Tensor> inputs,
   Array<Tensor> labels,
@@ -141,6 +162,7 @@ TIRGraph::TIRGraph(
 
   // get the operation key for each operation
   node->tag = "";
+  node->gflop = 0;
   Array<te::Tensor> tensors;
   for (auto t : inputs) {
     tensors.push_back(t);
@@ -181,14 +203,15 @@ TIRGraph::TIRGraph(
     node->operation_key_dict.Set(op, OperationKey(op));
     node->operation_stat_dict.Set(op, OpAttr(op, node->down_graph, node->root_ops));
     node->tag += op->tag + "$";
+    node->gflop += get_gflop(op);
   }
 
   data_ = std::move(node);
 }
 
 
-float get_gflop(TIRGraph subgraph) {
-  return 1;
+double get_gflop(TIRGraph subgraph) {
+  return subgraph->gflop;
 }
 
 

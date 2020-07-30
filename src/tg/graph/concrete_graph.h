@@ -88,6 +88,8 @@ class TIRGraphNode : public Object {
   Map<Operation, OpAttr> operation_stat_dict;
   std::string tag;
   Array<Tensor> tensors;
+
+  double gflop;
   
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("inputs", &inputs);
@@ -105,6 +107,7 @@ class TIRGraphNode : public Object {
     v->Visit("operation_stat_dict", &operation_stat_dict);
     v->Visit("tag", &tag);
     v->Visit("tensors", &tensors);
+    v->Visit("gflop", &gflop);
   }
 
   static constexpr const char* _type_key = "tg.concrete_graph";
@@ -133,7 +136,7 @@ class TIRGraph : public ObjectRef {
 };
 
 
-float get_gflop(TIRGraph subgraph);
+double get_gflop(TIRGraph subgraph);
 
 
 }  // namespace tg

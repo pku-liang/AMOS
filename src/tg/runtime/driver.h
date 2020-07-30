@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <chrono>
+#include <queue>
 
 #include <tvm/te/operation.h>
 #include <tvm/runtime/c_runtime_api.h>
@@ -121,12 +122,19 @@ class Session {
   std::unordered_map<int, std::thread> evaluate_threads;
 
   std::unordered_map<int, TIRMultiGraph> task_cache;
+  std::unordered_map<int, std::vector<IntKey> > static_call_order;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;
   std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
-  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > > > future_functions;
-  std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult, tvm::runtime::Module, tvm::runtime::PackedFunc> > > built_functions;
-  std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult, tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
+
+  std::unordered_map<IntKey, Queue<std::pair<ScheduleResult,
+    std::shared_future<tvm::runtime::Module> > > > future_functions;
+  
+  std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult,
+    tvm::runtime::Module, tvm::runtime::PackedFunc> > > built_functions;
+  
+  std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult,
+    tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
   Queue<IntKey> emergency_schedule_queue;
   Queue<IntKey> emergency_build_queue;
   std::unordered_map<int, bool> finish;
@@ -161,9 +169,11 @@ class Session {
     int task_id, TIRMultiGraph multi_graph, int advance_number);
 
   void run_functions(
+    int task_id,
     TIRMultiGraph multi_graph,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
-    std::string save_to="saved_schedules.txt");
+    std::string save_to="saved_schedules.txt",
+    bool profile=false);
   
   int add_task(TIRGraph graph);
   void begin_tuning(int task_id, int advance_number, std::string reference="");
@@ -173,7 +183,8 @@ class Session {
   void run(
     int task_id,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
-    std::string save_to="saved_schedules.txt");
+    std::string save_to="saved_schedules.txt",
+    bool profile=false);
 };
 
 
