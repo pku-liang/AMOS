@@ -236,8 +236,8 @@ void TouchExtractor::ExitMem_() {
  *   ('_access_type_', write, read),
  *   ('_attr_',     length, nest_level, topdown, bottomup, one_hot_annotation, serial_reuse),
  *   ('_arith_',    add_ct, mul_ct, div_ct),
- *   ('data_vec_0', stride, mod, bytes, reuse, thread_count, thread_reuse),
- *   ('conv_0',     stride, mod, bytes, reuse, thread_count, thread_reuse),
+ *   ('data_vec_0', stride, mod, bytes, unique_bytes, reuse, thread_count, thread_reuse),
+ *   ('conv_0',     stride, mod, bytes, unique_bytes, reuse, thread_count, thread_reuse),
  * ),
  * (
  *   ('_itervar_',    var2),
@@ -324,6 +324,7 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
           Array<PrimExpr>{k,
                 FloatImm(DataType::Float(32), trans(v.stride)),
                 FloatImm(DataType::Float(32), trans(v.mod)),
+                FloatImm(DataType::Float(32), trans(v.reuse * v.count * v.bytes)),
                 FloatImm(DataType::Float(32), trans(v.count * v.bytes)),
                 FloatImm(DataType::Float(32), trans(v.reuse)),
                 FloatImm(DataType::Float(32), trans(v.thread_count)),
@@ -408,6 +409,7 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_
       TouchPattern &v = fea.touch_feature[k];
       ret_feature->push_back(trans(v.stride));
       ret_feature->push_back(trans(v.mod));
+      ret_feature->push_back(trans(v.reuse * v.count * v.bytes));
       ret_feature->push_back(trans(v.count * v.bytes));
       ret_feature->push_back(trans(v.reuse));
       ret_feature->push_back(trans(v.thread_count));
