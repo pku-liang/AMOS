@@ -1,11 +1,13 @@
 #include "feature.h"
 #include "../../autotvm/touch_extractor.h"
+#include <tvm/runtime/registry.h>
 
 namespace tvm {
 
 
 namespace tg {
 
+TVM_REGISTER_NODE_TYPE(FeatureNode);
 
 Feature::Feature(/*Array<FloatImm>*/std::vector<float> features) {
   auto node = make_object<FeatureNode>();
@@ -52,7 +54,7 @@ Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target t
   return Feature(features);
 }
 
-
+TVM_REGISTER_GLOBAL("tg.get_feature").set_body_typed(get_feature);
 }  // namespace tg
 
 

@@ -16,6 +16,12 @@ class FeatureNode : public Object {
  public:
   /*Array<FloatImm>*/std::vector<float> features;
 
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    auto featuresNdarray = Array<FloatImm>();
+    for (auto v : features) featuresNdarray.push_back(FloatImm(DataType::Float(32), v));
+    v->Visit("features", &featuresNdarray);
+  }
+
   static constexpr const char* _type_key = "tg.autoschedule.Feature";
   TVM_DECLARE_FINAL_OBJECT_INFO(FeatureNode, Object);
 };
