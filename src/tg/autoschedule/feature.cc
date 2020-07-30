@@ -49,7 +49,7 @@ Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target t
   Array<ObjectRef> out_arg_list;
 
   auto stmt = ana_lower(sch, tensors, binds, &out_arg_list, config);
-  autotvm::GetItervarFeatureFlatten(stmt, true, &features);
+  autotvm::GetItervarFeatureFlatten(stmt, false, &features);
   
   return Feature(features);
 }
