@@ -148,6 +148,7 @@ class Session {
   // }
   void initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
+  Array<tvm::runtime::NDArray> get_data(Array<te::Tensor> keys);
   std::string get_func_name(IntKey key);
 
   void run_autoschedule(

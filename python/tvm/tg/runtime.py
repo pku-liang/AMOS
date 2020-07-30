@@ -147,7 +147,7 @@ def delete_session(session_id):
 
 
 def get_context_from_session(session_id):
-  """Creates a TensorGraph Session.
+  """Get tvm context from a Session.
 
     Parameters
     ----------
@@ -161,6 +161,24 @@ def get_context_from_session(session_id):
 
   """
   return _ffi_api.get_context_from_session(session_id)
+
+
+def get_data_from_session(session_id, keys):
+  """Get data from a Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The id of this Session.
+
+    keys : list of tvm.tensor.Tensor
+
+    Returns
+    -------
+    list of tvm.ndarray
+
+  """
+  return _ffi_api.get_data_from_session(session_id, keys)
 
 
 # def disable_autoschedule(session_id):

@@ -196,6 +196,21 @@ void Session::allocate_output_buffer(TIRMultiGraph multi_graph) {
 }
 
 
+Array<tvm::runtime::NDArray> Session::get_data(Array<te::Tensor> keys) {
+  Array<tvm::runtime::NDArray> ret;
+  for (auto k : keys) {
+    if (persistent_tensors.find(k) != persistent_tensors.end()) {
+      ret.push_back(persistent_tensors[k]);
+    } else if (volatile_tensors.find(k) != volatile_tensors.end()) {
+      ret.push_back(volatile_tensors[k]);
+    } else {
+      ERROR << "Can't find the array for tensor " << k << ".\n";
+    }
+  }
+  return ret;
+}
+
+
 std::string Session::get_func_name(IntKey key) {
   return "subgraph_" + std::to_string(key->value);
 }
@@ -1352,6 +1367,13 @@ TVM_REGISTER_GLOBAL("tg.get_context_from_session")
 .set_body_typed([](int session_id){
   auto sess = get_session(session_id);
   return sess->ctx;
+});
+
+
+TVM_REGISTER_GLOBAL("tg.get_data_from_session")
+.set_body_typed([](int session_id, Array<te::Tensor> keys){
+  auto sess = get_session(session_id);
+  return sess->get_data(keys);
 });
 
 
