@@ -144,3 +144,13 @@ def string_to_schedule_entity(string):
   ScheduleEntity
   """
   return _ffi_api.schedule_entity_from_string(string)
+
+
+def get_feature(schedule, tensors, target):
+  """
+  Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target)
+  """
+  features = _ffi_api.get_feature(schedule, tensors, target)
+  features = [v.value for v in features.features]
+  return features
+  
