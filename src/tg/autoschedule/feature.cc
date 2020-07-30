@@ -54,8 +54,22 @@ Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target t
   return Feature(features);
 }
 
-TVM_REGISTER_GLOBAL("tg.get_feature").set_body_typed(get_feature);
-}  // namespace tg
+Array<Array<Array<PrimExpr> > > 
+get_feature_structured(te::Schedule sch, const Array<te::Tensor>& tensors, Target target) {
+  Array<Array<Array<PrimExpr> > > features;
 
+  std::unordered_map<te::Tensor, tir::Buffer> binds;
+  BuildConfig config = BuildConfig::Create();
+  Array<ObjectRef> out_arg_list;
+
+  auto stmt = ana_lower(sch, tensors, binds, &out_arg_list, config);
+  autotvm::GetItervarFeature(stmt, true, &features);
+
+  return features;
+}
+
+TVM_REGISTER_GLOBAL("tg.get_feature").set_body_typed(get_feature);
+TVM_REGISTER_GLOBAL("tg.get_feature_structured").set_body_typed(get_feature_structured);
+}  // namespace tg
 
 }  // namespace tvm

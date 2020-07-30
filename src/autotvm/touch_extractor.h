@@ -157,6 +157,7 @@ class TouchExtractor : public FeatureVisitor {
  */
 void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_feature);
 
+void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >* ret_feature);
 }  // namespace autotvm
 }  // namespace tvm
 
