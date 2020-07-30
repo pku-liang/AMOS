@@ -56,6 +56,7 @@ struct TouchPattern {
   int64_t thread_reuse{0};  // reuse ratio move thread axis into innermost
 
   bool loop_reuse{false};
+  int access_type{0};
 };
 
 // all the feature of an iter var
@@ -87,7 +88,6 @@ struct ItervarFeature {
   // Memory Touch Feature
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
 
-  int access_type{0};
   std::unordered_map<Var, Array<PrimExpr>, tvm::ObjectHash, tvm::ObjectEqual> pattern_set;
   bool serial_reuse{false};
 };

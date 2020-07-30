@@ -170,7 +170,7 @@ def get_feature(schedule, tensors, target, flatten=True):
         'kBlockX', 'kBlockY', 'kBlockZ', 'kThreadX', 'kThreadY', 'kThreadZ',
         'kUnrolled', 'kVectorized', 'kParallel', 'kSerial', 'kVirtualThread',
       ]
-      TOUCH_PATTERN_DEF = ('stride', 'mod', 'bytes', 'reuse', 'thread_count', 'thread_reuse', 'loop_reuse')
+      TOUCH_PATTERN_DEF = ('stride', 'mod', 'bytes', 'unique_bytes', 'reuse', 'thread_count', 'thread_reuse', 'loop_reuse', 'write', 'read')
       FEATURE_DEF = defaultdict(lambda: TOUCH_PATTERN_DEF)
       FEATURE_DEF.update({
         '_itervar_': ('name',),
@@ -194,7 +194,7 @@ def get_feature(schedule, tensors, target, flatten=True):
         y2 = weak_round(1 - pow(2, -x))
         return y1 if y1 >= 0 else y2
 
-      SHOULD_UNLOG = defaultdict(lambda:('stride', 'mod', 'bytes', 'reuse', 'thread_count', 'thread_reuse'))
+      SHOULD_UNLOG = defaultdict(lambda:('stride', 'mod', 'bytes', 'unique_bytes', 'reuse', 'thread_count', 'thread_reuse'))
       SHOULD_UNLOG.update({
         '_itervar_': (),
         '_access_type_': (),
