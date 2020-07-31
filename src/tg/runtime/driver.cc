@@ -356,12 +356,12 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
             tvm::BuildConfig::Create()
           );
 
-          while (future_functions[cand].size() > 1000U) {
+          if (future_functions[cand].size() > 1000U) {
             // wait consumers to drain the queue
             print(4, autoschedule_log) << "Blocking...\n";
-            usleep(200);
+          } else {
+            future_functions[cand].push(sch_func);
           }
-          future_functions[cand].push(sch_func);
 
           // update delete_set
           delete_set.insert(cand);
@@ -567,12 +567,12 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(cand));
             print(4, build_log) << "Get build for " << cand->value << "!\n";
 
-            while (built_functions[cand].size() > 1000U) {
+            if (built_functions[cand].size() > 1000U) {
               // wait consumers to drain the queue
               print(4, build_log) << "Blocking...\n";
-              usleep(200);
+            } else {
+              built_functions[cand].push(std::make_tuple(sch, mod, func));
             }
-            built_functions[cand].push(std::make_tuple(sch, mod, func));
 
             // update delete_set
             delete_set.insert(cand);
