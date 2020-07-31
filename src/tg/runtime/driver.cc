@@ -285,7 +285,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
               1  // priority 1
             );
 
-            // while (future_functions[key].size() > 200U) {
+            // while (future_functions[key].size() > 1000U) {
             //   // wait consumers to drain the queue
             //   print(4, autoschedule_log) << "Blocking....\n";
             //   usleep(200);
@@ -356,7 +356,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
             tvm::BuildConfig::Create()
           );
 
-          while (future_functions[cand].size() > 200U) {
+          while (future_functions[cand].size() > 1000U) {
             // wait consumers to drain the queue
             print(4, autoschedule_log) << "Blocking...\n";
             usleep(200);
@@ -447,7 +447,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
             1  // priority 1
           );
 
-          // while (future_functions[key].size() > 200U) {
+          // while (future_functions[key].size() > 1000U) {
           //   // wait consumers to drain the queue
           //   usleep(200);
           // }
@@ -520,7 +520,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
               tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
               print(4, build_log) << "Get emergency build for " << key->value << "!\n";
 
-              // while (built_functions[key].size() > 200U) {
+              // while (built_functions[key].size() > 1000U) {
               //   // wait consumers to drain the queue
               //   usleep(200);
               // }
@@ -567,7 +567,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(cand));
             print(4, build_log) << "Get build for " << cand->value << "!\n";
 
-            while (built_functions[cand].size() > 200U) {
+            while (built_functions[cand].size() > 1000U) {
               // wait consumers to drain the queue
               print(4, build_log) << "Blocking...\n";
               usleep(200);
@@ -642,7 +642,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
             print(4, build_log) << "Get emergency build for " << key->value << "!\n";
 
-            // while (built_functions[key].size() > 200U) {
+            // while (built_functions[key].size() > 1000U) {
             //   // wait consumers to drain the queue
             //   usleep(200);
             // }

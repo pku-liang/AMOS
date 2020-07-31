@@ -106,11 +106,13 @@ void AutoScheduler::auto_schedule(
   // choose a seed
   bool use_seed = false;
   EvaluatedScheduleResult seed;
-  for (int j = 0; j < num_candidates; ++j) {
-    if (randdouble() < p[j]) {
-      use_seed = true;
-      seed = reverse_sort[j];
-      break;
+  if (randdouble() < 0.5) {
+    for (int j = 0; j < num_candidates; ++j) {
+      if (randdouble() < p[j]) {
+        use_seed = true;
+        seed = reverse_sort[j];
+        break;
+      }
     }
   }
 
@@ -138,7 +140,7 @@ void AutoScheduler::auto_schedule(
         new_candidates.push_back(new_one);
       }
       context->knowing_schedules.insert(new_one);
-      if (context->knowing_schedules.size() > 500U) {
+      if (context->knowing_schedules.size() > 2000U) {
         context->known_schedules.clear();
         context->known_schedules = context->knowing_schedules;
         context->knowing_schedules.clear();
