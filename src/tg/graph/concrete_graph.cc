@@ -65,12 +65,16 @@ double get_gflop(Operation op) {
   if (as_compute == nullptr) {
     return 0;
   }
-  int total_num = 0;
+  double total_num = 0;
   for (auto b : as_compute->body) {
     CountOperationNum con;
     con.VisitExpr(b);
     total_num += (con.num_add + con.num_mul + con.num_div + con.num_special);
   }
+  if (total_num == 0) {
+    total_num = 1;
+  }
+
   for (auto sp : as_compute->axis) {
     total_num *= get_const_int(sp->dom->extent);
   }
