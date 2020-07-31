@@ -731,10 +731,14 @@ void Session::run_evaluate(
 
           // store function
           if (best_functions[key].empty()) {
+            print(4, evaluate_log) << "set best function for " << key->value << ": " << gflops << " GFLOPS.\n";
             best_functions[key].push(std::make_tuple(schedule_result, mod, func, gflops));
           } else {
             auto best = best_functions[key].front();
             if (gflops > std::get<3>(best)) {
+              print(4, evaluate_log) << "replace best function for "
+                                     << key->value << ": " << gflops << " GFLOPS."
+                                     << "(original " << std::get<3>(best) << " GFLOPS)\n";
               best_functions[key].push(std::make_tuple(schedule_result, mod, func, gflops));
               best_functions[key].pop();
             }
@@ -1104,7 +1108,7 @@ void Session::prepare_for_test(int task_id, std::string reference) {
       auto func = module->GetFunction(name);
 
       built_functions[key].push(std::make_tuple(schedule_result, module, func));
-      best_functions[key].push(std::make_tuple(schedule_result, module, func, 0.0));
+      best_functions[key].push(std::make_tuple(schedule_result, module, func, -999));
 
       TIRGraph subgraph = multi_graph.Self()->graphs[key];
       if (cache.find(subgraph->tag) == cache.end()) {
