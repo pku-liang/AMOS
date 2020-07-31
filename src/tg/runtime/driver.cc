@@ -258,7 +258,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
 
         // then, check emergency queue
         if (!this->emergency_schedule_queue.empty()) {
-          auto& key = this->emergency_schedule_queue.front();
+          IntKey key = this->emergency_schedule_queue.front();
 
           // the following are repeated
           // TODO: isolate the logic
@@ -418,7 +418,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
     lock.unlock();
     if (!peek_finish) {
       if (!this->emergency_schedule_queue.empty()) {
-        auto& key = this->emergency_schedule_queue.front();
+        IntKey key = this->emergency_schedule_queue.front();
 
         // the following are repeated
         // TODO: isolate the logic
@@ -500,7 +500,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
 
         // then, check emergency queue
         if (!this->emergency_build_queue.empty()) {
-          auto& key = this->emergency_build_queue.front();
+          IntKey key = this->emergency_build_queue.front();
 
           // the following are repeated
           // TODO: isolate the logic
@@ -621,7 +621,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
     lock.unlock();
     if (!peek_finish) {
       if (!this->emergency_build_queue.empty()) {
-        auto& key = this->emergency_build_queue.front();
+        IntKey key = this->emergency_build_queue.front();
 
         // the following are repeated
         // TODO: isolate the logic
@@ -979,7 +979,6 @@ void Session::run_functions(
     auto beg = std::chrono::steady_clock::now();
     for (auto k : static_call_order[task_id]) {
       while (!run_helper(k)) {
-
       }
     }
 
