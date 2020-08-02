@@ -24,4 +24,4 @@ print(f"Flattened features: {features}")
 
 features = tg.auto_schedule.get_feature(sch, [A, B, C], target, flatten=False)
 print(f"Structured features: ")
-pprint_dict(features)
+print(features)
