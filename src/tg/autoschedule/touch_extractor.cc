@@ -38,32 +38,32 @@ class IndexParser: public ExprVisitor {
   void VisitExpr_(const VarNode* op) final {
     // TODO(lmzheng): handle more index types (multiple occurrence)
     if (pattern_map.count(op) == 0) {
-      pattern_map[op] = BufferAccessFeature();
-      /* pattern_map[op].stride = next_stride_;
-      next_stride_ = 1.; */
+      pattern_map[op] = next_stride_;
+      next_stride_ = 1.;
     }
   }
 
   void VisitExpr_(const MulNode* op) final {
-    /* if (op->a.as<VarNode>()) {
+    if (op->a.as<VarNode>()) {
       if (const auto stride = op->b.as<IntImmNode>()) {
         next_stride_ = stride->value;
       } else if (const auto stride = op->b.as<FloatImmNode>()) {
         next_stride_ = stride->value;
       }
-    } */
+    }
     ExprVisitor::VisitExpr_(op);
   }
 
-  std::unordered_map<const VarNode*, BufferAccessFeature> pattern_map;
+  std::unordered_map<const VarNode*, int64_t> pattern_map;
 
  private:
-  // float next_stride_ = 1.;
+  float next_stride_ = 1.;
 };
 
 
-bool TouchExtractor::EnterItervar_(Var var) {
+bool TouchExtractor::EnterItervar_(Var var, int64_t length) {
   itervar_stack_.push_back(var);
+  extent[var] = length;
   return true;
 }
 
@@ -101,16 +101,29 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   auto& reuse_type = feature[buf].reuse_type;
 
   bool loop_reuse_tag = false;
+  int64_t bytes = buffer_var.get()->dtype.bytes();
+  int64_t unique_bytes = buffer_var.get()->dtype.bytes();
+  int64_t reuse_counter = 1;
+  int64_t &stride = feature[buf].stride;
   for (auto var : itervar_stack_) {
     auto x = parser.pattern_map.find(var.get());
+
+    auto length = extent[var];
+    bytes *= length;
     if (x != parser.pattern_map.end()) {
-      // feature[buf].update(x->second);
+      unique_bytes *= length;
+      if (stride == 0) {
+        stride = x->second;
+      }
     } else {
-      feature[buf] = BufferAccessFeature();
       loop_reuse_tag = true;
+      reuse_counter *= length;
     }
     if (loop_reuse_tag) reuse_type = ReuseType(reuse_type | ReuseType::kLoopMultipleRead);
   }
+  feature[buf].bytes += bytes;
+  feature[buf].unique_bytes += unique_bytes;
+  feature[buf].reuse_counter += reuse_counter;
 
   bool serial_reuse_tag = false;
   auto& appearances = buffervar_stmt_map[buffer_var];

@@ -79,7 +79,7 @@ class TouchExtractor : public FeatureVisitor {
 
 
  private:
-  bool EnterItervar_(Var var);
+  bool EnterItervar_(Var var, int64_t length);
   void ExitItervar_();
   void EnterInnermostStmt_(const ProvideNode &innermost_stmt);
   void ExitInnermostStmt_();
@@ -91,6 +91,7 @@ class TouchExtractor : public FeatureVisitor {
   const ProvideNode *current_stmt {nullptr};
   AccessType current_buffer_access_type {AccessType::kNone};
   std::deque<Var> itervar_stack_;
+  std::unordered_map<Var, int64_t, tvm::ObjectHash, tvm::ObjectEqual> extent;
   size_t innermost_stmt_counter_{0};
 
   using FeatureVisitor::VisitExpr_;

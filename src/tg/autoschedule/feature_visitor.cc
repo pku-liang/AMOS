@@ -11,11 +11,12 @@ namespace tg {
 
 // for loop
 void FeatureVisitor::VisitStmt_(const ForNode* op) {
-  /* 
+
   const auto *extent = op->extent.as<IntImmNode>();
   int64_t loop_extent = -1;
   if (extent != nullptr)
     loop_extent = extent->value;
+/*
   AnnotationType ann = kSerial;
   switch (op->for_type) {
     case ForType ::Parallel:
@@ -33,7 +34,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
   }
   */
 
-  if (EnterItervar_(op->loop_var)) {
+  if (EnterItervar_(op->loop_var, loop_extent)) {
     StmtExprVisitor::VisitStmt_(op);
     ExitItervar_();
   }
@@ -68,7 +69,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
       ann = kVirtualThread;
     }
 
-    if (EnterItervar_(var)) {
+    if (EnterItervar_(var, extent->value)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
     }
