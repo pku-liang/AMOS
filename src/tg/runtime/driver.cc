@@ -226,6 +226,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
   // int first_stage_number = std::ceil(advance_number * 0.5);
   int second_stage_topk = std::ceil((int)(multi_graph->graphs.size()) * second_stage_topk_ratio);
   for (int ad = 0; ad < schedule_trials; ++ad) {
+    print(1, autoschedule_log) << "Schedule iteration " << ad << "\n";
     // initialize cache
     std::unordered_set<std::string> scheduled;
     // initialize call order
@@ -235,6 +236,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
         || (cached_all_functions.find(task_id) == cached_all_functions.end())
         || (!cached_all_functions[task_id])
         || (randdouble() < 0.5);
+    print(1, autoschedule_log) << "In first stage " << in_first_stage << "\n";
     if (in_first_stage) {
       for (auto kv : multi_graph->graph_attrs) {
         // print(4, autoschedule_log) << "check for " << kv.first->value << ": " << kv.second->num_predecessor << "\n";
