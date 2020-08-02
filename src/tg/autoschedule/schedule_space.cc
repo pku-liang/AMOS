@@ -593,7 +593,6 @@ AllreduceEntity AllreduceSubSpace::choose_one(AllreduceEntity hint) {
   bool the_same = true;
 
   while (the_same) {
-    std::cout << "allreduce\n" << std::flush;
     split_factor_entities.clear();
     reduce_split_factor_entities.clear();
 
@@ -1110,7 +1109,6 @@ TilingAndBindingEntity TilingAndBindingSubSpace::choose_one(TilingAndBindingEnti
   std::vector<SplitFactorEntity> split_factor_entities, reduce_split_factor_entities;
   bool the_same = true;
   while (the_same) {
-    std::cout << "tiling and binding\n" << std::flush;
     split_factor_entities.clear();
     reduce_split_factor_entities.clear();
 
@@ -1260,7 +1258,6 @@ BufferInputEntity BufferInputSubSpace::choose_one(BufferInputEntity hint) {
   std::vector<ChoiceEntity> vectorize_choices;
   bool the_same = true;
   while (the_same) {
-    std::cout << "buffer input\n" << std::flush;
     choices.clear();
     vectorize_choices.clear();
 
@@ -1546,7 +1543,6 @@ ScheduleSkeleton ScheduleSpace::choose_one_skeleton(ScheduleSkeleton hint) {
   ScheduleSkeleton ret = (*this)->skeletons[choice];
   int count = 0;
   while (ret == hint) {
-    std::cout << "skeleton\n" << hint.to_string() << std::flush;
     choice = randint(0, num_skeletons);
     ret = (*this)->skeletons[choice];
     count += 1;
@@ -1569,7 +1565,6 @@ ScheduleEntity ScheduleSpace::choose_one(ScheduleEntity hint) {
 
   bool the_same = true;
   while (the_same) {
-    std::cout << "schedule\n" << std::flush;
     if (randdouble() < 0.5) {
       skeleton = choose_one_skeleton(hint->schedule_skeleton);
       the_same = false;
@@ -1717,7 +1712,6 @@ MultiScheduleEntity MultiScheduleSpace::choose_one(MultiScheduleEntity hint) {
   std::vector<ScheduleEntity> entities;
   bool the_same = true;
   while (the_same) {
-    std::cout << "multi schedule\n" << std::flush;
     entities.clear();
 
     int i = 0;
