@@ -139,9 +139,10 @@ TIRGraph::TIRGraph(
     }
   }
 
-  if ((int)updates.size() > 0) {
-    CHECK(updates.size() == weights.size()) << "Expect update operations match weights.";
-  }
+  // if ((int)updates.size() > 0) {
+  //   CHECK(updates.size() == weights.size()) << "Expect update operations match weights "
+  //                                           << updates.size() << " vs. " << weights.size();
+  // }
 
   // get serialize all operation list
   // and feed graph, tensor to its consumer operations

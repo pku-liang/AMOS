@@ -10,6 +10,7 @@
 #include <tvm/runtime/c_runtime_api.h>
 #include <tvm/runtime/device_api.h>
 
+#include "utils.h"
 #include "../graph/concrete_graph.h"
 #include "../graph/subgraph.h"
 #include "../autoschedule/auto_schedule.h"
@@ -134,7 +135,7 @@ class Session {
     tvm::runtime::Module, tvm::runtime::PackedFunc> > > built_functions;
   
   std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult,
-    tvm::runtime::Module, tvm::runtime::PackedFunc, double> > > best_functions;
+    tvm::runtime::Module, tvm::runtime::PackedFunc, double, double> > > best_functions;
   Queue<IntKey> emergency_schedule_queue;
   Queue<IntKey> emergency_build_queue;
   std::unordered_map<int, bool> finish;
@@ -160,7 +161,8 @@ class Session {
   std::string get_func_name(IntKey key);
 
   void run_autoschedule(
-    int task_id, TIRMultiGraph multi_graph, int advance_number, std::string reference="");
+    int task_id, TIRMultiGraph multi_graph, int advance_number,
+    std::string reference="", int first_stage_number=100000, double second_stage_topk_ratio=0.1);
 
   void run_build(
     int task_id, TIRMultiGraph multi_graph, int advance_number);
@@ -173,10 +175,11 @@ class Session {
     TIRMultiGraph multi_graph,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
     std::string save_to="saved_schedules.txt",
-    bool profile=false);
+    int profile_level=0);
   
   int add_task(TIRGraph graph);
-  void begin_tuning(int task_id, int advance_number, std::string reference="");
+  void begin_tuning(int task_id, int advance_number, std::string reference="",
+    int first_stage_number=100000, double second_stage_topk_ratio=0.1);
   void end_tuning(int task_id);
   void prepare_for_test(int task_id, std::string reference);
   // int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);
@@ -184,7 +187,7 @@ class Session {
     int task_id,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
     std::string save_to="saved_schedules.txt",
-    bool profile=false);
+    int profile_level=0);
 };
 
 

@@ -584,6 +584,7 @@ class ScheduleSpace : public ObjectRef {
 
   ScheduleSkeleton choose_skeleton();
   ScheduleEntity choose_one(ScheduleSkeleton skeleton);
+  ScheduleSkeleton choose_one_skeleton(ScheduleSkeleton hint);
   ScheduleEntity choose_one(ScheduleEntity hint);
 
   size_t size();

@@ -139,12 +139,12 @@ void AutoScheduler::auto_schedule(
       } else {
         new_candidates.push_back(new_one);
       }
-      context->knowing_schedules.insert(new_one);
-      if (context->knowing_schedules.size() > 2000U) {
-        context->known_schedules.clear();
-        context->known_schedules = context->knowing_schedules;
-        context->knowing_schedules.clear();
-      }
+      // context->knowing_schedules.insert(new_one);
+      // if (context->knowing_schedules.size() > 2000U) {
+      //   context->known_schedules.clear();
+      //   context->known_schedules = context->knowing_schedules;
+      //   context->knowing_schedules.clear();
+      // }
     }
     must_new = false;  // the second round, just relaxed
   }
@@ -199,6 +199,13 @@ void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double ev
       self->topk_schedules.pop();
       self->topk_schedules.push(evaluated);
     }
+  }
+
+  self->knowing_schedules.insert(schedule_result->schedule_entities);
+  if (self->knowing_schedules.size() > 2000U) {
+    self->known_schedules.clear();
+    self->known_schedules = self->knowing_schedules;
+    self->knowing_schedules.clear();
   }
 }
 

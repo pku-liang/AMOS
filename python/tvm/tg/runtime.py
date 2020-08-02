@@ -196,7 +196,7 @@ def get_data_from_session(session_id, keys):
 #   _ffi_api.disable_autoschedule(session_id)
 
 
-def begin_tuning(session_id, task_id, advance_number, reference=""):
+def begin_tuning(session_id, task_id, advance_number, reference="", first_stage_number=100000, second_stage_topk_ratio=0.1):
   """Start the tuning for one task in Session.
 
     Parameters
@@ -210,11 +210,15 @@ def begin_tuning(session_id, task_id, advance_number, reference=""):
 
     reference : str
 
+    first_stage_number : int
+
+    second_stage_topk_ratio : float
+
     Returns
     -------
 
   """
-  _ffi_api.begin_tuning(session_id, task_id, advance_number, reference)
+  _ffi_api.begin_tuning(session_id, task_id, advance_number, reference, first_stage_number, second_stage_topk_ratio)
 
 
 def end_tuning(session_id, task_id):
@@ -331,7 +335,7 @@ def add_task(session_id, tir_graph):
 #   return _ffi_api.run_graph(session_id, tir_graph, bindings)
 
 
-def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profile=False):
+def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profile_level=0):
   """Run a task in the Session.
 
     Parameters
@@ -347,9 +351,9 @@ def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profi
 
     save_to : str
 
-    profile : bool
+    profile_level : int
 
     Returns
     -------
   """
-  _ffi_api.run_task(session_id, task_id, bindings, save_to, profile)
+  _ffi_api.run_task(session_id, task_id, bindings, save_to, profile_level)
