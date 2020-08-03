@@ -287,7 +287,7 @@ void generate_schedule_skeletons(
     false,
     {}
   );
-  gen.generate_schedule_skeletons_merge(op, target, can_compute_at, is_output, init, to_store);
+  gen.generate_schedule_skeletons_merge(op, target, is_output, can_compute_at, init, to_store);
 }
 
 /************** merge *************/

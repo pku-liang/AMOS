@@ -729,13 +729,13 @@ void Session::run_evaluate(
     // initialize cache
     std::unordered_map<std::string, IntKey> evaluate_cache;
 
-    std::unordered_map<IntKey, int> evaluate_order;
+    // std::unordered_map<IntKey, int> evaluate_order;
     std::unordered_set<IntKey> free_set;
     for (auto kv : multi_graph->graph_attrs) {
-      evaluate_order[kv.first] = kv.second->num_predecessor;
-      if (kv.second->num_predecessor == 0) {
-        free_set.insert(kv.first);
-      }
+      // evaluate_order[kv.first] = kv.second->num_predecessor;
+      // if (kv.second->num_predecessor == 0) {
+      free_set.insert(kv.first);
+      // }
     }
 
     /* the evaluate helper
@@ -746,7 +746,7 @@ void Session::run_evaluate(
       IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set)> evaluate_helper;
-    evaluate_helper = [this, &multi_graph, &evaluate_cache, &evaluate_order, &evaluate_performance]
+    evaluate_helper = [&]
       (IntKey key,
       std::unordered_set<IntKey>& update_set,
       std::unordered_set<IntKey>& delete_set) {
@@ -844,13 +844,13 @@ void Session::run_evaluate(
 
       if (succ) {
         // update free set
-        delete_set.insert(key);
-        for (auto v : multi_graph.Self()->graph_attrs[key]->successors) {
-          evaluate_order[v] -= 1;
-          if (evaluate_order[v] == 0) {
-            update_set.insert(v);
-          }
-        }
+        // delete_set.insert(key);
+        // for (auto v : multi_graph.Self()->graph_attrs[key]->successors) {
+        //   evaluate_order[v] -= 1;
+        //   if (evaluate_order[v] == 0) {
+        //     update_set.insert(v);
+        //   }
+        // }
       }
 
     };  // end evaluate helper
@@ -869,12 +869,13 @@ void Session::run_evaluate(
       for (auto k : free_set) {
         evaluate_helper(k, update_set, delete_set);
       }
-      for (auto k : delete_set) {
-        free_set.erase(k);
-      }
-      for (auto k : update_set) {
-        free_set.insert(k);
-      }
+      // for (auto k : delete_set) {
+      //   free_set.erase(k);
+      // }
+      // for (auto k : update_set) {
+      //   free_set.insert(k);
+      // }
+      free_set.clear();
     }  // while (!free_set.empty())
     cached_all_functions[task_id] = true;
   }  // while (true)
