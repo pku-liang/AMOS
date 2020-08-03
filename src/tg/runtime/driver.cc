@@ -236,6 +236,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
         || (cached_all_functions.find(task_id) == cached_all_functions.end())
         || (!cached_all_functions[task_id])
         || (randdouble() < 0.1);
+
     print(1, autoschedule_log) << "In first stage " << in_first_stage << "\n";
     if (in_first_stage) {
       for (auto kv : multi_graph->graph_attrs) {
@@ -437,12 +438,15 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
     // make sure that every subgraph is handled
     // double check
     // this can be removed when the runtime is mature
-    if (schedule_count != num_subgraphs) {
-      throw std::runtime_error(
-        "Schedule graph number mismatch "
-        + std::to_string(schedule_count)
-        + " vs. " + std::to_string(num_subgraphs));
-    }
+    // if (in_first_stage) {
+    //   if (schedule_count != num_subgraphs) {
+    //     throw std::runtime_error(
+    //       "Schedule graph number mismatch "
+    //       + std::to_string(schedule_count)
+    //       + " vs. " + std::to_string(num_subgraphs));
+    //   }
+    // }
+    print(2, autoschedule_log) << "Schedule " << schedule_count << " subgraphs out of " << num_subgraphs << "\n";
 
     // print(4) << "before auto_scheduler reset...\n";
     // auto_scheduler->reset();
@@ -504,26 +508,34 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
 
 void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_number) {
   // forward the compilation by multiple iterations
-  int build_trials = advance_number;  // std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
-  for (int ad = 0; ad < build_trials; ++ad) {
+  // int build_trials = advance_number;  // std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
+  while (true) {
+    // see if not done
+    bool peek_finish = false;
+    std::unique_lock<std::mutex> lock(this->finish_mutex);
+    peek_finish = this->finish[task_id];
+    lock.unlock();
+    if (peek_finish)
+      return;
+
     // initialize cache
     std::unordered_set<std::string> built;
     // initialize call order
-    std::unordered_map<IntKey, int> build_order;
+    // std::unordered_map<IntKey, int> build_order;
     std::unordered_set<IntKey> free_set;
     for (auto kv : multi_graph->graph_attrs) {
-      build_order[kv.first] = kv.second->num_predecessor;
-      if (kv.second->num_predecessor == 0) {
-        free_set.insert(kv.first);
-      }
+      // build_order[kv.first] = kv.second->num_predecessor;
+      // if (kv.second->num_predecessor == 0) {
+      free_set.insert(kv.first);
+      // }
     }
 
     // build for subgraphs
     int build_count = 0;
     int num_subgraphs = (int)multi_graph->graphs.size();
     while (!free_set.empty()) {
-      std::unordered_set<IntKey> update_set;
-      std::unordered_set<IntKey> delete_set;
+      // std::unordered_set<IntKey> update_set;
+      // std::unordered_set<IntKey> delete_set;
 
       for (auto cand : free_set) {
         // first, check if there is need to add a new schedule
@@ -533,7 +545,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
         peek_finish = this->finish[task_id];
         lock.unlock();
         if (peek_finish) {
-          // execution done, no need to schedule
+          // execution done, no need to build
           return;
         }
 
@@ -573,17 +585,17 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
         if (built.find(subgraph->tag) != built.end()) {
           print(4, build_log) << "Find repeated function " << subgraph->tag << ".\n";
           // update delete_set
-          delete_set.insert(cand);
+          // delete_set.insert(cand);
 
           // this check can be removed when the runtime is mature
           ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
             << "Can't find subgraph " << cand->value << "'s attributes.";
-          for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
-            build_order[succ] -= 1;
-            if (build_order[succ] == 0) {
-              update_set.insert(succ);
-            }
-          }
+          // for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
+          //   build_order[succ] -= 1;
+          //   if (build_order[succ] == 0) {
+          //     update_set.insert(succ);
+          //   }
+          // }
           build_count += 1;
           continue;
         }
@@ -612,87 +624,89 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             }
 
             // update delete_set
-            delete_set.insert(cand);
+            // delete_set.insert(cand);
 
             // this check can be removed when the runtime is mature
             ASSERT(multi_graph.Self()->graph_attrs.find(cand) != multi_graph.Self()->graph_attrs.end())
               << "Can't find subgraph " << cand->value << "'s attributes.";
-            for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
-              build_order[succ] -= 1;
-              if (build_order[succ] == 0) {
-                update_set.insert(succ);
-              }
-            }
+            // for (auto succ : multi_graph.Self()->graph_attrs[cand]->successors) {
+            //   build_order[succ] -= 1;
+            //   if (build_order[succ] == 0) {
+            //     update_set.insert(succ);
+            //   }
+            // }
             build_count += 1;
             built.insert(subgraph->tag);
           } catch (const std::exception &e) {
             print(2, build_log) << "Can't get build for: " << e.what() << "\n";
           }
-        }
+        }  // if (!future_functions[cand].empty())
 
       }  // for cand
 
-      for (auto deleted : delete_set) {
-        free_set.erase(deleted);
-      }
-      for (auto new_cand : update_set) {
-        free_set.insert(new_cand);
-      }
+      // for (auto deleted : delete_set) {
+      //   free_set.erase(deleted);
+      // }
+      free_set.clear();
+      // for (auto new_cand : update_set) {
+      //   free_set.insert(new_cand);
+      // }
     }  // end while (!free_set.empty())
     
     // make sure that every subgraph is handled
     // double check
     // this can be removed when the runtime is mature
-    if (build_count != num_subgraphs) {
-      throw std::runtime_error(
-        "Build graph number mismatch "
-        + std::to_string(build_count)
-        + " vs. " + std::to_string(num_subgraphs));
-    }
+    // if (build_count != num_subgraphs) {
+    //   throw std::runtime_error(
+    //     "Build graph number mismatch "
+    //     + std::to_string(build_count)
+    //     + " vs. " + std::to_string(num_subgraphs));
+    // }
+    print(2, build_log) << "Build " << build_count << " subgraphs out of " << num_subgraphs << " subgraphs\n";
 
-  }  // for ad
+  }  // while true
 
   // wait until finished
-  while (1) {
-    // see if not done
-    bool peek_finish = false;
-    std::unique_lock<std::mutex> lock(this->finish_mutex);
-    peek_finish = this->finish[task_id];
-    lock.unlock();
-    if (!peek_finish) {
-      if (!this->emergency_build_queue.empty()) {
-        IntKey key = this->emergency_build_queue.front();
+  // while (1) {
+  //   // see if not done
+  //   bool peek_finish = false;
+  //   std::unique_lock<std::mutex> lock(this->finish_mutex);
+  //   peek_finish = this->finish[task_id];
+  //   lock.unlock();
+  //   if (!peek_finish) {
+  //     if (!this->emergency_build_queue.empty()) {
+  //       IntKey key = this->emergency_build_queue.front();
 
-        // the following are repeated
-        // TODO: isolate the logic
-        // handle emergency
-        // get future schedule
-        if (!future_functions[key].empty()) {
-          auto sch_and_mod = future_functions[key].front();
-          ScheduleResult sch = sch_and_mod.first;
-          auto future_mod = sch_and_mod.second;
+  //       // the following are repeated
+  //       // TODO: isolate the logic
+  //       // handle emergency
+  //       // get future schedule
+  //       if (!future_functions[key].empty()) {
+  //         auto sch_and_mod = future_functions[key].front();
+  //         ScheduleResult sch = sch_and_mod.first;
+  //         auto future_mod = sch_and_mod.second;
 
-          try {
-            print(4, build_log) << "Waiting for emergency build for " << key->value << "...\n";
-            tvm::runtime::Module mod = future_mod.get();
-            this->emergency_build_queue.pop();
-            tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
-            print(4, build_log) << "Get emergency build for " << key->value << "!\n";
+  //         try {
+  //           print(4, build_log) << "Waiting for emergency build for " << key->value << "...\n";
+  //           tvm::runtime::Module mod = future_mod.get();
+  //           this->emergency_build_queue.pop();
+  //           tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
+  //           print(4, build_log) << "Get emergency build for " << key->value << "!\n";
 
-            // while (built_functions[key].size() > 1000U) {
-            //   // wait consumers to drain the queue
-            //   usleep(200);
-            // }
-            built_functions[key].push(std::make_tuple(sch, mod, func));
-          } catch (const std::exception &e) {
-            print(2, build_log) << "Can't get build for emergency: " << e.what() << "\n";
-          }
-        }
-      }  // if (!this->emergency_build_queue.empty())
-    } else {
-      break;
-    }
-  }  // while 1
+  //           // while (built_functions[key].size() > 1000U) {
+  //           //   // wait consumers to drain the queue
+  //           //   usleep(200);
+  //           // }
+  //           built_functions[key].push(std::make_tuple(sch, mod, func));
+  //         } catch (const std::exception &e) {
+  //           print(2, build_log) << "Can't get build for emergency: " << e.what() << "\n";
+  //         }
+  //       }
+  //     }  // if (!this->emergency_build_queue.empty())
+  //   } else {
+  //     break;
+  //   }
+  // }  // while 1
 }
 
 
