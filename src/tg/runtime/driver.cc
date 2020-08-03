@@ -235,7 +235,7 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
     bool in_first_stage = (ad < first_stage_number)
         || (cached_all_functions.find(task_id) == cached_all_functions.end())
         || (!cached_all_functions[task_id])
-        || (randdouble() < 0.5);
+        || (randdouble() < 0.1);
     print(1, autoschedule_log) << "In first stage " << in_first_stage << "\n";
     if (in_first_stage) {
       for (auto kv : multi_graph->graph_attrs) {
