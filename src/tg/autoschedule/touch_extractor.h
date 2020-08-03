@@ -68,38 +68,46 @@ struct InnermostStatementFeature {
 // extract iter vars and their touch pattern from ir
 class TouchExtractor : public FeatureVisitor {
  public:
-  void Analyze(const Stmt& stmt) {
+  void Analyze(const Stmt& stmt, const Map<te::Tensor, tir::Buffer> &out_binds) {
+    this->out_binds_ = &out_binds;
+    for (auto &bind: out_binds) {
+      auto &&buf = bind.second.as<BufferNode>();
+      this->buffer_scopes_.insert({buf->data, buf->scope});
+    }
     operator()(stmt);
   }
 
   // error: no match for call to ‘(const std::hash<tvm::tir::ProvideNode>) (const tvm::tir::ProvideNode&)
-  std::unordered_map<const ProvideNode*, InnermostStatementFeature> innermost_stmt_map;
+
+  std::unordered_map<const StoreNode*, InnermostStatementFeature> innermost_stmt_map;
   // TvmMap<const ProvideNode*, InnermostStatementFeature> innermost_stmt_map;
-  TvmMap<Var, std::unordered_set<const ProvideNode*> > buffervar_stmt_map;
+  TvmMap<Var, std::unordered_set<const StoreNode*> > buffervar_stmt_map;
 
 
  private:
   bool EnterItervar_(Var var, int64_t length);
   void ExitItervar_();
-  void EnterInnermostStmt_(const ProvideNode &innermost_stmt);
+  void EnterInnermostStmt_(const StoreNode &innermost_stmt);
   void ExitInnermostStmt_();
   void EnterMem_(Var buffer_var, PrimExpr index, AccessType access_type);
   void ExitMem_();
 
-  void VisitStmt_(const ProvideNode* op);
+  void VisitStmt_(const StoreNode* op) final;
 
-  const ProvideNode *current_stmt {nullptr};
+  const StoreNode *current_stmt {nullptr};
   AccessType current_buffer_access_type {AccessType::kNone};
   std::deque<Var> itervar_stack_;
   std::unordered_map<Var, int64_t, tvm::ObjectHash, tvm::ObjectEqual> extent;
   size_t innermost_stmt_counter_{0};
+  const Map<te::Tensor, tir::Buffer> *out_binds_;
+  TvmMap<tir::Var, std::string> buffer_scopes_;
 
   using FeatureVisitor::VisitExpr_;
 };
 
-void GetInnerStatementFeatureFlatten(Stmt stmt, bool take_log, Array<FloatImm> *ret_feature);
+void GetInnerStatementFeatureFlatten(Stmt stmt, bool take_log, Array<FloatImm> *ret_feature, Map<te::Tensor, tir::Buffer> &out_binds);
 
-void GetInnerStatementFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > > *ret_feature);
+void GetInnerStatementFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > > *ret_feature, Map<te::Tensor, tir::Buffer> &out_binds);
 }  // namespace tg
 }  // namespace tvm
 

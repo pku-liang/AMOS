@@ -1,6 +1,7 @@
 #include "feature.h"
 #include "touch_extractor.h"
 #include <tvm/runtime/registry.h>
+#include <tvm/relay/transform.h>
 
 namespace tvm {
 namespace tg {
@@ -24,6 +25,7 @@ StructuredFeature::StructuredFeature(Array<Array<Array<PrimExpr>>> features) {
 te::Stmt ana_lower(te::Schedule sch,
                     const Array<te::Tensor>& args,
                     const std::unordered_map<te::Tensor, tir::Buffer>& binds,
+                    Map<te::Tensor, tir::Buffer> &out_binds,
                     Array<ObjectRef> *out_arg_list,
                     const BuildConfig& config) {
   
@@ -35,12 +37,11 @@ te::Stmt ana_lower(te::Schedule sch,
   stmt = tir::InjectPrefetch(stmt);
 
   bool compact = tir::VerifyCompactBuffer(stmt);
-  Map<te::Tensor, tir::Buffer> out_binds;
+  // Map<te::Tensor, tir::Buffer> out_binds;
   tvm::GetBinds(args, compact, binds, &out_binds, out_arg_list, config);
 
   // Phase 1
-  stmt = tir::StorageFlatten(stmt, out_binds, 64,
-                            config->instrument_bound_checkers);
+  stmt = tir::StorageFlatten(stmt, out_binds, 64, config->instrument_bound_checkers);
   stmt = tir::CanonicalSimplify(stmt);
 
   return stmt;
@@ -50,11 +51,12 @@ Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target t
   Array<FloatImm> features;
   
   std::unordered_map<te::Tensor, tir::Buffer> binds;
+  Map<te::Tensor, tir::Buffer> out_binds;
   BuildConfig config = BuildConfig::Create();
   Array<ObjectRef> out_arg_list;
 
-  auto stmt = ana_lower(sch, tensors, binds, &out_arg_list, config);
-  GetInnerStatementFeatureFlatten(stmt, true, &features);
+  auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list, config);
+  GetInnerStatementFeatureFlatten(stmt, true, &features, out_binds);
 
   return Feature(features);
 }
@@ -63,12 +65,13 @@ StructuredFeature get_structured_feature(te::Schedule sch, const Array<te::Tenso
   Array<Array<Array<PrimExpr>>> features;
 
   std::unordered_map<te::Tensor, tir::Buffer> binds;
+  Map<te::Tensor, tir::Buffer> out_binds;
   BuildConfig config = BuildConfig::Create();
   Array<ObjectRef> out_arg_list;
 
-  auto stmt = ana_lower(sch, tensors, binds, &out_arg_list, config);
+  auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list, config);
 
-  GetInnerStatementFeature(stmt, true, &features);
+  GetInnerStatementFeature(stmt, true, &features, out_binds);
 
   return StructuredFeature(features);
 }

@@ -23,7 +23,7 @@ class FeatureNode : public Object {
   TVM_DECLARE_FINAL_OBJECT_INFO(FeatureNode, Object);
 };
 
-class Feature : public ObjectRef {  // returned by GetInnerStatementFeatureFlatten
+class Feature : public ObjectRef {
  public:
   Feature(Array<FloatImm> features);
 
@@ -55,7 +55,7 @@ class StructuredFeatureNode : public Object {
   TVM_DECLARE_FINAL_OBJECT_INFO(StructuredFeatureNode, Object);
 };
 
-class StructuredFeature : public ObjectRef {  // returned by GetInnerStatementFeature
+class StructuredFeature : public ObjectRef {
  public:
   StructuredFeature(Array<Array<Array<PrimExpr>>> features);
 

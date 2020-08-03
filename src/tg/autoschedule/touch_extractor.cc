@@ -74,12 +74,10 @@ void TouchExtractor::ExitItervar_() {
 }
 
 
-void TouchExtractor::EnterInnermostStmt_(const ProvideNode &innermost_stmt) { 
+void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) { 
   this->current_stmt = &innermost_stmt;
   // TODO: extract statement-level features (~buffer access features)
-  innermost_stmt_map[&innermost_stmt] = InnermostStatementFeature(
-    this->innermost_stmt_counter_++
-  );
+  innermost_stmt_map[&innermost_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
 }
 
 
@@ -88,7 +86,7 @@ void TouchExtractor::ExitInnermostStmt_() { this->current_stmt = nullptr; }
 
 void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access_type) {
   TouchedBuffer buf = buffer_var.get()->name_hint;
-  auto &feature = innermost_stmt_map[current_stmt].buffer_access_feature;
+  auto& feature = innermost_stmt_map[current_stmt].buffer_access_feature;
 
   IndexParser parser;
   parser.Parse(index);
@@ -125,10 +123,9 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   feature[buf].unique_bytes += unique_bytes;
   feature[buf].reuse_counter += reuse_counter;
 
-  bool serial_reuse_tag = false;
   auto& appearances = buffervar_stmt_map[buffer_var];
-  serial_reuse_tag |= appearances.size() > 1;
-  serial_reuse_tag |= appearances.size() == 1 && !appearances.count(current_stmt);
+  appearances.insert({this->current_stmt});
+  bool serial_reuse_tag = appearances.size() > 1;
   if (serial_reuse_tag) reuse_type = ReuseType(reuse_type | ReuseType::kSerialMultipleRead);
 
   // TODO: implement other features
@@ -138,25 +135,30 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 void TouchExtractor::ExitMem_() { this->current_buffer_access_type = AccessType::kNone; }
 
 
-void TouchExtractor::VisitStmt_(const ProvideNode* op) {
+void TouchExtractor::VisitStmt_(const StoreNode* op) {
   EnterInnermostStmt_(*op);
+  EnterMem_(op->buffer_var, op->index, AccessType::kWrite);
   StmtExprVisitor::VisitStmt_(op);
+  ExitMem_();
   ExitInnermostStmt_();
 }
 
 
-void GetInnerStatementFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > > *ret_feature) {
+void GetInnerStatementFeature(
+  Stmt stmt, bool take_log, 
+  Array<Array<Array<PrimExpr> > > *ret_feature, 
+  Map<te::Tensor, tir::Buffer> &out_binds) {
   // extract
   TouchExtractor touch_analyzer;
-  touch_analyzer.Analyze(stmt);
+  touch_analyzer.Analyze(stmt, out_binds);
 
   // sort according to order
-  std::vector<const ProvideNode *> innermost_stmts;
+  std::vector<const StoreNode*> innermost_stmts;
   for (auto kv : touch_analyzer.innermost_stmt_map) {
     innermost_stmts.push_back(kv.first);
   }
   std::sort(innermost_stmts.begin(), innermost_stmts.end(),
-            [&](const ProvideNode *lhs, const ProvideNode *rhs) -> bool {
+            [&](const StoreNode *lhs, const StoreNode *rhs) -> bool {
               return touch_analyzer.innermost_stmt_map[lhs].order <
                      touch_analyzer.innermost_stmt_map[rhs].order;
             });
@@ -212,18 +214,22 @@ void GetInnerStatementFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimEx
 }
 
 
-void GetInnerStatementFeatureFlatten(Stmt stmt, bool take_log, Array<FloatImm> *ret_feature) {
+// TODO: remove duplicated code
+void GetInnerStatementFeatureFlatten(
+  Stmt stmt, bool take_log, 
+  Array<FloatImm> *ret_feature, 
+  Map<te::Tensor, tir::Buffer> &out_binds) {
   // extract touch feature
   TouchExtractor touch_analyzer;
-  touch_analyzer.Analyze(stmt);
+  touch_analyzer.Analyze(stmt, out_binds);
 
   // sort according to order
-  std::vector<const ProvideNode *> innermost_stmts;
+  std::vector<const StoreNode *> innermost_stmts;
   for (auto kv : touch_analyzer.innermost_stmt_map) {
     innermost_stmts.push_back(kv.first);
   }
   std::sort(innermost_stmts.begin(), innermost_stmts.end(),
-            [&](const ProvideNode *lhs, const ProvideNode *rhs) -> bool {
+            [&](const StoreNode *lhs, const StoreNode *rhs) -> bool {
               return touch_analyzer.innermost_stmt_map[lhs].order <
                      touch_analyzer.innermost_stmt_map[rhs].order;
             });
@@ -274,9 +280,10 @@ TVM_REGISTER_GLOBAL("tg.GetInnerStatementFeature")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   Stmt stmt = args[0];
   bool take_log = args[1];
+  Map<te::Tensor, tir::Buffer> out_binds = args[2];
   Array<Array<Array<PrimExpr> > > ret_feature;
 
-  GetInnerStatementFeature(stmt, take_log, &ret_feature);
+  GetInnerStatementFeature(stmt, take_log, &ret_feature, out_binds);
 
   *ret = ret_feature;
 });
@@ -286,9 +293,10 @@ TVM_REGISTER_GLOBAL("tg.GetInnerStatementFeatureFlatten")
 .set_body([](TVMArgs args, TVMRetValue *ret) {
   Stmt stmt = args[0];
   bool take_log = args[1];
+  Map<te::Tensor, tir::Buffer> out_binds = args[2];
   Array<FloatImm> ret_feature;
 
-  GetInnerStatementFeatureFlatten(stmt, take_log, &ret_feature);
+  GetInnerStatementFeatureFlatten(stmt, take_log, &ret_feature, out_binds);
 
   // TODO: cast ret_feature into a byte array
   /* TVMByteArray arr;
