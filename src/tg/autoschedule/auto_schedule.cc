@@ -103,24 +103,25 @@ void AutoScheduler::auto_schedule(
       calculate_possibility(
         e->evaluation, reverse_sort[num_candidates - 1]->evaluation, 0.7 * num_candidates / context->topk));
   }
-  // choose a seed
-  bool use_seed = false;
-  EvaluatedScheduleResult seed;
-  if (randdouble() < 0.5) {
-    for (int j = 0; j < num_candidates; ++j) {
-      if (randdouble() < p[j]) {
-        use_seed = true;
-        seed = reverse_sort[j];
-        break;
-      }
-    }
-  }
 
   // prepare new candidates
   std::vector<MultiScheduleEntity> new_candidates;
   bool must_new = true;
   while (new_candidates.size() == 0U) {
     for (int i = 0; i < context->new_trial; ++i) {
+      // choose a seed
+      bool use_seed = false;
+      EvaluatedScheduleResult seed;
+      if (randdouble() < 0.5) {
+        for (int j = num_candidates; j > 0; --j) {
+          if (randdouble() < p[j-1]) {
+            use_seed = true;
+            seed = reverse_sort[j-1];
+            break;
+          }
+        }
+      }
+      // choose new one
       MultiScheduleEntity new_one;
       if (use_seed) {
         new_one = context->spaces.choose_one(seed->schedule_result->schedule_entities);
@@ -188,21 +189,23 @@ void AutoScheduler::auto_schedule(
 
 
 void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double evaluation) {
-  EvaluatedScheduleResult evaluated = EvaluatedScheduleResult(schedule_result, evaluation);
   auto self = (*this);
-  if ((int)self->topk_schedules.size() < self->topk) {
-    self->topk_schedules.push(evaluated);
-  } else {
-    if (evaluated < self->topk_schedules.top()) {
-      return;
-    } else {
-      self->topk_schedules.pop();
+  if (evaluation > 0.0) {
+    EvaluatedScheduleResult evaluated = EvaluatedScheduleResult(schedule_result, evaluation);
+    if ((int)self->topk_schedules.size() < self->topk) {
       self->topk_schedules.push(evaluated);
+    } else {
+      if (evaluated < self->topk_schedules.top()) {
+        return;
+      } else {
+        self->topk_schedules.pop();
+        self->topk_schedules.push(evaluated);
+      }
     }
   }
 
   self->knowing_schedules.insert(schedule_result->schedule_entities);
-  if (self->knowing_schedules.size() > 2000U) {
+  if (self->knowing_schedules.size() > 500U) {
     self->known_schedules.clear();
     self->known_schedules = self->knowing_schedules;
     self->knowing_schedules.clear();
