@@ -1,28 +1,11 @@
-import tvm
-import tvm.te as te
-import tvm.tg as tg
+from pathlib import Path; import sys
+sys.path.append(Path(__file__).parent)
 
-import numpy as np
+from .test_feature_common import *
 
+A, B, C = get_vector_add(512)
 
-def pprint_dict(d):
-  import json
-  print(json.dumps(d, indent=2, sort_keys=False))
-
-
-n = 512
-m = 512
-A = te.placeholder((n, m), name='A')
-B = te.placeholder((n, m), name='B')
-C = te.compute((n, m), lambda i, j: A[i, j] + B[i, j], name='C')
-
-sch = te.create_schedule(C.op)
-target = tvm.target.create("llvm")
-
-features = tg.auto_schedule.get_feature(sch, [A, B, C], target, flatten=True)
-features = np.array(features)
+features, structured_features = get_feature([A, B], [C])
 print(f"Flattened features: {features}")
-
-features = tg.auto_schedule.get_feature(sch, [A, B, C], target, flatten=False)
 print(f"Structured features: ")
-pprint_dict(features)
+pprint_dict(structured_features)
