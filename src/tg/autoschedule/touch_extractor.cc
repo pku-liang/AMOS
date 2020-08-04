@@ -113,6 +113,8 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
       unique_bytes *= length;
       if (stride == 0) {
         stride = x->second;
+      } else {
+        stride = std::min(stride, x->second);
       }
     } else {
       loop_reuse_tag = true;
