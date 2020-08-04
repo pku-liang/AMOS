@@ -61,9 +61,10 @@ class IndexParser: public ExprVisitor {
 };
 
 
-bool TouchExtractor::EnterItervar_(Var var, int64_t length) {
+bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length) {
   itervar_stack_.push_back(var);
   extent[var] = length;
+  loop_min[var] = min;
   return true;
 }
 
@@ -76,7 +77,6 @@ void TouchExtractor::ExitItervar_() {
 
 void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) { 
   this->current_stmt = &innermost_stmt;
-  // TODO: extract statement-level features (~buffer access features)
   innermost_stmt_map[&innermost_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
 }
 
@@ -128,7 +128,39 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   bool serial_reuse_tag = appearances.size() > 1;
   if (serial_reuse_tag) reuse_type = ReuseType(reuse_type | ReuseType::kSerialMultipleRead);
 
-  // TODO: implement other features
+  assert(this->buffer_scopes_.count(buffer_var) != 0 && 
+    ("Cannot find " + buffer_var.get()->name_hint + " in buffer_scopes_").c_str());
+  
+  auto& buffer_shape = this->buffer_shapes_[buffer_var];
+  auto& buffer_scope = this->buffer_scopes_[buffer_var];
+
+  int64_t topdown = 1;
+  for (auto var : itervar_stack_) {
+    auto length = this->extent[var];
+    topdown *= length;
+  }
+
+  if (buffer_scope == "global") {
+    feature[buf].lines += topdown;
+    // TODO: alignment? bound
+    const int CACHELINE_SIZE = 128;  // 128 bytes per L1 cache line
+    feature[buf].unique_lines = std::accumulate(buffer_shape.begin(), buffer_shape.end(), 
+      1, std::multiplies<int64_t>()) / CACHELINE_SIZE;
+  }
+
+  if (serial_reuse_tag) {
+    int64_t bottomup = 1;
+    for (auto var = itervar_stack_.rbegin(); var != itervar_stack_.rend(); ++var) {
+      auto x = parser.pattern_map.find(var->get());
+      auto length = extent[*var];
+      if (x != parser.pattern_map.end()) {
+        bottomup *= length;
+      } else {
+        break;
+      }
+    }
+    feature[buf].reuse_distance = bottomup;
+  }
 }
 
 
@@ -183,8 +215,12 @@ void GetInnerStatementFeature(
     Array<Array<PrimExpr> > feature_row;
     InnermostStatementFeature &fea = touch_analyzer.innermost_stmt_map[stmt];
 
-    // TODO: create a unique human-readable id for stmt
-    feature_row.push_back(Array<PrimExpr>{std::string("_stmt_"), std::string("<placeholder>")});
+    std::stringstream buffer;
+    buffer << stmt->buffer_var << "[" << stmt->index << "] = " << stmt->value;
+    feature_row.push_back(Array<PrimExpr>{
+        std::string("_stmt_"),
+        buffer.str(),
+    });
 
     // buffer access feature
     std::vector<TouchedBuffer> bufs;

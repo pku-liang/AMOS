@@ -37,10 +37,9 @@ te::Stmt ana_lower(te::Schedule sch,
   stmt = tir::InjectPrefetch(stmt);
 
   bool compact = tir::VerifyCompactBuffer(stmt);
-  // Map<te::Tensor, tir::Buffer> out_binds;
   tvm::GetBinds(args, compact, binds, &out_binds, out_arg_list, config);
-
-  // Phase 1
+  
+  // Phase1
   stmt = tir::StorageFlatten(stmt, out_binds, 64, config->instrument_bound_checkers);
   stmt = tir::CanonicalSimplify(stmt);
 

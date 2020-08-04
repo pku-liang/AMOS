@@ -226,7 +226,48 @@ def get_feature(schedule, tensors, target, flatten=True):
       else:
         return f.name if isinstance(f, tvm.tir.expr.Var) else f.value
 
+    def feature_row_to_dict(row):
+      from collections import defaultdict
+      BUFFER_ACCESS_PATTERN_DEF = (
+        'access_type', 'bytes', 'unique_bytes', 'lines', 'unique_lines',
+        'reuse_type', 'reuse_distance', 'reuse_counter', 'stride',
+      )
+      FEATURE_DEF = defaultdict(lambda: BUFFER_ACCESS_PATTERN_DEF)
+      FEATURE_DEF.update({
+        '_stmt_': ('name',),
+      })
+      return {
+        entry[0]: dict(zip(FEATURE_DEF[entry[0]], entry[1:]))
+        for entry in row
+      }
+
+    def untake_log(row):
+      from collections import defaultdict
+
+      def weak_round(x, eps=1e-6):
+        return round(x) if abs(x - round(x)) < eps else x
+
+      def unlog(x):
+        y1 = weak_round(pow(2, x) - 1)
+        y2 = weak_round(1 - pow(2, -x))
+        return y1 if y1 >= 0 else y2
+
+      SHOULD_UNLOG = defaultdict(lambda: (
+        'bytes', 'unique_bytes', 'lines', 'unique_lines',
+        'reuse_distance', 'reuse_counter', 'stride',
+      ))
+      SHOULD_UNLOG.update({
+        '_stmt_': (),
+      })
+
+      return {
+        k: {kk: unlog(vv) if kk in SHOULD_UNLOG[k] else vv for kk, vv in v.items()}
+        for k, v in row.items()
+      }
+
     features = _ffi_api.get_structured_feature(schedule, tensors, target)
     features = pythonify_features(features.features)
+    features = [feature_row_to_dict(row) for row in features]
+    features = [untake_log(row) for row in features]
 
   return features

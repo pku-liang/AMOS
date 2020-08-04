@@ -11,9 +11,10 @@ def pprint_dict(d):
 
 
 n = 512
-A = te.placeholder((n,), name='A')
-B = te.placeholder((n,), name='B')
-C = te.compute((n,), lambda i: A[i] + B[i], name='C')
+m = 512
+A = te.placeholder((n, m), name='A')
+B = te.placeholder((n, m), name='B')
+C = te.compute((n, m), lambda i, j: A[i, j] + B[i, j], name='C')
 
 sch = te.create_schedule(C.op)
 target = tvm.target.create("llvm")
@@ -24,4 +25,4 @@ print(f"Flattened features: {features}")
 
 features = tg.auto_schedule.get_feature(sch, [A, B, C], target, flatten=False)
 print(f"Structured features: ")
-print(features)
+pprint_dict(features)

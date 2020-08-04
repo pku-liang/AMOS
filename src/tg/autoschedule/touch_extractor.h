@@ -60,8 +60,6 @@ struct InnermostStatementFeature {
 
   int64_t order;
 
-  // TODO: implement other features
-
   std::unordered_map<TouchedBuffer, BufferAccessFeature> buffer_access_feature;
 };
 
@@ -73,6 +71,10 @@ class TouchExtractor : public FeatureVisitor {
     for (auto &bind: out_binds) {
       auto &&buf = bind.second.as<BufferNode>();
       this->buffer_scopes_.insert({buf->data, buf->scope});
+      assert(buf->shape[0].as<IntImmNode>() && "data type of buffer shape is not IntImm");
+      std::vector<int64_t> shape;
+      for (auto x: buf->shape) shape.push_back(x.as<IntImmNode>()->value);
+      this->buffer_shapes_.insert({buf->data, shape});
     }
     operator()(stmt);
   }
@@ -85,7 +87,7 @@ class TouchExtractor : public FeatureVisitor {
 
 
  private:
-  bool EnterItervar_(Var var, int64_t length);
+  bool EnterItervar_(Var var, int64_t min, int64_t length);
   void ExitItervar_();
   void EnterInnermostStmt_(const StoreNode &innermost_stmt);
   void ExitInnermostStmt_();
@@ -97,10 +99,12 @@ class TouchExtractor : public FeatureVisitor {
   const StoreNode *current_stmt {nullptr};
   AccessType current_buffer_access_type {AccessType::kNone};
   std::deque<Var> itervar_stack_;
-  std::unordered_map<Var, int64_t, tvm::ObjectHash, tvm::ObjectEqual> extent;
+  TvmMap<Var, int64_t> extent;
+  TvmMap<Var, int64_t> loop_min;
   size_t innermost_stmt_counter_{0};
   const Map<te::Tensor, tir::Buffer> *out_binds_;
   TvmMap<tir::Var, std::string> buffer_scopes_;
+  TvmMap<tir::Var, std::vector<int64_t> > buffer_shapes_;
 
   using FeatureVisitor::VisitExpr_;
 };

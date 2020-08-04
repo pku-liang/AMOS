@@ -13,6 +13,7 @@ namespace tg {
 void FeatureVisitor::VisitStmt_(const ForNode* op) {
 
   const auto *extent = op->extent.as<IntImmNode>();
+  const auto *min = op->min.as<IntImmNode>();
   int64_t loop_extent = -1;
   if (extent != nullptr)
     loop_extent = extent->value;
@@ -34,7 +35,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
   }
   */
 
-  if (EnterItervar_(op->loop_var, loop_extent)) {
+  if (EnterItervar_(op->loop_var, loop_extent, min->value)) {
     StmtExprVisitor::VisitStmt_(op);
     ExitItervar_();
   }
@@ -46,6 +47,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
       op->attr_key == attr::virtual_thread) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto *extent = op->value.as<IntImmNode>();
+    size_t min = op->body.as<tir::ForNode>()->min.as<IntImmNode>()->value;
     CHECK(extent);
 
     std::string name = var.get()->name_hint;
@@ -69,7 +71,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
       ann = kVirtualThread;
     }
 
-    if (EnterItervar_(var, extent->value)) {
+    if (EnterItervar_(var, extent->value, min)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
     }
