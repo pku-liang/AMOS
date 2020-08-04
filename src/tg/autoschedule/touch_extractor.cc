@@ -99,10 +99,11 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   auto& reuse_type = feature[buf].reuse_type;
 
   bool loop_reuse_tag = false;
-  int64_t bytes = buffer_var.get()->dtype.bytes();
-  int64_t unique_bytes = buffer_var.get()->dtype.bytes();
+  int64_t bytes = this->buffer_dtypes_[buffer_var].bytes();
+  int64_t unique_bytes = this->buffer_dtypes_[buffer_var].bytes();
   int64_t reuse_counter = 1;
   int64_t &stride = feature[buf].stride;
+
   for (auto var : itervar_stack_) {
     auto x = parser.pattern_map.find(var.get());
 
@@ -144,8 +145,9 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     feature[buf].lines += topdown;
     // TODO: alignment? bound
     const int CACHELINE_SIZE = 128;  // 128 bytes per L1 cache line
+
     feature[buf].unique_lines = std::accumulate(buffer_shape.begin(), buffer_shape.end(), 
-      1, std::multiplies<int64_t>()) / CACHELINE_SIZE;
+      1, std::multiplies<int64_t>()) * this->buffer_dtypes_[buffer_var].bytes() / CACHELINE_SIZE;
   }
 
   if (serial_reuse_tag) {

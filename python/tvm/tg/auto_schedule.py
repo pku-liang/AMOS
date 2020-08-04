@@ -265,9 +265,33 @@ def get_feature(schedule, tensors, target, flatten=True):
         for k, v in row.items()
       }
 
+    def get_enum_names(row):
+      from collections import defaultdict
+
+      def convert(k, v):
+        if k == 'access_type':
+          return ['kNone', 'kRead', 'kWrite', 'kReadWrite'][v]
+        elif k == 'reuse_type':
+          return ['kNoReuse', 'kLoopMultipleRead', 'kSerialMultipleRead', 'kBothReuse'][v]
+        else:
+          raise ValueError(f"Unrecognized enum: {k}")
+
+      SHOULD_CONVERT = defaultdict(lambda: (
+        'access_type', 'reuse_type',
+      ))
+      SHOULD_CONVERT.update({
+        '_stmt_': (),
+      })
+
+      return {
+        k: {kk: convert(kk, vv) if kk in SHOULD_CONVERT[k] else vv for kk, vv in v.items()}
+        for k, v in row.items()
+      }
+
     features = _ffi_api.get_structured_feature(schedule, tensors, target)
     features = pythonify_features(features.features)
     features = [feature_row_to_dict(row) for row in features]
     features = [untake_log(row) for row in features]
+    features = [get_enum_names(row) for row in features]
 
   return features

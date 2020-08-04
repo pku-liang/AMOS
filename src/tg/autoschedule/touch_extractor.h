@@ -71,10 +71,13 @@ class TouchExtractor : public FeatureVisitor {
     for (auto &bind: out_binds) {
       auto &&buf = bind.second.as<BufferNode>();
       this->buffer_scopes_.insert({buf->data, buf->scope});
+
       assert(buf->shape[0].as<IntImmNode>() && "data type of buffer shape is not IntImm");
       std::vector<int64_t> shape;
       for (auto x: buf->shape) shape.push_back(x.as<IntImmNode>()->value);
       this->buffer_shapes_.insert({buf->data, shape});
+
+      this->buffer_dtypes_.insert({buf->data, buf->dtype});
     }
     operator()(stmt);
   }
@@ -105,6 +108,7 @@ class TouchExtractor : public FeatureVisitor {
   const Map<te::Tensor, tir::Buffer> *out_binds_;
   TvmMap<tir::Var, std::string> buffer_scopes_;
   TvmMap<tir::Var, std::vector<int64_t> > buffer_shapes_;
+  TvmMap<tir::Var, DataType> buffer_dtypes_;
 
   using FeatureVisitor::VisitExpr_;
 };
