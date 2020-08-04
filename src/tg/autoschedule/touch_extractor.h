@@ -39,6 +39,13 @@ enum ReuseType {
 };
 
 
+struct BufferInfo {
+  std::string scope;
+  std::vector<int64_t> shape;
+  DataType dtype;
+};
+
+
 struct BufferAccessFeature {
   // The type of access (read, write, read + write)
   AccessType access_type{AccessType::kNone};
@@ -67,17 +74,12 @@ struct InnermostStatementFeature {
 class TouchExtractor : public FeatureVisitor {
  public:
   void Analyze(const Stmt& stmt, const Map<te::Tensor, tir::Buffer> &out_binds) {
-    this->out_binds_ = &out_binds;
     for (auto &bind: out_binds) {
       auto &&buf = bind.second.as<BufferNode>();
-      this->buffer_scopes_.insert({buf->data, buf->scope});
-
       assert(buf->shape[0].as<IntImmNode>() && "data type of buffer shape is not IntImm");
       std::vector<int64_t> shape;
       for (auto x: buf->shape) shape.push_back(x.as<IntImmNode>()->value);
-      this->buffer_shapes_.insert({buf->data, shape});
-
-      this->buffer_dtypes_.insert({buf->data, buf->dtype});
+      this->buffer_info_.insert({buf->data, BufferInfo{buf->scope, shape, buf->dtype}});
     }
     operator()(stmt);
   }
@@ -105,10 +107,8 @@ class TouchExtractor : public FeatureVisitor {
   TvmMap<Var, int64_t> extent;
   TvmMap<Var, int64_t> loop_min;
   size_t innermost_stmt_counter_{0};
-  const Map<te::Tensor, tir::Buffer> *out_binds_;
-  TvmMap<tir::Var, std::string> buffer_scopes_;
-  TvmMap<tir::Var, std::vector<int64_t> > buffer_shapes_;
-  TvmMap<tir::Var, DataType> buffer_dtypes_;
+
+  TvmMap<tir::Var, BufferInfo> buffer_info_;
 
   using FeatureVisitor::VisitExpr_;
 };

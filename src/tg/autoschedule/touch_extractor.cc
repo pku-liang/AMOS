@@ -99,8 +99,8 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   auto& reuse_type = feature[buf].reuse_type;
 
   bool loop_reuse_tag = false;
-  int64_t bytes = this->buffer_dtypes_[buffer_var].bytes();
-  int64_t unique_bytes = this->buffer_dtypes_[buffer_var].bytes();
+  int64_t bytes = this->buffer_info_[buffer_var].dtype.bytes();
+  int64_t unique_bytes = this->buffer_info_[buffer_var].dtype.bytes();
   int64_t reuse_counter = 1;
   int64_t &stride = feature[buf].stride;
 
@@ -128,12 +128,9 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   appearances.insert({this->current_stmt});
   bool serial_reuse_tag = appearances.size() > 1;
   if (serial_reuse_tag) reuse_type = ReuseType(reuse_type | ReuseType::kSerialMultipleRead);
-
-  assert(this->buffer_scopes_.count(buffer_var) != 0 && 
-    ("Cannot find " + buffer_var.get()->name_hint + " in buffer_scopes_").c_str());
   
-  auto& buffer_shape = this->buffer_shapes_[buffer_var];
-  auto& buffer_scope = this->buffer_scopes_[buffer_var];
+  auto& buffer_shape = this->buffer_info_[buffer_var].shape;
+  auto& buffer_scope = this->buffer_info_[buffer_var].scope;
 
   int64_t topdown = 1;
   for (auto var : itervar_stack_) {
@@ -147,7 +144,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     const int CACHELINE_SIZE = 128;  // 128 bytes per L1 cache line
 
     feature[buf].unique_lines = std::accumulate(buffer_shape.begin(), buffer_shape.end(), 
-      1, std::multiplies<int64_t>()) * this->buffer_dtypes_[buffer_var].bytes() / CACHELINE_SIZE;
+      1, std::multiplies<int64_t>()) * this->buffer_info_[buffer_var].dtype.bytes() / CACHELINE_SIZE;
   }
 
   if (serial_reuse_tag) {
