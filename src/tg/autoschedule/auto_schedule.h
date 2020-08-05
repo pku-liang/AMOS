@@ -109,6 +109,7 @@ class AutoScheduleContextNode : public Object {
   std::unordered_set<MultiScheduleEntity, ObjectHash> known_schedules;
   std::unordered_set<MultiScheduleEntity, ObjectHash> knowing_schedules;
   std::string policy;
+  unsigned long long counts;
 
   static constexpr const char* _type_key = "tg.autoschedule.AutoScheduleContext";
   TVM_DECLARE_FINAL_OBJECT_INFO(AutoScheduleContextNode, Object);
@@ -127,6 +128,7 @@ class AutoScheduleContext : public ObjectRef {
     node->topk = topk;
     node->new_trial = new_trial;
     node->policy = policy;
+    node->counts = 0U;
     data_ = std::move(node);
   }
 
@@ -146,6 +148,7 @@ class AutoScheduler {
   double timeout;
   double profile_timeout;
   bool report_profile;
+  unsigned warm_up_trials = 200;
 
   DLContext ctx;
   ThreadPool *thread_pool = nullptr;

@@ -27,6 +27,10 @@ class Feature : public ObjectRef {
  public:
   Feature(Array<FloatImm> features);
 
+  size_t size() const {
+    return (*this)->features.size();
+  }
+
   friend std::ostream& operator<<(std::ostream& out, const Feature& self) {
     out << "[";
     int num_feature = (int)(self->features.size());
@@ -34,7 +38,7 @@ class Feature : public ObjectRef {
       if (i != 0) {
         out << ", ";
       }
-      out << self->features[i];  //->value;
+      out << self->features[i]->value;
     }
     out << "]";
     return out;

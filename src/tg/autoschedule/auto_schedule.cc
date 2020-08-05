@@ -112,7 +112,7 @@ void AutoScheduler::auto_schedule(
       // choose a seed
       bool use_seed = false;
       EvaluatedScheduleResult seed;
-      if (randdouble() < 0.5) {
+      if (randdouble() < 0.7 && context->counts > warm_up_trials) {
         for (int j = num_candidates; j > 0; --j) {
           if (randdouble() < p[j-1]) {
             use_seed = true;
@@ -185,6 +185,7 @@ void AutoScheduler::auto_schedule(
   print(4, log_out) << "Check schedule entity:\n" << result_entity.to_string() << "\n";
   interpret(sch, tensors, subgraph, context->target, result_entity);
   results = ScheduleResult(sch, tensors, new_candidates[best_ind]);
+  context->counts += 1;
 }
 
 
@@ -263,8 +264,34 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
   contexts[key].add_feedback(schedule_result, evaluation);
   Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
-  for (auto fea: feature)
-    profile_log << feature << " : " << evaluation << "\n";
+  std::ostringstream oss;
+  double gflop = get_gflop(subgraph);
+
+  oss << "{ ";
+  oss << "\"gflop\": ";
+  oss << gflop << ", ";
+  oss << "\"loop_nests\": ";
+  oss << "[";
+  for (int i = 0; i < (int)feature.size(); ++i) {
+    if (i != 0)
+      oss << ", ";
+    oss << feature[i]->features[(int)feature[i].size() - 1]->value;
+  }
+  oss << "], ";
+  oss << "\"features\": ";
+  oss << "[";
+  for (int i = 0; i < (int)feature.size(); ++i) {
+    if (i != 0)
+      oss << ", ";
+    oss << feature[i];
+  }
+  oss << "], ";
+  oss << "\"schedules\": ";
+  oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
+  oss << "\"evaluation\": ";
+  oss << evaluation;
+  oss << " }\n";
+  profile_log << oss.str();
 }
 
 
