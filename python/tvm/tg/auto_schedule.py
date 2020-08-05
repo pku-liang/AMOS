@@ -216,7 +216,7 @@ def string_to_schedule_entity(string):
 def get_feature(schedule, tensors, target, flatten=True):
   if flatten:
     features = _ffi_api.get_feature(schedule, tensors, target)
-    features = [v.value for v in features.features]
+    features = [[v.value for v in fea.features] for fea in features]
   else:
     def pythonify_features(f):
       if isinstance(f, tvm.ir.container.Array):

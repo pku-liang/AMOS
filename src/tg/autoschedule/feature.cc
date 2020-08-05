@@ -46,8 +46,8 @@ te::Stmt ana_lower(te::Schedule sch,
   return stmt;
 }
 
-Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target) {
-  Array<FloatImm> features;
+Array<Feature> get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target) {
+  Array<Array<FloatImm>> features;
   
   std::unordered_map<te::Tensor, tir::Buffer> binds;
   Map<te::Tensor, tir::Buffer> out_binds;
@@ -57,7 +57,9 @@ Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target t
   auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list, config);
   GetInnerStatementFeatureFlatten(stmt, true, &features, out_binds);
 
-  return Feature(features);
+  Array<Feature> ret_features;
+  for (auto& fea : features) ret_features.push_back(Feature(fea));
+  return ret_features;
 }
 
 StructuredFeature get_structured_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target) {

@@ -67,7 +67,7 @@ class StructuredFeature : public ObjectRef {
 };
 
 StructuredFeature get_structured_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target);
-Feature get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target);
+Array<Feature> get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target);
 }  // namespace tg
 }  // namespace tvm
 #endif  // TVM_TG_AUTOSCHEDULE_FEATURE_H_

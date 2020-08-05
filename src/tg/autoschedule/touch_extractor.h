@@ -110,7 +110,7 @@ class TouchExtractor : public FeatureVisitor {
   using FeatureVisitor::VisitExpr_;
 };
 
-void GetInnerStatementFeatureFlatten(Stmt stmt, bool take_log, Array<FloatImm> *ret_feature, Map<te::Tensor, tir::Buffer> &out_binds);
+void GetInnerStatementFeatureFlatten(Stmt stmt, bool take_log, Array<Array<FloatImm>> *ret_feature, Map<te::Tensor, tir::Buffer> &out_binds);
 
 void GetInnerStatementFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > > *ret_feature, Map<te::Tensor, tir::Buffer> &out_binds);
 }  // namespace tg

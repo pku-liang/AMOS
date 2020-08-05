@@ -275,7 +275,7 @@ void GetInnerStatementFeature(
 
 void GetInnerStatementFeatureFlatten(
   Stmt stmt, bool take_log, 
-  Array<FloatImm> *ret_feature, 
+  Array<Array<FloatImm>> *ret_feature, 
   Map<te::Tensor, tir::Buffer> &out_binds) {
   // extract touch feature
   TouchExtractor touch_analyzer;
@@ -310,6 +310,7 @@ void GetInnerStatementFeatureFlatten(
   // serialize for front end
   for (auto stmt : innermost_stmts) {
     InnermostStatementFeature &fea = touch_analyzer.innermost_stmt_map[stmt];
+    Array<FloatImm> feature_vec;
 
     // buffer access feature
     std::vector<TouchedBuffer> bufs;
@@ -322,21 +323,23 @@ void GetInnerStatementFeatureFlatten(
     for (auto i = 0; i < std::min(int(bufs.size()), 5); i++) {
       BufferAccessFeature &v = fea.buffer_access_feature[bufs[i]];
       for (auto j = 0; j < 4; j++)  // one-hot encoding
-        ret_feature->push_back(FloatImm(DataType::Float(32), j == v.access_type));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.bytes)));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.unique_bytes)));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.lines)));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.unique_lines)));
+        feature_vec.push_back(FloatImm(DataType::Float(32), j == v.access_type));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.bytes)));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.unique_bytes)));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.lines)));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.unique_lines)));
       for (auto j = 0; j < 4; j++)  // one-hot encoding
-        ret_feature->push_back(FloatImm(DataType::Float(32), j == v.reuse_type));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.reuse_distance)));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.reuse_counter)));
-      ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.stride)));
+        feature_vec.push_back(FloatImm(DataType::Float(32), j == v.reuse_type));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.reuse_distance)));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.reuse_counter)));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.stride)));
     }
 
     for (auto i = 0; i < 5 - int(bufs.size()); i++)
       for (auto j = 0; j < 15; j++)
-        ret_feature->push_back(FloatImm(DataType::Float(32), 0));
+        feature_vec.push_back(FloatImm(DataType::Float(32), 0));
+
+    ret_feature->push_back(feature_vec);
   }
 }
 
@@ -359,7 +362,7 @@ TVM_REGISTER_GLOBAL("tg.GetInnerStatementFeatureFlatten")
   Stmt stmt = args[0];
   bool take_log = args[1];
   Map<te::Tensor, tir::Buffer> out_binds = args[2];
-  Array<FloatImm> ret_feature;
+  Array<Array<FloatImm>> ret_feature;
 
   GetInnerStatementFeatureFlatten(stmt, take_log, &ret_feature, out_binds);
 

@@ -262,8 +262,9 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
   contexts[key].add_feedback(schedule_result, evaluation);
-  Feature feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
-  profile_log << feature << " : " << evaluation << "\n";
+  Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
+  for (auto fea: feature)
+    profile_log << feature << " : " << evaluation << "\n";
 }
 
 
