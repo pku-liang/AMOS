@@ -1,3 +1,5 @@
+build.sh
+
 cmake-build-debug/
 
 # Byte-compiled / optimized / DLL files

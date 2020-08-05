@@ -90,7 +90,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 
   std::vector<int64_t> buffer_shape;
   std::string buffer_scope;
-  int64_t buffer_elem_bytes;
+  int64_t buffer_elem_bytes = -1;
 
   for (auto item : this->buffer_info_) {
     auto& s1 = buffer_var->name_hint;
@@ -318,18 +318,25 @@ void GetInnerStatementFeatureFlatten(
     }
     std::sort(bufs.begin(), bufs.end());
 
-    for (auto k : bufs) {
-      BufferAccessFeature &v = fea.buffer_access_feature[k];
-      ret_feature->push_back(FloatImm(DataType::Float(32), v.access_type));
+    // feature vector length: 15
+    for (auto i = 0; i < std::min(int(bufs.size()), 5); i++) {
+      BufferAccessFeature &v = fea.buffer_access_feature[bufs[i]];
+      for (auto j = 0; j < 4; j++)  // one-hot encoding
+        ret_feature->push_back(FloatImm(DataType::Float(32), j == v.access_type));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.bytes)));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.unique_bytes)));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.lines)));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.unique_lines)));
-      ret_feature->push_back(FloatImm(DataType::Float(32), v.reuse_type));
+      for (auto j = 0; j < 4; j++)  // one-hot encoding
+        ret_feature->push_back(FloatImm(DataType::Float(32), j == v.reuse_type));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.reuse_distance)));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.reuse_counter)));
       ret_feature->push_back(FloatImm(DataType::Float(32), trans(v.stride)));
     }
+
+    for (auto i = 0; i < 5 - int(bufs.size()); i++)
+      for (auto j = 0; j < 15; j++)
+        ret_feature->push_back(FloatImm(DataType::Float(32), 0));
   }
 }
 
