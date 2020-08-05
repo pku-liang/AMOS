@@ -183,7 +183,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_output (
   te::Operation op, Target target, bool is_output, bool can_compute_at,
   ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
-  for (int use = 0; use < 2; ++use) {
+  for (int use = 1; use < 2; ++use) {
     auto next = current.copy();
     next->buffer_output = (bool)use;
     if (use == 0)
@@ -1483,11 +1483,12 @@ ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_out
     node->merge = MergeSubSpace(4);
     node->allreduce = AllreduceSubSpace(as_compute->axis, as_compute->reduce_axis, 2, 2);
     node->tiling_and_binding = TilingAndBindingSubSpace(as_compute->axis, as_compute->reduce_axis, 4, 3);
-    int reduce_count = (int)as_compute->reduce_axis.size();
-    if (reduce_count > 0)
-      node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), reduce_count, 2);
-    else  // dummy
-      node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), 1, 2);
+    // int reduce_count = (int)as_compute->reduce_axis.size();
+    // if (reduce_count > 0)
+    //   node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), reduce_count, 2);
+    // else  // dummy
+    //   node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), 1, 2);
+    node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), 3, 2);
     node->unroll = UnrollSubSpace(max_extent);
   } else if (target->target_name == "llvm") {
     generate_schedule_skeletons(operation, target, is_output, can_compute_at, node->skeletons);
