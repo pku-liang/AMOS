@@ -61,8 +61,8 @@ class IndexParser: public ExprVisitor {
 };
 
 
-bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length) {
-  itervar_stack_.push_back(var);
+bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt) {
+  itervar_stack_.push_back({var, is_attr_stmt});
   extent[var] = length;
   loop_min[var] = min;
   return true;
@@ -70,7 +70,7 @@ bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length) {
 
 
 void TouchExtractor::ExitItervar_() {
-  Var var = itervar_stack_.back();
+  Var var = itervar_stack_.back().first;
   itervar_stack_.pop_back();
 }
 
@@ -118,17 +118,26 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   // reuse type
   auto& reuse_type = feature[buf].reuse_type;
 
+  auto& appearances = buffervar_stmt_map[buffer_var];
+  appearances.insert({this->current_stmt});
+  bool serial_reuse_tag = appearances.size() > 1;
+
   bool loop_reuse_tag = false;
   int64_t bytes = buffer_elem_bytes;
   int64_t unique_bytes = buffer_nelems * buffer_elem_bytes;
   int64_t reuse_counter = 1;
   int64_t &stride = feature[buf].stride;
+  int64_t topdown = 1;
 
-  for (auto var : itervar_stack_) {
+  for (auto item : itervar_stack_) {
+    Var var = item.first;
+    bool is_attr_stmt = item.second;
     auto x = parser.pattern_map.find(var.get());
 
     auto length = extent[var];
     bytes *= length;
+    if (!is_attr_stmt) topdown *= length;
+
     if (x != parser.pattern_map.end()) {
       // unique_bytes *= length;
       if (stride == 0) {
@@ -146,10 +155,8 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   // feature[buf].unique_bytes += unique_bytes;
   feature[buf].unique_bytes = unique_bytes;
   feature[buf].reuse_counter += reuse_counter;
+  feature[buf].topdown = topdown;
 
-  auto& appearances = buffervar_stmt_map[buffer_var];
-  appearances.insert({this->current_stmt});
-  bool serial_reuse_tag = appearances.size() > 1;
   if (serial_reuse_tag) {
     for (auto stmt: buffervar_stmt_map[buffer_var]) {
       auto& f = innermost_stmt_map[stmt].buffer_access_feature;
@@ -158,14 +165,14 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     }
   }
 
-  int64_t topdown = 1;
-  for (auto var : itervar_stack_) {
-    auto length = this->extent[var];
-    topdown *= length;
+  int64_t topdown2 = 1;
+  for (auto item : itervar_stack_) {
+    auto length = this->extent[item.first];
+    topdown2 *= length;
   }
 
   if (buffer_scope == "global") {
-    feature[buf].lines += topdown;
+    feature[buf].lines += topdown2;
     const int CACHELINE_SIZE = 128;  // 128 bytes per L1 cache line
 
     feature[buf].unique_lines = buffer_nelems * buffer_elem_bytes / CACHELINE_SIZE;
@@ -173,9 +180,10 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 
   if (loop_reuse_tag) {
     int64_t bottomup = 1;
-    for (auto var = itervar_stack_.rbegin(); var != itervar_stack_.rend(); ++var) {
-      auto x = parser.pattern_map.find(var->get());
-      auto length = extent[*var];
+    for (auto it = itervar_stack_.rbegin(); it != itervar_stack_.rend(); ++it) {
+      auto var = it->first;
+      auto x = parser.pattern_map.find(var.get());
+      auto length = extent[var];
       if (x != parser.pattern_map.end()) {
         bottomup *= length;
       } else {
@@ -265,6 +273,7 @@ void GetInnerStatementFeature(
                 FloatImm(DataType::Float(32), trans(v.reuse_distance)),
                 FloatImm(DataType::Float(32), trans(v.reuse_counter)),
                 FloatImm(DataType::Float(32), trans(v.stride)),
+                FloatImm(DataType::Float(32), trans(v.topdown)),
                 });
     }
 
@@ -333,10 +342,11 @@ void GetInnerStatementFeatureFlatten(
       feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.reuse_distance)));
       feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.reuse_counter)));
       feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.stride)));
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(v.topdown)));
     }
 
     for (auto i = 0; i < 5 - int(bufs.size()); i++)
-      for (auto j = 0; j < 15; j++)
+      for (auto j = 0; j < 16; j++)
         feature_vec.push_back(FloatImm(DataType::Float(32), 0));
 
     ret_feature->push_back(feature_vec);

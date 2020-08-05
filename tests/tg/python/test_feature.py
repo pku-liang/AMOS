@@ -71,6 +71,11 @@ def test_naive_vector_add():
     assert fB['stride'] == 1
     assert fC['stride'] == 1
 
+    print('checking topdown...')
+    assert fA['topdown'] == 512
+    assert fB['topdown'] == 512
+    assert fC['topdown'] == 512
+
 
 def test_naive_conv2d():
     """
@@ -171,6 +176,12 @@ def test_naive_conv2d():
     assert fK1['stride'] == 1
     assert fY1['stride'] == 1
 
+    print('checking topdown...')
+    assert fY0['topdown'] == 3 * 220 * 220
+    assert fX1['topdown'] == 3 * 220 * 220 * 32 * 5 * 5
+    assert fK1['topdown'] == 3 * 220 * 220 * 32 * 5 * 5
+    assert fY1['topdown'] == 3 * 220 * 220 * 32 * 5 * 5
+
 
 def test_gpu_naive_conv2d():
   """
@@ -266,6 +277,12 @@ def test_gpu_naive_conv2d():
   assert fX1['stride'] == 1
   assert fK1['stride'] == 1
   assert fY1['stride'] == 1
+
+  print('checking topdown...')
+  assert fY0['topdown'] == 3
+  assert fX1['topdown'] == 3 * 32 * 5 * 5
+  assert fK1['topdown'] == 3 * 32 * 5 * 5
+  assert fY1['topdown'] == 3 * 32 * 5 * 5
   
 
 def test_gpu_tiled_conv2d():

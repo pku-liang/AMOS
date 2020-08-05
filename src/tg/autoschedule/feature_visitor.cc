@@ -35,7 +35,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
   }
   */
 
-  if (EnterItervar_(op->loop_var, min->value, loop_extent)) {
+  if (EnterItervar_(op->loop_var, min->value, loop_extent, false)) {
     StmtExprVisitor::VisitStmt_(op);
     ExitItervar_();
   }
@@ -73,7 +73,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
     } else {
       ann = kVirtualThread;
     }
-    if (EnterItervar_(var, min, extent->value)) {
+    if (EnterItervar_(var, min, extent->value, true)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
     }

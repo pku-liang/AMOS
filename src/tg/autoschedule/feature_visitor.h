@@ -57,7 +57,7 @@ class FeatureVisitor : public StmtExprVisitor {
  * \param var The expression to be printed.
  * \return skip Whether skip this node
  */
-  virtual bool EnterItervar_(tir::Var var, int64_t min, int64_t length) = 0;
+  virtual bool EnterItervar_(tir::Var var, int64_t min, int64_t length, bool is_attr_stmt) = 0;
   /*! \brief Exit a for loop subtree */
   virtual void ExitItervar_() = 0;
   /*!

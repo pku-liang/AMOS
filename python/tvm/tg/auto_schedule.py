@@ -228,7 +228,7 @@ def get_feature(schedule, tensors, target, flatten=True):
       from collections import defaultdict
       BUFFER_ACCESS_PATTERN_DEF = (
         'access_type', 'bytes', 'unique_bytes', 'lines', 'unique_lines',
-        'reuse_type', 'reuse_distance', 'reuse_counter', 'stride',
+        'reuse_type', 'reuse_distance', 'reuse_counter', 'stride', 'topdown',
       )
       FEATURE_DEF = defaultdict(lambda: BUFFER_ACCESS_PATTERN_DEF)
       FEATURE_DEF.update({
@@ -252,7 +252,7 @@ def get_feature(schedule, tensors, target, flatten=True):
 
       SHOULD_UNLOG = defaultdict(lambda: (
         'bytes', 'unique_bytes', 'lines', 'unique_lines',
-        'reuse_distance', 'reuse_counter', 'stride',
+        'reuse_distance', 'reuse_counter', 'stride', 'topdown',
       ))
       SHOULD_UNLOG.update({
         '_stmt_': (),

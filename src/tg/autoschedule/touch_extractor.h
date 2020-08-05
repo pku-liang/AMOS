@@ -58,6 +58,7 @@ struct BufferAccessFeature {
   int64_t reuse_distance{0};  // The distance between data reuse in terms of number of for loop iterations and total accessed bytes.
   int64_t reuse_counter{0};   // The number of the happening of data reuse.
   int64_t stride{0};          // The stride of access.
+  int64_t topdown{1};
 };
 
 // all the feature of an innermost statement
@@ -89,7 +90,7 @@ class TouchExtractor : public FeatureVisitor {
 
 
  private:
-  bool EnterItervar_(Var var, int64_t min, int64_t length);
+  bool EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt);
   void ExitItervar_();
   void EnterInnermostStmt_(const StoreNode &innermost_stmt);
   void ExitInnermostStmt_();
@@ -99,7 +100,7 @@ class TouchExtractor : public FeatureVisitor {
   void VisitStmt_(const StoreNode* op) final;
 
   const StoreNode *current_stmt {nullptr};
-  std::deque<Var> itervar_stack_;
+  std::deque<std::pair<Var, bool> > itervar_stack_;
   // TODO: refactor: loopinfo
   TvmMap<Var, int64_t> extent;
   TvmMap<Var, int64_t> loop_min;
