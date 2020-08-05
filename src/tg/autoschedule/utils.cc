@@ -214,7 +214,8 @@ void choose_from(int total, int want, std::vector<std::vector<int> > &ret) {
     << "Don't know how to handle choose " << want << " from " << total;
   static std::unordered_map<std::pair<int, int>, std::vector<std::vector<int> > > cache;
   auto key = std::make_pair(total, want);
-  bool allow_repeat = (total < want);
+  // bool allow_repeat = (total < want);
+  bool allow_repeat = true;
 
   if (cache.find(key) != cache.end()) {
     for (auto val : cache[key]) {
