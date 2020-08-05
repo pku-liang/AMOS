@@ -38,7 +38,7 @@ te::Stmt ana_lower(te::Schedule sch,
 
   bool compact = tir::VerifyCompactBuffer(stmt);
   tvm::GetBinds(args, compact, binds, &out_binds, out_arg_list, config);
-  
+
   // Phase1
   stmt = tir::StorageFlatten(stmt, out_binds, 64, config->instrument_bound_checkers);
   stmt = tir::CanonicalSimplify(stmt);

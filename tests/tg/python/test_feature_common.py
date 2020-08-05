@@ -167,3 +167,172 @@ def build_structured_feature(d):
     for k, v in dd.items():
       dd[k] = {kk: getattr(v, kk) for kk in BUFFER_ACCESS_FEATURE_KEYS}
   return d
+
+
+def conv2d_gpu_default(oc, ic, n, k, p, s):
+  X, K, Y, PaddedX = get_conv2d(oc, ic, n, n, k, k, p, p, s, s)
+  sch = te.create_schedule(Y.op)
+  if p != 0: sch[PaddedX].compute_inline()
+  _, y, x = sch[Y].op.axis
+  sch[Y].bind(y, te.thread_axis("blockIdx.x"))
+  sch[Y].bind(x, te.thread_axis("threadIdx.x"))
+  print(tvm.lower(sch, [X, K, Y], simple_mode=True))
+  return sch, (X, K, Y)
+
+
+def split_axis(factors, sch, op, axis):
+  """Splitting an axis into factors
+
+  Parameters
+  ----------
+  factors: array of integers
+      The factors that the split applies
+  sch: tvm.te.schedule.Schedule
+      The tvm schedule
+  op: tvm.te.tensor.Operation
+      The stage to be applied
+  axis: tvm.te.schedule.IterVar
+      axis to split
+
+  Returns
+  -------
+  axes : list of Axis
+      The transformed axes.
+  """
+  ret = []
+  for i in range(0, len(factors)):
+      ax0, ax1 = sch[op].split(axis, factor=int(np.prod(factors[i:])))
+      ret.append(ax0)
+      axis = ax1
+  return ret + [axis]
+
+
+def conv2d_gpu_tiled(oc, ic, n, k, p, s):
+  tile_c = [4, 8]
+  tile_h = [2, 2]
+  tile_w = [16, 4]
+  tile_rc = [1, 1]
+  tile_rh = [1, 1]
+  tile_rw = [1, 3]
+
+  X, K, Y, PaddedX = get_conv2d(oc, ic, n, n, k, k, p, p, s, s)
+  sch = te.create_schedule(Y.op)
+  if p != 0: sch[PaddedX].compute_inline()
+
+  YL = sch.cache_write(Y, 'local')
+
+  # create cache stage
+  XX = sch.cache_read(PaddedX, 'shared', [YL])
+  KK = sch.cache_read(K, 'shared', [YL])
+  XL = sch.cache_read(XX, 'local', [YL])
+  KL = sch.cache_read(KK, 'local', [YL])
+
+  c, h, w = sch[Y].op.axis
+
+  bc, tc, ic = split_axis(tile_c, sch, Y, c)
+  bh, th, ih = split_axis(tile_h, sch, Y, h)
+  bw, tw, iw = split_axis(tile_w, sch, Y, w)
+
+  sch[Y].bind(bc, te.thread_axis("blockIdx.z"))
+  sch[Y].bind(bh, te.thread_axis("blockIdx.y"))
+  sch[Y].bind(bw, te.thread_axis("blockIdx.x"))
+  sch[Y].bind(tc, te.thread_axis("threadIdx.z"))
+  sch[Y].bind(th, te.thread_axis("threadIdx.y"))
+  sch[Y].bind(tw, te.thread_axis("threadIdx.x"))
+  sch[Y].reorder(bc, bh, bw, tc, th, tw, ic, ih, iw)
+
+  sch[YL].compute_at(sch[Y], tw)
+
+  # tile reduction axes
+  c, h, w = sch[YL].op.axis
+  rc, rh, rw = sch[YL].op.reduce_axis
+  rco, rcm, rci = split_axis(tile_rc, sch, YL, rc)
+  rho, rhm, rhi = split_axis(tile_rh, sch, YL, rh)
+  rwo, rwm, rwi = split_axis(tile_rw, sch, YL, rw)
+  sch[YL].reorder(rco, rho, rwo, rcm, rhm, rwm, rci, rhi, rwi, c, h, w)
+
+  sch[XX].compute_at(sch[YL], rwo)
+  sch[KK].compute_at(sch[YL], rwo)
+  sch[XL].compute_at(sch[YL], rwm)
+  sch[KL].compute_at(sch[YL], rwm)
+
+  # cooperative fetching
+  for load in [XX, KK]:
+      args = sch[load].op.axis
+      fused = sch[load].fuse(*args)
+      # align thread layout
+      tz, fused = sch[load].split(fused, nparts=tile_c[0])
+      ty, fused = sch[load].split(fused, nparts=tile_h[0])
+      tx, _ = sch[load].split(fused, nparts=tile_w[0])
+      sch[load].bind(tz, te.thread_axis("threadIdx.z"))
+      sch[load].bind(ty, te.thread_axis("threadIdx.y"))
+      sch[load].bind(tx, te.thread_axis("threadIdx.x"))
+
+  return sch, (X, K, Y)
+
+
+def conv2d_gpu_tiled_vthread(oc, ic, n, k, p, s):
+  tile_c = [4, 8]
+  tile_h = [2, 2]
+  tile_w = [16, 4]
+  tile_rc = [1, 1]
+  tile_rh = [1, 1]
+  tile_rw = [1, 3]
+
+  X, K, Y, PaddedX = get_conv2d(oc, ic, n, n, k, k, p, p, s, s)
+  sch = te.create_schedule(Y.op)
+  if p != 0: sch[PaddedX].compute_inline()
+
+  YL = sch.cache_write(Y, 'local')
+
+  # create cache stage
+  XX = sch.cache_read(PaddedX, 'shared', [YL])
+  KK = sch.cache_read(K, 'shared', [YL])
+  XL = sch.cache_read(XX, 'local', [YL])
+  KL = sch.cache_read(KK, 'local', [YL])
+
+  c, h, w = sch[Y].op.axis
+
+  bc, vc, tc, ic = split_axis(tile_c, sch, Y, c)
+  bh, vh, th, ih = split_axis(tile_h, sch, Y, h)
+  bw, vw, tw, iw = split_axis(tile_w, sch, Y, w)
+
+  sch[Y].bind(bc, te.thread_axis("blockIdx.z"))
+  sch[Y].bind(bh, te.thread_axis("blockIdx.y"))
+  sch[Y].bind(bw, te.thread_axis("blockIdx.x"))
+  sch[Y].bind(vc, te.thread_axis("vthread"))
+  sch[Y].bind(vh, te.thread_axis("vthread"))
+  sch[Y].bind(vw, te.thread_axis("vthread"))
+  sch[Y].bind(tc, te.thread_axis("threadIdx.z"))
+  sch[Y].bind(th, te.thread_axis("threadIdx.y"))
+  sch[Y].bind(tw, te.thread_axis("threadIdx.x"))
+  sch[Y].reorder(bc, bh, bw, vc, vh, vw, tc, th, tw, ic, ih, iw)
+
+  sch[YL].compute_at(sch[Y], tw)
+
+  # tile reduction axes
+  c, h, w = sch[YL].op.axis
+  rc, rh, rw = sch[YL].op.reduce_axis
+  rco, rcm, rci = split_axis(tile_rc, sch, YL, rc)
+  rho, rhm, rhi = split_axis(tile_rh, sch, YL, rh)
+  rwo, rwm, rwi = split_axis(tile_rw, sch, YL, rw)
+  sch[YL].reorder(rco, rho, rwo, rcm, rhm, rwm, rci, rhi, rwi, c, h, w)
+
+  sch[XX].compute_at(sch[YL], rwo)
+  sch[KK].compute_at(sch[YL], rwo)
+  sch[XL].compute_at(sch[YL], rwm)
+  sch[KL].compute_at(sch[YL], rwm)
+
+  # cooperative fetching
+  for load in [XX, KK]:
+      args = sch[load].op.axis
+      fused = sch[load].fuse(*args)
+      # align thread layout
+      tz, fused = sch[load].split(fused, nparts=tile_c[1])
+      ty, fused = sch[load].split(fused, nparts=tile_h[1])
+      tx, _ = sch[load].split(fused, nparts=tile_w[1])
+      sch[load].bind(tz, te.thread_axis("threadIdx.z"))
+      sch[load].bind(ty, te.thread_axis("threadIdx.y"))
+      sch[load].bind(tx, te.thread_axis("threadIdx.x"))
+
+  return sch, (X, K, Y)

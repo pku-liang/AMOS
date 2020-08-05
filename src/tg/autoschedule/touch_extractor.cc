@@ -75,7 +75,7 @@ void TouchExtractor::ExitItervar_() {
 }
 
 
-void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) { 
+void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) {
   this->current_stmt = &innermost_stmt;
   innermost_stmt_map[&innermost_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
 }
@@ -87,11 +87,27 @@ void TouchExtractor::ExitInnermostStmt_() { this->current_stmt = nullptr; }
 void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access_type) {
   TouchedBuffer buf = buffer_var.get()->name_hint;
   auto& feature = innermost_stmt_map[current_stmt].buffer_access_feature;
-  auto& buffer_shape = this->buffer_info_[buffer_var].shape;
-  auto& buffer_scope = this->buffer_info_[buffer_var].scope;
+
+  std::vector<int64_t> buffer_shape;
+  std::string buffer_scope;
+  int64_t buffer_elem_bytes;
+
+  for (auto item : this->buffer_info_) {
+    auto& s1 = buffer_var->name_hint;
+    auto& s2 = item.first->name_hint;
+    auto res = std::mismatch(s2.begin(), s2.end(), s1.begin());
+    if (res.first == s2.end()) {
+      buffer_shape = item.second.shape;
+      buffer_elem_bytes = item.second.dtype.bytes();
+      if (s1 == s2)
+        buffer_scope = item.second.scope;
+      else buffer_scope = s1.substr(s1.rfind(".") + 1, s1.size());
+      break;
+    }
+  }
+
   int64_t buffer_nelems =
       std::accumulate(buffer_shape.begin(), buffer_shape.end(), 1, std::multiplies<int64_t>());
-  int64_t buffer_elem_bytes = this->buffer_info_[buffer_var].dtype.bytes();
 
   IndexParser parser;
   parser.Parse(index);
@@ -160,8 +176,6 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     for (auto var = itervar_stack_.rbegin(); var != itervar_stack_.rend(); ++var) {
       auto x = parser.pattern_map.find(var->get());
       auto length = extent[*var];
-      std::cout << "var: " << var->as<VarNode>()->name_hint << ", "
-                << "length: " << length << std::endl;
       if (x != parser.pattern_map.end()) {
         bottomup *= length;
       } else {
@@ -259,7 +273,6 @@ void GetInnerStatementFeature(
 }
 
 
-// TODO: remove duplicated code
 void GetInnerStatementFeatureFlatten(
   Stmt stmt, bool take_log, 
   Array<FloatImm> *ret_feature, 

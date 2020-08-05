@@ -43,11 +43,14 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
 
 // parallel axis, virtual thread
 void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
-  if (op->attr_key == attr::thread_extent ||
-      op->attr_key == attr::virtual_thread) {
+  if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto *extent = op->value.as<IntImmNode>();
-    size_t min = op->body.as<tir::ForNode>()->min.as<IntImmNode>()->value;
+
+    size_t min = 0;
+    if (auto ptr = op->body.as<tir::ForNode>())
+      min = ptr->min.as<IntImmNode>()->value;
+    
     CHECK(extent);
 
     std::string name = var.get()->name_hint;
@@ -70,7 +73,6 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
     } else {
       ann = kVirtualThread;
     }
-
     if (EnterItervar_(var, min, extent->value)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
@@ -86,6 +88,7 @@ void FeatureVisitor::VisitExpr_(const LoadNode* op) {
   StmtExprVisitor::VisitExpr_(op);
   ExitMem_();
 }
+
 
 void FeatureVisitor::VisitStmt_(const StoreNode* op) {
   EnterMem_(op->buffer_var, op->index, AccessType::kWrite);

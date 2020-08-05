@@ -84,10 +84,7 @@ class TouchExtractor : public FeatureVisitor {
     operator()(stmt);
   }
 
-  // error: no match for call to ‘(const std::hash<tvm::tir::ProvideNode>) (const tvm::tir::ProvideNode&)
-
   std::unordered_map<const StoreNode*, InnermostStatementFeature> innermost_stmt_map;
-  // TvmMap<const ProvideNode*, InnermostStatementFeature> innermost_stmt_map;
   TvmMap<Var, std::unordered_set<const StoreNode*> > buffervar_stmt_map;
 
 
