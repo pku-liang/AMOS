@@ -155,9 +155,12 @@ def structural_equal(feature, feature_ref, check_features:list):
 BUFFER_ACCESS_FEATURE_KEYS = ['access_type', 'bytes', 'unique_bytes', 'lines',
   'unique_lines', 'reuse_type', 'reuse_distance', 'reuse_counter', 'stride']
 
-Feature = namedtuple('Feature', BUFFER_ACCESS_FEATURE_KEYS)
 
-def build_structured_feature(d: list[dict[str, Feature]]):
+Feature = namedtuple('Feature', ['access_type', 'bytes', 'unique_bytes', 'lines',
+  'unique_lines', 'reuse_type', 'reuse_distance', 'reuse_counter', 'stride'])
+
+
+def build_structured_feature(d):
   from copy import deepcopy
   d = deepcopy(d)
   for dd in d:

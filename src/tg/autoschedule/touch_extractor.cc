@@ -87,20 +87,24 @@ void TouchExtractor::ExitInnermostStmt_() { this->current_stmt = nullptr; }
 void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access_type) {
   TouchedBuffer buf = buffer_var.get()->name_hint;
   auto& feature = innermost_stmt_map[current_stmt].buffer_access_feature;
+  auto& buffer_shape = this->buffer_info_[buffer_var].shape;
+  auto& buffer_scope = this->buffer_info_[buffer_var].scope;
+  int64_t buffer_nelems =
+      std::accumulate(buffer_shape.begin(), buffer_shape.end(), 1, std::multiplies<int64_t>());
+  int64_t buffer_elem_bytes = this->buffer_info_[buffer_var].dtype.bytes();
 
   IndexParser parser;
   parser.Parse(index);
 
   // access type
-  this->current_buffer_access_type = access_type;
-  feature[buf].access_type = AccessType(feature[buf].access_type | AccessType::kRead);
+  feature[buf].access_type = AccessType(feature[buf].access_type | access_type);
 
   // reuse type
   auto& reuse_type = feature[buf].reuse_type;
 
   bool loop_reuse_tag = false;
-  int64_t bytes = this->buffer_info_[buffer_var].dtype.bytes();
-  int64_t unique_bytes = this->buffer_info_[buffer_var].dtype.bytes();
+  int64_t bytes = buffer_elem_bytes;
+  int64_t unique_bytes = buffer_nelems * buffer_elem_bytes;
   int64_t reuse_counter = 1;
   int64_t &stride = feature[buf].stride;
 
@@ -110,7 +114,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     auto length = extent[var];
     bytes *= length;
     if (x != parser.pattern_map.end()) {
-      unique_bytes *= length;
+      // unique_bytes *= length;
       if (stride == 0) {
         stride = x->second;
       } else {
@@ -123,16 +127,20 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     if (loop_reuse_tag) reuse_type = ReuseType(reuse_type | ReuseType::kLoopMultipleRead);
   }
   feature[buf].bytes += bytes;
-  feature[buf].unique_bytes += unique_bytes;
+  // feature[buf].unique_bytes += unique_bytes;
+  feature[buf].unique_bytes = unique_bytes;
   feature[buf].reuse_counter += reuse_counter;
 
   auto& appearances = buffervar_stmt_map[buffer_var];
   appearances.insert({this->current_stmt});
   bool serial_reuse_tag = appearances.size() > 1;
-  if (serial_reuse_tag) reuse_type = ReuseType(reuse_type | ReuseType::kSerialMultipleRead);
-  
-  auto& buffer_shape = this->buffer_info_[buffer_var].shape;
-  auto& buffer_scope = this->buffer_info_[buffer_var].scope;
+  if (serial_reuse_tag) {
+    for (auto stmt: buffervar_stmt_map[buffer_var]) {
+      auto& f = innermost_stmt_map[stmt].buffer_access_feature;
+      auto& rt = f[buf].reuse_type;
+      rt = ReuseType(rt | ReuseType::kSerialMultipleRead);
+    }
+  }
 
   int64_t topdown = 1;
   for (auto var : itervar_stack_) {
@@ -142,18 +150,18 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 
   if (buffer_scope == "global") {
     feature[buf].lines += topdown;
-    // TODO: alignment? bound
     const int CACHELINE_SIZE = 128;  // 128 bytes per L1 cache line
 
-    feature[buf].unique_lines = std::accumulate(buffer_shape.begin(), buffer_shape.end(), 
-      1, std::multiplies<int64_t>()) * this->buffer_info_[buffer_var].dtype.bytes() / CACHELINE_SIZE;
+    feature[buf].unique_lines = buffer_nelems * buffer_elem_bytes / CACHELINE_SIZE;
   }
 
-  if (serial_reuse_tag) {
+  if (loop_reuse_tag) {
     int64_t bottomup = 1;
     for (auto var = itervar_stack_.rbegin(); var != itervar_stack_.rend(); ++var) {
       auto x = parser.pattern_map.find(var->get());
       auto length = extent[*var];
+      std::cout << "var: " << var->as<VarNode>()->name_hint << ", "
+                << "length: " << length << std::endl;
       if (x != parser.pattern_map.end()) {
         bottomup *= length;
       } else {
@@ -165,7 +173,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 }
 
 
-void TouchExtractor::ExitMem_() { this->current_buffer_access_type = AccessType::kNone; }
+void TouchExtractor::ExitMem_() { }
 
 
 void TouchExtractor::VisitStmt_(const StoreNode* op) {

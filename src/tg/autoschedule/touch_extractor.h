@@ -102,8 +102,8 @@ class TouchExtractor : public FeatureVisitor {
   void VisitStmt_(const StoreNode* op) final;
 
   const StoreNode *current_stmt {nullptr};
-  AccessType current_buffer_access_type {AccessType::kNone};
   std::deque<Var> itervar_stack_;
+  // TODO: refactor: loopinfo
   TvmMap<Var, int64_t> extent;
   TvmMap<Var, int64_t> loop_min;
   size_t innermost_stmt_counter_{0};
