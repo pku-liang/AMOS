@@ -528,7 +528,7 @@ AllreduceSubSpace::AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_
       node->need_tile.push_back(true);
       count_split_axis += 1;
     }
-    node->split_factor_spaces.push_back(SplitFactorSubSpace(extent, parts, "power2"));
+    node->split_factor_spaces.push_back(SplitFactorSubSpace(extent, parts, "normal"));
 
     count_axis += 1;
   }  // end for axis
@@ -549,7 +549,7 @@ AllreduceSubSpace::AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_
     }
     node->reduce_need_tile.push_back(false);
 
-    node->reduce_split_factor_spaces.push_back(SplitFactorSubSpace(extent, reduce_parts, "power2"));
+    node->reduce_split_factor_spaces.push_back(SplitFactorSubSpace(extent, reduce_parts, "normal"));
 
     count_reduce_axis += 1;
   }  // end for axis
@@ -995,7 +995,7 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
       node->need_tile.push_back(true);
       count_split_axis += 1;
     }
-    node->split_factor_spaces.push_back(SplitFactorSubSpace(extent, parts, "power2"));
+    node->split_factor_spaces.push_back(SplitFactorSubSpace(extent, parts, "normal"));
 
     count_axis += 1;
   }  // end for axis
@@ -1082,7 +1082,7 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
     }
     node->reduce_need_tile.push_back(true);
 
-    node->reduce_split_factor_spaces.push_back(SplitFactorSubSpace(extent, reduce_parts, "power2"));
+    node->reduce_split_factor_spaces.push_back(SplitFactorSubSpace(extent, reduce_parts, "normal"));
 
     count_reduce_axis += 1;
   }  // end for axis
