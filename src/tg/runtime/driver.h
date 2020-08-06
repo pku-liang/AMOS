@@ -165,7 +165,7 @@ class Session {
     std::string reference="", int first_stage_number=100000, double second_stage_topk_ratio=0.1);
 
   void run_build(
-    int task_id, TIRMultiGraph multi_graph, int advance_number);
+    int task_id, TIRMultiGraph multi_graph, int advance_number, int first_stage_number);
 
   void run_evaluate(
     int task_id, TIRMultiGraph multi_graph, int advance_number);

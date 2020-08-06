@@ -155,7 +155,7 @@ class AutoScheduler {
   std::unordered_map<IntKey, AutoScheduleContext> contexts;
   std::ostream& log_out;
   std::ofstream profile_log;
-  Measurer *measurer = nullptr;
+  // Measurer *measurer = nullptr;
 
   ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
  public:
@@ -169,25 +169,26 @@ class AutoScheduler {
     thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
     std::vector<std::string> parts = string_split(".", log_file_name);
     profile_log.open(log_file_name, std::ios::app);
-    measurer = new Measurer(profile_parallel, profile_timeout);
+    // measurer = new Measurer(profile_parallel, profile_timeout);
   }
   ~AutoScheduler() {
     if (thread_pool != nullptr) delete thread_pool;
     profile_log.close();
-    if (measurer != nullptr) delete measurer;
+    // if (measurer != nullptr) delete measurer;
   }
   void reset() {
     if (thread_pool != nullptr) {
       delete thread_pool; thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
     }
-    if (measurer != nullptr) {delete measurer; measurer = new Measurer(profile_parallel, profile_timeout);}
+    // if (measurer != nullptr) {delete measurer; measurer = new Measurer(profile_parallel, profile_timeout);}
   }
   ScheduleResult schedule_with_entity(IntKey key, TIRGraph subgraph, Target target, MultiScheduleEntity entity);
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
   void feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation);
   std::vector<double> judge_schedule(
-    Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, double gflop, std::string policy);
+    Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, std::string policy, double gflop);
   void auto_schedule(TIRGraph subgraph, AutoScheduleContext &context, ScheduleResult &results);
+  void clear_schedule_cache_for(IntKey key);
 };
 
 

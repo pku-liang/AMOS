@@ -269,6 +269,11 @@ class Queue {
     std::unique_lock<std::mutex> lock(mutex);
     return q.size();
   }
+
+  void clear() {
+    std::unique_lock<std::mutex> lock(mutex);
+    q.clear();
+  }
 };
 
 

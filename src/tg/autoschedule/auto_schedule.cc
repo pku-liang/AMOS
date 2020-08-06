@@ -48,26 +48,19 @@ double calculate_possibility(double x, double best, double upper=0.7) {
 
 
 std::vector<double> AutoScheduler::judge_schedule(
-  Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, double gflop, std::string policy) {
-  const auto* f = runtime::Registry::Get("tg.autoschedule.judge_schedule");
-  // CHECK(f) << "Can't find tg.autoschedule.judge_schedule";
+  Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, std::string policy, double gflop) {
+  const auto* f = runtime::Registry::Get("tg.autoschedule.query_cost_model");
+  ASSERT(f != nullptr) << "Can't find tg.autoschedule.query_cost_model";
   std::vector<double> ret;
-  if (f == nullptr) {
-    if (policy == "profile") {
-      ret = measurer->measure(schedules, tensors, target, ctx, gflop);
-    } else if (policy == "random") {
-      for (auto sch : schedules) {
-        ret.push_back(randdouble());
-      }
+  Array<FloatImm> tmp = (*f)(schedules, tensors, target, policy);
+  for (auto v : tmp) {
+    if (v->value <= 0) {
+      ret.push_back(0.0);
     } else {
-      ERROR << "No support for policy: " << policy << ".";
-    }
-  } else {
-    Array<FloatImm> tmp = (*f)(schedules, tensors, target, gflop, policy);
-    for (auto v : tmp) {
-      ret.push_back(v->value);
+      ret.push_back(gflop / (v->value / 1e3));
     }
   }
+
   return ret;
 }
 
@@ -106,19 +99,23 @@ void AutoScheduler::auto_schedule(
 
   // prepare new candidates
   std::vector<MultiScheduleEntity> new_candidates;
-  bool must_new = true;
+  int must_new = 10;
   while (new_candidates.size() == 0U) {
     for (int i = 0; i < context->new_trial; ++i) {
       // choose a seed
       bool use_seed = false;
       EvaluatedScheduleResult seed;
-      if (randdouble() < 0.7 && context->counts > warm_up_trials) {
+      if (randdouble() < 0.8 && context->counts > warm_up_trials) {
         for (int j = num_candidates; j > 0; --j) {
           if (randdouble() < p[j-1]) {
             use_seed = true;
             seed = reverse_sort[j-1];
             break;
           }
+        }
+        if (num_candidates > 0 && !use_seed) {
+          use_seed = true;
+          seed = reverse_sort[num_candidates - 1];
         }
       }
       // choose new one
@@ -130,26 +127,23 @@ void AutoScheduler::auto_schedule(
         new_one = context->spaces.choose_one();
       }
       // if must_new, then must be new candidate never met before
-      if (must_new) {
-        if (context->known_schedules.find(new_one) == context->known_schedules.end()) {
-          new_candidates.push_back(new_one);
-        }
-        if (context->knowing_schedules.find(new_one) == context->knowing_schedules.end()) {
+      if (must_new > 0) {
+        if ((context->known_schedules.find(new_one) == context->known_schedules.end())
+            && (context->knowing_schedules.find(new_one) == context->knowing_schedules.end())) {
           new_candidates.push_back(new_one);
         }
       } else {
         new_candidates.push_back(new_one);
       }
-      // context->knowing_schedules.insert(new_one);
+      context->knowing_schedules.insert(new_one);
       // if (context->knowing_schedules.size() > 2000U) {
       //   context->known_schedules.clear();
       //   context->known_schedules = context->knowing_schedules;
       //   context->knowing_schedules.clear();
       // }
     }
-    must_new = false;  // the second round, just relaxed
+    must_new = -1;  // the next round, just relaxed
   }
-
   // choose from new candidates
   double best_value = -1;
   int best_ind = -1;
@@ -160,8 +154,9 @@ void AutoScheduler::auto_schedule(
     interpret(tmp_sch, tensors, subgraph, context->target, new_candidates[i]);
     tmp_schedules.push_back(tmp_sch);
   }
-  double gflop = 1;
-  std::vector<double> tmp_judges = judge_schedule(tmp_schedules, tensors, context->target, gflop, context->policy);
+
+  double gflop = get_gflop(subgraph);
+  std::vector<double> tmp_judges = judge_schedule(tmp_schedules, tensors, context->target, context->policy, gflop);
   for (int i = 0; i < num_new_candidates; ++i) {
     if (context->policy == "profile") {
       context.add_feedback(ScheduleResult(tmp_schedules[i], tensors, new_candidates[i]), tmp_judges[i]);
@@ -205,11 +200,10 @@ void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double ev
     }
   }
 
-  self->knowing_schedules.insert(schedule_result->schedule_entities);
-  if (self->knowing_schedules.size() > 500U) {
+  self->known_schedules.insert(schedule_result->schedule_entities);
+  self->knowing_schedules.erase(schedule_result->schedule_entities);
+  if (self->known_schedules.size() > 2000U) {
     self->known_schedules.clear();
-    self->known_schedules = self->knowing_schedules;
-    self->knowing_schedules.clear();
   }
 }
 
@@ -262,6 +256,8 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 
 
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
+  const auto* f = runtime::Registry::Get("tg.autoschedule.store_feedback");
+  ASSERT(f != nullptr) << "Can't find tg.autoschedule.store_feedback";
   contexts[key].add_feedback(schedule_result, evaluation);
   Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
   std::ostringstream oss;
@@ -275,7 +271,7 @@ void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult s
   for (int i = 0; i < (int)feature.size(); ++i) {
     if (i != 0)
       oss << ", ";
-    oss << feature[i]->features[(int)feature[i].size() - 1]->value;
+    oss << std::pow(2, feature[i]->features[15]->value);
   }
   oss << "], ";
   oss << "\"features\": ";
@@ -286,12 +282,21 @@ void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult s
     oss << feature[i];
   }
   oss << "], ";
-  oss << "\"schedules\": ";
-  oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
+  // oss << "\"schedules\": ";
+  // oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
   oss << "\"evaluation\": ";
   oss << evaluation;
   oss << " }\n";
   profile_log << oss.str();
+  (*f)(oss.str());
+}
+
+
+void AutoScheduler::clear_schedule_cache_for(IntKey key) {
+  if (contexts.find(key) != contexts.end()) {
+    auto context = contexts[key];
+    context->knowing_schedules.clear();
+  }
 }
 
 

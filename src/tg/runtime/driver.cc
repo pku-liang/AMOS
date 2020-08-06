@@ -382,11 +382,11 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
             tvm::BuildConfig::Create()
           );
 
-          if (future_functions[cand].size() > 1000U) {
+          if (future_functions[cand].size() > 100U) {
             print(4, autoschedule_log) << "Too many schedules to do...\n";
-          } else {
-            future_functions[cand].push(sch_func);
+            usleep(1000*1000);
           }
+          future_functions[cand].push(sch_func);
 
           // update delete_set
           delete_set.insert(cand);
@@ -488,13 +488,14 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph, int advan
 }
 
 
-void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_number) {
+void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_number, int first_stage_number) {
   // forward the compilation by multiple iterations
   int build_trials = advance_number;  // std::ceil((advance_number * sess_option->autoschedule_trial_ratio));
   for (int ad = 0; ad < build_trials; ++ad) {
     print(1, build_log) << "Build iteration " << ad << "\n";
     bool allow_missing = ((cached_all_functions.find(task_id) != cached_all_functions.end())
-                         && cached_all_functions[task_id]);
+                         && cached_all_functions[task_id])
+                         && ad > first_stage_number;
     // see if not done
     bool peek_finish = false;
     std::unique_lock<std::mutex> lock(this->finish_mutex);
@@ -545,13 +546,13 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
           // get future schedule
           if (!future_functions[key].empty()) {
             auto sch_and_mod = future_functions[key].front();
+            this->emergency_build_queue.pop();
             ScheduleResult sch = sch_and_mod.first;
             auto future_mod = sch_and_mod.second;
 
             try {
               print(4, build_log) << "Waiting for emergency build for " << key->value << "...\n";
               tvm::runtime::Module mod = future_mod.get();
-              this->emergency_build_queue.pop();
               tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(key));
               print(4, build_log) << "Get emergency build for " << key->value << "!\n";
 
@@ -598,12 +599,12 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph, int advance_numb
             tvm::runtime::PackedFunc func = mod->GetFunction(get_func_name(cand));
             print(4, build_log) << "Get build for " << cand->value << "!\n";
 
-            if (built_functions[cand].size() > 1000U) {
+            if (built_functions[cand].size() > 100U) {
               // wait consumers to drain the queue
-              print(4, build_log) << "Blocking...\n";
-            } else {
-              built_functions[cand].push(std::make_tuple(sch, mod, func));
+              print(4, build_log) << "Too many builds...\n";
+              usleep(1000 * 1000);
             }
+            built_functions[cand].push(std::make_tuple(sch, mod, func));
 
             // update delete_set
             delete_set.insert(cand);
@@ -726,7 +727,7 @@ void Session::run_evaluate(
   // prepare the evaluate_performance
   const auto* evaluate_performance = runtime::Registry::Get("tg.runtime.evaluate_performance");
   ASSERT(evaluate_performance != nullptr) << "Should prepare tg.runtime.evaluate_performance function.";
-
+  std::unordered_map<IntKey, unsigned long long> counts;
   while (true) {
     bool allow_missing = ((cached_all_functions.find(task_id) != cached_all_functions.end())
                          && cached_all_functions[task_id]);
@@ -789,7 +790,11 @@ void Session::run_evaluate(
           */
         double elapsed_time = (*evaluate_performance)(mod, get_func_name(key), schedule_result->tensors);
         print(4, evaluate_log) << "evaluate result for " << key->value << " is " << elapsed_time << "ms.\n";
-
+        if (counts.find(key) == counts.end()) {
+          counts[key] = 0;
+        }
+        counts[key] += 1;
+        print(4, evaluate_log) << "Evaluate for key: " << key->value << " " << counts[key] << "times\n";
         if (elapsed_time > 0) {
           // feedback
           double gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
@@ -1262,9 +1267,9 @@ void Session::begin_tuning(int task_id, int advance_number, std::string referenc
    */
   if (this->build_threads.find(task_id) == this->build_threads.end()) {
     this->build_threads[task_id] = std::thread(
-      [this](int id, TIRMultiGraph g, int b) {
-        run_build(id, g, b);
-      }, task_id, multi_graph, advance_number + additional_build);
+      [this](int id, TIRMultiGraph g, int b, int f) {
+        run_build(id, g, b, f);
+      }, task_id, multi_graph, advance_number + additional_build, first_stage_number);
   }
 
   /*
