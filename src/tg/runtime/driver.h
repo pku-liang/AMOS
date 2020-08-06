@@ -126,7 +126,6 @@ class Session {
   std::unordered_map<int, std::vector<IntKey> > static_call_order;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> volatile_tensors;
-  std::unordered_map<IntKey, std::unique_ptr<std::mutex> > func_mutex;
 
   std::unordered_map<IntKey, Queue<std::pair<ScheduleResult,
     std::shared_future<tvm::runtime::Module> > > > future_functions;
@@ -137,7 +136,9 @@ class Session {
   std::unordered_map<IntKey, Queue<std::tuple<ScheduleResult,
     tvm::runtime::Module, tvm::runtime::PackedFunc, double, double> > > best_functions;
   Queue<IntKey> emergency_schedule_queue;
+  Queue<IntKey> normal_schedule_queue;
   Queue<IntKey> emergency_build_queue;
+  Queue<IntKey> normal_build_queue;
   std::unordered_map<int, bool> finish;
   std::mutex finish_mutex;
   int task_count;
@@ -161,14 +162,14 @@ class Session {
   std::string get_func_name(IntKey key);
 
   void run_autoschedule(
-    int task_id, TIRMultiGraph multi_graph, int advance_number,
-    std::string reference="", int first_stage_number=100000, double second_stage_topk_ratio=0.1);
+    int task_id, TIRMultiGraph multi_graph);
 
   void run_build(
-    int task_id, TIRMultiGraph multi_graph, int advance_number, int first_stage_number);
+    int task_id, TIRMultiGraph multi_graph);
 
   void run_evaluate(
-    int task_id, TIRMultiGraph multi_graph, int advance_number);
+    int task_id, TIRMultiGraph multi_graph, int advance_number,
+    int first_stage_number=100000, double second_stage_topk_ratio=0.1);
 
   void run_functions(
     int task_id,
