@@ -115,14 +115,14 @@ class ProgressBar {
       progress = 1.0;
     }
     int pos = (int)(progress * (length - 2));
-    std::cerr << "[";
+    std::cerr << "[" << std::flush;
     for (int i = 0; i < length - 2; ++i) {
       if (i < pos) {
-        std::cerr << "#";
+        std::cerr << "#" << std::flush;
       } else if (i == pos) {
-        std::cerr << "X";
+        std::cerr << "X" << std::flush;
       } else {
-        std::cerr << " ";
+        std::cerr << " " << std::flush;
       }
     }
     std::cerr << "]\r" << std::flush;

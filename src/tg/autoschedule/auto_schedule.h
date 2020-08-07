@@ -148,7 +148,7 @@ class AutoScheduler {
   double timeout;
   double profile_timeout;
   bool report_profile;
-  unsigned warm_up_trials = 10;
+  unsigned warm_up_trials = 20;
 
   DLContext ctx;
   ThreadPool *thread_pool = nullptr;

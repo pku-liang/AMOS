@@ -43,7 +43,7 @@ empty_schedule (TIRGraph subgraph) {
 
 
 double calculate_possibility(double x, double best, double upper=0.7) {
-  return std::exp(x - best) * upper;
+  return std::exp(x/best - 1.0) * upper;
 }
 
 
@@ -89,59 +89,74 @@ void AutoScheduler::auto_schedule(
     reverse_sort.push_back(context->topk_schedules.top());
     context->topk_schedules.pop();
   }
+
+  // return these topks, otherwise, they will be lost
+  for (auto ele : reverse_sort) {
+    context->topk_schedules.push(ele);
+  }
+
   int num_candidates = (int)(reverse_sort.size());
   // calculate possbilities
   for (auto e : reverse_sort) {
     p.push_back(
       calculate_possibility(
-        e->evaluation, reverse_sort[num_candidates - 1]->evaluation, 0.7 * num_candidates / context->topk));
+        e->evaluation, reverse_sort[num_candidates - 1]->evaluation, 1.0));
   }
+
+  std::cout << "Moniter schedule context\n" << std::flush;
+  if (num_candidates > 0)
+    std::cout << "Best: [" << reverse_sort[num_candidates-1]->evaluation << "]\n" << std::flush;
+  else
+    std::cout << "Best: [inf]\n" << std::flush;
+  for (int i = 0; i < num_candidates; ++i) {
+    std::cout << "(" << i << ")" << reverse_sort[i]->evaluation << "[" << p[i] << "] " << std::flush;
+  }
+  std::cout << "\n" << std::flush;
 
   // prepare new candidates
   std::vector<MultiScheduleEntity> new_candidates;
-  int must_new = 10;
-  while (new_candidates.size() == 0U) {
-    for (int i = 0; i < context->new_trial; ++i) {
-      // choose a seed
-      bool use_seed = false;
-      EvaluatedScheduleResult seed;
-      if (randdouble() < 0.8 && context->counts > warm_up_trials) {
-        for (int j = num_candidates; j > 0; --j) {
-          if (randdouble() < p[j-1]) {
-            use_seed = true;
-            seed = reverse_sort[j-1];
-            break;
-          }
-        }
-        if (num_candidates > 0 && !use_seed) {
+  int must_new = context->new_trial;
+  while ((int)new_candidates.size() < context->new_trial) {
+    // choose a seed
+    bool use_seed = false;
+    EvaluatedScheduleResult seed;
+    if (randdouble() < 0.8 && context->counts > warm_up_trials) {
+      for (int k = 0; k < num_candidates; ++k) {
+        int j = randint(k, num_candidates);
+        if (randdouble() <= p[j]) {
           use_seed = true;
-          seed = reverse_sort[num_candidates - 1];
+          seed = reverse_sort[j];
+          std::cout << "choose " << j << "\n" << std::flush;
+          break;
         }
       }
-      // choose new one
-      MultiScheduleEntity new_one;
-      if (use_seed) {
-        new_one = context->spaces.choose_one(seed->schedule_result->schedule_entities);
-      } else {
-        // pure random
-        new_one = context->spaces.choose_one();
-      }
-      // if must_new, then must be new candidate never met before
-      if (must_new > 0) {
-        if ((context->known_schedules.find(new_one) == context->known_schedules.end())
-            && (context->knowing_schedules.find(new_one) == context->knowing_schedules.end())) {
-          new_candidates.push_back(new_one);
-        }
-      } else {
-        new_candidates.push_back(new_one);
-      }
-      context->knowing_schedules.insert(new_one);
-      // if (context->knowing_schedules.size() > 2000U) {
-      //   context->known_schedules.clear();
-      //   context->known_schedules = context->knowing_schedules;
-      //   context->knowing_schedules.clear();
-      // }
     }
+    // choose new one
+    MultiScheduleEntity new_one;
+    if (use_seed) {
+      std::cout << "Seed:\n" << std::flush;
+      new_one = context->spaces.choose_one(seed->schedule_result->schedule_entities);
+    } else {
+      // pure random
+      new_one = context->spaces.choose_one();
+      std::cout << "Random:\n" << std::flush;
+    }
+    // if must_new, then must be new candidate never met before
+    if (must_new > 0) {
+      if ((context->known_schedules.find(new_one) == context->known_schedules.end())
+          && (context->knowing_schedules.find(new_one) == context->knowing_schedules.end())) {
+        new_candidates.push_back(new_one);
+      } else {
+        std::cout << "Repeat!\n" << std::flush;
+      }
+    } else {
+      new_candidates.push_back(new_one);
+    }
+    // if (context->knowing_schedules.size() > 2000U) {
+    //   context->known_schedules.clear();
+    //   context->known_schedules = context->knowing_schedules;
+    //   context->knowing_schedules.clear();
+    // }
     must_new = -1;  // the next round, just relaxed
   }
   // choose from new candidates
@@ -158,9 +173,9 @@ void AutoScheduler::auto_schedule(
   double gflop = get_gflop(subgraph);
   std::vector<double> tmp_judges = judge_schedule(tmp_schedules, tensors, context->target, context->policy, gflop);
   for (int i = 0; i < num_new_candidates; ++i) {
-    if (context->policy == "profile") {
-      context.add_feedback(ScheduleResult(tmp_schedules[i], tensors, new_candidates[i]), tmp_judges[i]);
-    }
+    // if (context->policy == "profile") {
+    //   context.add_feedback(ScheduleResult(tmp_schedules[i], tensors, new_candidates[i]), tmp_judges[i]);
+    // }
     if (tmp_judges[i] > best_value) {
       best_ind = i;
       best_value = tmp_judges[i];
@@ -179,8 +194,9 @@ void AutoScheduler::auto_schedule(
   print(4, log_out) << "Check subgraph:\n" << subgraph->tag << "\n";
   print(4, log_out) << "Check schedule entity:\n" << result_entity.to_string() << "\n";
   interpret(sch, tensors, subgraph, context->target, result_entity);
-  results = ScheduleResult(sch, tensors, new_candidates[best_ind]);
+  results = ScheduleResult(sch, tensors, result_entity);
   context->counts += 1;
+  context->knowing_schedules.insert(result_entity);
 }
 
 
@@ -203,7 +219,17 @@ void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double ev
   self->known_schedules.insert(schedule_result->schedule_entities);
   self->knowing_schedules.erase(schedule_result->schedule_entities);
   if (self->known_schedules.size() > 2000U) {
-    self->known_schedules.clear();
+    int count = 0;
+    std::vector<MultiScheduleEntity> to_delete;
+    for (auto val : self->known_schedules) {
+      to_delete.push_back(val);
+      if (count > 1000)
+        break;
+      count += 1;
+    }
+    for (auto val : to_delete) {
+      self->known_schedules.erase(val);
+    }
   }
 }
 
@@ -288,7 +314,9 @@ void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult s
   oss << evaluation;
   oss << " }\n";
   profile_log << oss.str();
-  (*f)(oss.str());
+  
+  if (evaluation > 0)
+    (*f)(oss.str());
 }
 
 

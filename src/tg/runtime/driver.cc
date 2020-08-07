@@ -442,6 +442,12 @@ void Session::run_evaluate(
   ASSERT(evaluate_performance != nullptr) << "Should prepare tg.runtime.evaluate_performance function.";
   std::unordered_map<IntKey, unsigned long long> counts;
   std::unordered_map<IntKey, double> performance;
+
+  // first of all, push some tokens
+  // and keep scheduler busy
+  for (auto key : static_call_order[task_id]) {
+    normal_build_queue.push(key, sess_option->execution_parallel);
+  }
   
   for (int ad = 0; ad < advance_number; ++ad) {
     print(1, evaluate_log) << "Iteration " << ad << "\n";
@@ -504,7 +510,7 @@ void Session::run_evaluate(
 
       TIRGraph subgraph = multi_graph.Self()->graphs[key];
       
-      bool taken = false;  // record taken a function
+      int taken = 0;  // record taken a function
 
       // try to find repeated subgraph
       if (!succ) {
@@ -529,44 +535,87 @@ void Session::run_evaluate(
       // built functions not empty
       // evaluate this wanted function
       if (!succ && !this->built_functions[key].empty()) {
-        auto sch_mod_func = this->built_functions[key].front();
-        // take away this one
-        this->built_functions[key].pop();
-        taken = true;   // we will take one function
-        // check if is ready
-        auto schedule_result = std::get<0>(sch_mod_func);
-        auto mod = std::get<1>(sch_mod_func);
-        auto func = std::get<2>(sch_mod_func);
-        ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
-
+        Array<tvm::runtime::Module> modules;
+        Array<ScheduleResult> schedules;
+        Array<te::Tensor> tensors;
+        std::vector<tvm::runtime::PackedFunc> functions;
+        for (int i = 0; i < sess_option->execution_parallel; ++i) {
+          if (this->built_functions[key].empty())
+            break;
+          auto sch_mod_func = this->built_functions[key].front();
+          // take away this one
+          this->built_functions[key].pop();
+          taken += 1;   // we will take one function
+          // check if is ready
+          auto schedule_result = std::get<0>(sch_mod_func);
+          schedules.push_back(schedule_result);
+          tensors = schedule_result->tensors;
+          auto mod = std::get<1>(sch_mod_func);
+          modules.push_back(mod);
+          auto func = std::get<2>(sch_mod_func);
+          ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
+          functions.push_back(func);
+        }
+        
         /* 
           * run the function in another process
           * to get performance, if return -1
           * then timeout or fail in execution
           */
-        double elapsed_time = (*evaluate_performance)(mod, get_func_name(key), schedule_result->tensors);
-        print(4, evaluate_log) << "evaluate result for " << key->value << " is " << elapsed_time << "ms.\n";
+        Array<FloatImm> elapsed_times = (*evaluate_performance)(modules, get_func_name(key), tensors);
         if (counts.find(key) == counts.end()) {
           counts[key] = 0;
         }
-        counts[key] += 1;
+        counts[key] += taken;
         print(4, evaluate_log) << "Evaluate for key: " << key->value << " " << counts[key] << "times\n";
-        if (elapsed_time > 0) {
-          // feedback
-          double gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
-          auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
 
+        int best_id = 0;
+        double best_perf = 0.0;
+        double best_time = 0.0;
+        for (int i = 0; i < taken; ++i) {
+          double elapsed_time = elapsed_times[i]->value;
+          auto mod = modules[i];
+          auto schedule_result = schedules[i];
+          auto func = functions[i];
+          print(4, evaluate_log) << "evaluate result for " << key->value << " is " << elapsed_time << " ms.\n";
+          if (elapsed_time > 0) {
+            // feedback
+            double gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
+            auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+
+            if (gflops > best_perf) {
+              best_id = i;
+              best_perf = gflops;
+              best_time = elapsed_time;
+            }
+            
+          } else {
+            // can't run the function
+            print(2, evaluate_log) << "Can't evaluate function: " << "\n";
+            auto sub_mods = mod->imports();
+            if (sub_mods.size() > 0U) {
+              runtime::Module sub_mod = (mod->imports().at(0));
+              print(4, evaluate_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
+            }
+            // feedback
+            auto_scheduler->feedback_for(key, subgraph, schedule_result, 0.0);
+          }
+        }
+
+        if (best_perf > 0) {
           // store function
           if (best_functions[key].empty()) {
-            print(4, evaluate_log) << "set best function for " << key->value << ": " << gflops << " GFLOPS.\n";
-            best_functions[key].push(std::make_tuple(schedule_result, mod, func, gflops, elapsed_time));
+            print(4, evaluate_log) << "set best function for " << key->value << ": " << best_perf << " GFLOPS.\n";
+            best_functions[key].push(std::make_tuple(
+              schedules[best_id], modules[best_id], functions[best_id], best_perf, best_time));
           } else {
             auto best = best_functions[key].front();
-            if (gflops > std::get<3>(best)) {
+            if (best_perf > std::get<3>(best)) {
               print(4, evaluate_log) << "replace best function for "
-                                     << key->value << ": " << gflops << " GFLOPS."
-                                     << "(original " << std::get<3>(best) << " GFLOPS)\n";
-              best_functions[key].push(std::make_tuple(schedule_result, mod, func, gflops, elapsed_time));
+                                    << key->value << ": " << best_perf << " GFLOPS."
+                                    << "(original " << std::get<3>(best) << " GFLOPS)\n";
+              best_functions[key].push(
+                std::make_tuple(schedules[best_id], modules[best_id], functions[best_id], best_perf, best_time));
               best_functions[key].pop();
             }
           }
@@ -575,28 +624,18 @@ void Session::run_evaluate(
           succ = true;
           evaluate_cache[subgraph->tag] = key;
           if (performance.find(key) == performance.end()) {
-            performance[key] = elapsed_time;
+            performance[key] = best_time;
           } else {
-            if (elapsed_time < performance[key]) {
-              performance[key] = elapsed_time;
+            if (best_time < performance[key]) {
+              performance[key] = best_time;
             }
           }
-        } else {
-          // can't run the function
-          print(2, evaluate_log) << "Can't evaluate function: " << "\n";
-          auto sub_mods = mod->imports();
-          if (sub_mods.size() > 0U) {
-            runtime::Module sub_mod = (mod->imports().at(0));
-            print(4, evaluate_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
-          }
-          // feedback
-          auto_scheduler->feedback_for(key, subgraph, schedule_result, 0.0);
-        }  // end try run function
-      }  // end try new function
+        }
+      }// end try new function
 
       // must check taken so that we won't overuse builder
-      if (!succ && taken) {
-        emergency_build_queue.push(key);
+      if (!succ && taken > 0) {
+        emergency_build_queue.push(key, taken);
       }
 
       if (succ) {
@@ -610,7 +649,8 @@ void Session::run_evaluate(
         }
       }
     };  // end evaluate helper
-
+    
+    std::unordered_set<IntKey> sent_token;
     while (!free_set.empty()) {
       // check if finish
       bool finish = false;
@@ -627,8 +667,9 @@ void Session::run_evaluate(
           // send a token to build thread
           // so that build thread will produce one function
           // for this key
-          if (normal_build_queue.empty()) {
-            normal_build_queue.push(k);
+          if (sent_token.find(k) == sent_token.end()) {
+            normal_build_queue.push(k, sess_option->execution_parallel);
+            sent_token.insert(k);
           }
         }
         evaluate_helper(k, delete_set, update_set);
