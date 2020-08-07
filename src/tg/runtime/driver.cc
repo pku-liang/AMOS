@@ -972,11 +972,13 @@ void Session::prepare_for_test(int task_id, std::string reference) {
     std::string line;
     while (std::getline(fin, line)) {
       std::vector<std::string> parts = string_split("|", line);
-      ASSERT(parts.size() >= 2U) << "Bad line: " << line << ".\n";
+      ASSERT(parts.size() >= 4U) << "Bad line: " << line << ".\n";
       IntKey key(std::stoi(parts[0]));
       MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
       ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
         key, multi_graph.Self()->graphs[key], target, entity);
+      double perf = std::stod(parts[2]);
+      double time = std::stod(parts[3]);
 
       std::string name = get_func_name(key);
       
@@ -987,7 +989,7 @@ void Session::prepare_for_test(int task_id, std::string reference) {
       auto func = module->GetFunction(name);
 
       built_functions[key].push(std::make_tuple(schedule_result, module, func));
-      best_functions[key].push(std::make_tuple(schedule_result, module, func, -999, -999));
+      best_functions[key].push(std::make_tuple(schedule_result, module, func, perf, time));
 
       TIRGraph subgraph = multi_graph.Self()->graphs[key];
       if (cache.find(subgraph->tag) == cache.end()) {
@@ -1045,6 +1047,17 @@ void Session::begin_tuning(int task_id, int advance_number, std::string referenc
 
   if (reference != "") {
     prepare_for_test(task_id, reference);
+    // add feedback to schedule context
+    for (auto& kv : best_functions) {
+      auto key = kv.first;
+      auto subgraph = multi_graph.Self()->graphs[key];
+      if (!kv.second.empty()) {
+        auto sch_mod_func_perf_time = kv.second.front();
+        auto schedule_result = std::get<0>(sch_mod_func_perf_time);
+        auto gflops = std::get<3>(sch_mod_func_perf_time);
+        auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+      }
+    }
   }
 
   /*
