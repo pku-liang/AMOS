@@ -176,7 +176,8 @@ class Session {
     TIRMultiGraph multi_graph,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
     std::string save_to="saved_schedules.txt",
-    int profile_level=0);
+    int profile_level=0,
+    bool no_actual_run=false);
   
   int add_task(TIRGraph graph);
   void begin_tuning(int task_id, int advance_number, std::string reference="",
@@ -188,7 +189,8 @@ class Session {
     int task_id,
     std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
     std::string save_to="saved_schedules.txt",
-    int profile_level=0);
+    int profile_level=0,
+    bool no_actual_run=false);
 };
 
 

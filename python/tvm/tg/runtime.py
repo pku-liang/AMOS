@@ -335,7 +335,7 @@ def add_task(session_id, tir_graph):
 #   return _ffi_api.run_graph(session_id, tir_graph, bindings)
 
 
-def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profile_level=0):
+def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profile_level=0, no_actual_run=False):
   """Run a task in the Session.
 
     Parameters
@@ -353,7 +353,9 @@ def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profi
 
     profile_level : int
 
+    no_actual_run : bool
+
     Returns
     -------
   """
-  _ffi_api.run_task(session_id, task_id, bindings, save_to, profile_level)
+  _ffi_api.run_task(session_id, task_id, bindings, save_to, profile_level, no_actual_run)

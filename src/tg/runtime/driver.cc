@@ -695,198 +695,201 @@ void Session::run_functions(
   TIRMultiGraph multi_graph,
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
   std::string save_to,
-  int profile_level) {
+  int profile_level,
+  bool no_actual_run) {
   ASSERT(static_call_order.find(task_id) != static_call_order.end()) << "Can't find task " << task_id
       << "\nDid you forget to add task first?\n";
 
-  auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
+  if (!no_actual_run) {
+    auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
 
-  int advance_number = (int)bindings.size();
-  ProgressBar progress_bar;
+    int advance_number = (int)bindings.size();
+    ProgressBar progress_bar;
 
-  std::vector<std::unordered_map<IntKey, std::vector<tvm::runtime::NDArray> > > ad_arrays;
+    std::vector<std::unordered_map<IntKey, std::vector<tvm::runtime::NDArray> > > ad_arrays;
 
-  for (int ad = 0; ad < advance_number; ++ad) {
-    std::unordered_map<IntKey, std::vector<tvm::runtime::NDArray> > array_map;
-    for (auto key : static_call_order[task_id]) {
-      TIRGraph subgraph = multi_graph.Self()->graphs[key];
-      /* get the runtime array
+    for (int ad = 0; ad < advance_number; ++ad) {
+      std::unordered_map<IntKey, std::vector<tvm::runtime::NDArray> > array_map;
+      for (auto key : static_call_order[task_id]) {
+        TIRGraph subgraph = multi_graph.Self()->graphs[key];
+        /* get the runtime array
+          * the order is the same as build
+          * TODO: handle the order by some other
+          * independent logic
+          */
+        std::vector<tvm::runtime::NDArray> arrays;
+        // get the inputs
+        for (auto tt : subgraph->inputs) {
+          te::Tensor t = multi_graph.Self()->tensor_index[tt];
+          if (bindings[ad].find(t) != bindings[ad].end()) {
+            arrays.push_back(bindings[ad][t]);
+          } else if (this->volatile_tensors.find(t) != this->volatile_tensors.end()) {
+            arrays.push_back(this->volatile_tensors[t]);
+          } else {
+            ERROR << "Can't find input " << t;
+          }
+        }
+
+        // get the labels
+        for (auto tt : subgraph->labels) {
+          te::Tensor t = multi_graph.Self()->tensor_index[tt];
+          if (bindings[ad].find(t) == bindings[ad].end()) {
+            ERROR << "Can't find label " << t;
+          }
+          arrays.push_back(bindings[ad][t]);
+        }
+
+        // get the outputs
+        for (auto tt : subgraph->outputs) {
+          te::Tensor t = multi_graph.Self()->tensor_index[tt];
+          if (volatile_tensors.find(t) == volatile_tensors.end()) {
+            ERROR << "Can't find output " << t;
+          }
+          arrays.push_back(this->volatile_tensors[t]);
+        }
+
+        // get the weights
+        for (auto tt : subgraph->weights) {
+          te::Tensor t = multi_graph.Self()->tensor_index[tt];
+          if (persistent_tensors.find(t) == persistent_tensors.end()) {
+            ERROR << "Can't find weight " << t;
+          }
+          arrays.push_back(this->persistent_tensors[t]);
+        }
+
+        // get the loss
+        if (subgraph->loss.defined()) {
+          te::Tensor t = multi_graph.Self()->tensor_index[subgraph->loss];
+          if (persistent_tensors.find(t) == persistent_tensors.end()) {
+            ERROR << "Can't find loss " << t;
+          }
+          arrays.push_back(this->persistent_tensors[t]);
+        }
+        
+        // get the gradients
+        for (auto tt : subgraph->gradients) {
+          te::Tensor t = multi_graph.Self()->tensor_index[tt];
+          if (persistent_tensors.find(t) == persistent_tensors.end()) {
+            ERROR << "Can't find gradient " << t;
+          }
+          arrays.push_back(this->persistent_tensors[t]);
+        }
+        
+        // get the lr
+        if (subgraph->lr.defined()) {
+          te::Tensor t = multi_graph.Self()->tensor_index[subgraph->lr];
+          if (bindings[ad].find(t) == bindings[ad].end()) {
+            ERROR << "Can't find lr " << t;
+          }
+          arrays.push_back(bindings[ad][t]);
+        }
+        
+        // get the updates
+        for (auto tt : subgraph->updates) {
+          te::Tensor t = multi_graph.Self()->tensor_index[tt];
+          if (persistent_tensors.find(t) == persistent_tensors.end()) {
+            ERROR << "Can't find update " << t;
+          }
+          arrays.push_back(this->persistent_tensors[t]);
+        }
+
+        array_map[key] = arrays;
+      }
+
+      ad_arrays.push_back(array_map);
+    }
+
+    std::priority_queue<double> time_queue;
+    for (int ad = 0; ad < advance_number; ++ad) {
+      if (sess_option->report_iteration) {
+        exe_log << "Iteration: " << ad << "\n";
+      }
+      progress_bar.draw(((double)(ad + 1) / advance_number));
+      if (ad == advance_number - 1) {
+        progress_bar.end();
+      }
+
+      /* the run helper
+      * handles one subgraph at a time
+      * fill the delete set and update set
+      */
+      std::function<bool(IntKey key)> run_helper;
+      run_helper = [&] (IntKey key) {
+
+        // the mark that indicates this subgraph is done
+        bool succ = false;
+        /* get the runtime array
         * the order is the same as build
         * TODO: handle the order by some other
         * independent logic
         */
-      std::vector<tvm::runtime::NDArray> arrays;
-      // get the inputs
-      for (auto tt : subgraph->inputs) {
-        te::Tensor t = multi_graph.Self()->tensor_index[tt];
-        if (bindings[ad].find(t) != bindings[ad].end()) {
-          arrays.push_back(bindings[ad][t]);
-        } else if (this->volatile_tensors.find(t) != this->volatile_tensors.end()) {
-          arrays.push_back(this->volatile_tensors[t]);
-        } else {
-          ERROR << "Can't find input " << t;
-        }
-      }
+        std::vector<tvm::runtime::NDArray> arrays = ad_arrays[ad][key];
 
-      // get the labels
-      for (auto tt : subgraph->labels) {
-        te::Tensor t = multi_graph.Self()->tensor_index[tt];
-        if (bindings[ad].find(t) == bindings[ad].end()) {
-          ERROR << "Can't find label " << t;
-        }
-        arrays.push_back(bindings[ad][t]);
-      }
+        if (!this->best_functions[key].empty()) {
+          auto mod_func = this->best_functions[key].front();
 
-      // get the outputs
-      for (auto tt : subgraph->outputs) {
-        te::Tensor t = multi_graph.Self()->tensor_index[tt];
-        if (volatile_tensors.find(t) == volatile_tensors.end()) {
-          ERROR << "Can't find output " << t;
-        }
-        arrays.push_back(this->volatile_tensors[t]);
-      }
+          auto mod = std::get<1>(mod_func);
+          auto func = std::get<2>(mod_func);
+          ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
 
-      // get the weights
-      for (auto tt : subgraph->weights) {
-        te::Tensor t = multi_graph.Self()->tensor_index[tt];
-        if (persistent_tensors.find(t) == persistent_tensors.end()) {
-          ERROR << "Can't find weight " << t;
-        }
-        arrays.push_back(this->persistent_tensors[t]);
-      }
-
-      // get the loss
-      if (subgraph->loss.defined()) {
-        te::Tensor t = multi_graph.Self()->tensor_index[subgraph->loss];
-        if (persistent_tensors.find(t) == persistent_tensors.end()) {
-          ERROR << "Can't find loss " << t;
-        }
-        arrays.push_back(this->persistent_tensors[t]);
-      }
-      
-      // get the gradients
-      for (auto tt : subgraph->gradients) {
-        te::Tensor t = multi_graph.Self()->tensor_index[tt];
-        if (persistent_tensors.find(t) == persistent_tensors.end()) {
-          ERROR << "Can't find gradient " << t;
-        }
-        arrays.push_back(this->persistent_tensors[t]);
-      }
-      
-      // get the lr
-      if (subgraph->lr.defined()) {
-        te::Tensor t = multi_graph.Self()->tensor_index[subgraph->lr];
-        if (bindings[ad].find(t) == bindings[ad].end()) {
-          ERROR << "Can't find lr " << t;
-        }
-        arrays.push_back(bindings[ad][t]);
-      }
-      
-      // get the updates
-      for (auto tt : subgraph->updates) {
-        te::Tensor t = multi_graph.Self()->tensor_index[tt];
-        if (persistent_tensors.find(t) == persistent_tensors.end()) {
-          ERROR << "Can't find update " << t;
-        }
-        arrays.push_back(this->persistent_tensors[t]);
-      }
-
-      array_map[key] = arrays;
-    }
-
-    ad_arrays.push_back(array_map);
-  }
-
-  std::priority_queue<double> time_queue;
-  for (int ad = 0; ad < advance_number; ++ad) {
-    if (sess_option->report_iteration) {
-      exe_log << "Iteration: " << ad << "\n";
-    }
-    progress_bar.draw(((double)(ad + 1) / advance_number));
-    if (ad == advance_number - 1) {
-      progress_bar.end();
-    }
-
-    /* the run helper
-     * handles one subgraph at a time
-     * fill the delete set and update set
-     */
-    std::function<bool(IntKey key)> run_helper;
-    run_helper = [&] (IntKey key) {
-
-      // the mark that indicates this subgraph is done
-      bool succ = false;
-      /* get the runtime array
-       * the order is the same as build
-       * TODO: handle the order by some other
-       * independent logic
-       */
-      std::vector<tvm::runtime::NDArray> arrays = ad_arrays[ad][key];
-
-      if (!this->best_functions[key].empty()) {
-        auto mod_func = this->best_functions[key].front();
-
-        auto mod = std::get<1>(mod_func);
-        auto func = std::get<2>(mod_func);
-        ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
-
-        if (profile_level >= 2) {
-          TIRGraph subgraph = multi_graph.Self()->graphs[key];
-          auto beg = std::chrono::steady_clock::now();
-          (*call_unpack)(func, arrays);
-          runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
-          auto end = std::chrono::steady_clock::now();
-          double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
-          print(1, exe_log) << "Subgraph: " << key->value << "\n"
-                            << "-------------------------------------------------\n";
-          for (auto op : subgraph->operation_list) {
-            print(1, exe_log) << op.as<ComputeOpNode>()->body << "\n";
+          if (profile_level >= 2) {
+            TIRGraph subgraph = multi_graph.Self()->graphs[key];
+            auto beg = std::chrono::steady_clock::now();
+            (*call_unpack)(func, arrays);
+            runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+            auto end = std::chrono::steady_clock::now();
+            double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
+            print(1, exe_log) << "Subgraph: " << key->value << "\n"
+                              << "-------------------------------------------------\n";
+            for (auto op : subgraph->operation_list) {
+              print(1, exe_log) << op.as<ComputeOpNode>()->body << "\n";
+            }
+            print(1, exe_log) << "Time cost: " << execution_time << " ms.\n";
+          } else {
+            (*call_unpack)(func, arrays);
           }
-          print(1, exe_log) << "Time cost: " << execution_time << " ms.\n";
-        } else {
-          (*call_unpack)(func, arrays);
+
+          // success
+          succ = true;
+        }  // end try new function
+
+        return succ;
+
+      };  // end run helper
+      
+      auto beg = std::chrono::steady_clock::now();
+      for (auto k : static_call_order[task_id]) {
+        while (!run_helper(k)) {
         }
-
-        // success
-        succ = true;
-      }  // end try new function
-
-      return succ;
-
-    };  // end run helper
-    
-    auto beg = std::chrono::steady_clock::now();
-    for (auto k : static_call_order[task_id]) {
-      while (!run_helper(k)) {
       }
-    }
 
+      if (profile_level >= 1) {
+        // synchronize the stream for this run task
+        runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
+        auto end = std::chrono::steady_clock::now();
+        double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
+        time_queue.push(execution_time);
+        print(1, exe_log) << "time cost: " << execution_time << " ms.\n";
+      }
+    }  // for ad
+    
     if (profile_level >= 1) {
-      // synchronize the stream for this run task
-      runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
-      auto end = std::chrono::steady_clock::now();
-      double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
-      time_queue.push(execution_time);
-      print(1, exe_log) << "time cost: " << execution_time << " ms.\n";
+      double max_time = time_queue.top();
+      double median_time, min_time;
+      size_t total_num = time_queue.size();
+      for (size_t i = 0; i <= total_num / 2; ++i) {
+        median_time = time_queue.top();
+        min_time = median_time;
+        time_queue.pop();
+      }
+      while (time_queue.size() > 1) {
+        min_time = time_queue.top();
+        time_queue.pop();
+      }
+      print(1, exe_log) << "Time report: min=[" << min_time
+                        << " ms], med=[" << median_time
+                        << " ms], max=[" << max_time << " ms]\n\n\n";
     }
-  }  // for ad
-  
-  if (profile_level >= 1) {
-    double max_time = time_queue.top();
-    double median_time, min_time;
-    size_t total_num = time_queue.size();
-    for (size_t i = 0; i <= total_num / 2; ++i) {
-      median_time = time_queue.top();
-      min_time = median_time;
-      time_queue.pop();
-    }
-    while (time_queue.size() > 1) {
-      min_time = time_queue.top();
-      time_queue.pop();
-    }
-    print(1, exe_log) << "Time report: min=[" << min_time
-                      << " ms], med=[" << median_time
-                      << " ms], max=[" << max_time << " ms]\n\n\n";
   }
   // save the functions
   if (save_to != "") {
@@ -1140,7 +1143,8 @@ void Session::run(
   int task_id,
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings,
   std::string save_to,
-  int profile_level) {
+  int profile_level,
+  bool no_actual_run) {
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "Can't find the task: " << task_id << ".\n";
   if (cached_all_functions.find(task_id) == cached_all_functions.end() || !cached_all_functions[task_id]) {
     if (in_tuning.find(task_id) == in_tuning.end() || !in_tuning[task_id]) {
@@ -1152,7 +1156,7 @@ void Session::run(
   print(1) << "Advancing " << advance_number << " iterations.\n";
 
   TIRMultiGraph multi_graph = task_cache[task_id];
-  run_functions(task_id, multi_graph, bindings, save_to, profile_level);
+  run_functions(task_id, multi_graph, bindings, save_to, profile_level, no_actual_run);
 }
 
 
@@ -1235,10 +1239,11 @@ int add_task(int session_id, TIRGraph graph) {
 void run_task(
   int session_id, int task_id,
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to,
-  int profile_level) {
+  int profile_level,
+  bool no_actual_run) {
   
   auto sess = get_session(session_id);
-  sess->run(task_id, bindings, save_to, profile_level);
+  sess->run(task_id, bindings, save_to, profile_level, no_actual_run);
 }
 
 
@@ -1387,7 +1392,7 @@ TVM_REGISTER_GLOBAL("tg.add_task")
 TVM_REGISTER_GLOBAL("tg.run_task")
 .set_body_typed([](
   int session_id, int task_id,
-  Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to, int profile_level){
+  Array<Map<te::Tensor, tvm::runtime::NDArray> > bindings, std::string save_to, int profile_level, bool no_actual_run){
   std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > _bindings;
   for (auto mp : bindings) {
     std::unordered_map<te::Tensor, tvm::runtime::NDArray> tmp;
@@ -1396,7 +1401,7 @@ TVM_REGISTER_GLOBAL("tg.run_task")
     }
     _bindings.push_back(tmp);
   }
-  run_task(session_id, task_id, _bindings, save_to, profile_level);
+  run_task(session_id, task_id, _bindings, save_to, profile_level, no_actual_run);
 });
 
 
