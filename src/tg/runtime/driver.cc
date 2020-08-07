@@ -379,6 +379,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph) {
           succ = true;
         } catch (const std::exception &e) {
           print(2, build_log) << "Can't get build for: " << e.what() << "\n";
+          auto_scheduler->feedback_for(key, subgraph, sch, 0.0);
         }  // try catch
       }  // if (!future_functions[key].empty())
 

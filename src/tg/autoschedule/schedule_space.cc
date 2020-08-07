@@ -592,13 +592,14 @@ AllreduceEntity AllreduceSubSpace::choose_one(AllreduceEntity hint) {
   ChoiceEntity use_factor;
   bool the_same = true;
 
-  while (the_same) {
+  int count = 0;
+  while (the_same && count++ < 10) {
     split_factor_entities.clear();
     reduce_split_factor_entities.clear();
 
     int i = 0;
     for (auto space : (*this)->split_factor_spaces) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         split_factor_entities.push_back(space.choose_one(hint->split_factor_entities[i]));
         the_same = false;
       } else {
@@ -609,7 +610,7 @@ AllreduceEntity AllreduceSubSpace::choose_one(AllreduceEntity hint) {
 
     i = 0;
     for (auto space : (*this)->reduce_split_factor_spaces) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         reduce_split_factor_entities.push_back(space.choose_one(hint->reduce_split_factor_entities[i]));
         the_same = false;
       } else {
@@ -618,7 +619,7 @@ AllreduceEntity AllreduceSubSpace::choose_one(AllreduceEntity hint) {
       i += 1;
     }
     
-    if (randdouble() < 0.8) {
+    if (randdouble() < 0.9) {
       use_factor = (*this)->use_factor.choose_one(hint->use_factor);
       the_same = false;
     } else {
@@ -1108,13 +1109,14 @@ TilingAndBindingEntity TilingAndBindingSubSpace::choose_one() {
 TilingAndBindingEntity TilingAndBindingSubSpace::choose_one(TilingAndBindingEntity hint) {
   std::vector<SplitFactorEntity> split_factor_entities, reduce_split_factor_entities;
   bool the_same = true;
-  while (the_same) {
+  int count = 0;
+  while (the_same && count++ < 10) {
     split_factor_entities.clear();
     reduce_split_factor_entities.clear();
 
     int i = 0;
     for (auto space : (*this)->split_factor_spaces) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         split_factor_entities.push_back(space.choose_one(hint->tiling->split_factor_entities[i]));
         the_same = false;
       } else {
@@ -1125,7 +1127,7 @@ TilingAndBindingEntity TilingAndBindingSubSpace::choose_one(TilingAndBindingEnti
 
     i = 0;
     for (auto space : (*this)->reduce_split_factor_spaces) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         reduce_split_factor_entities.push_back(space.choose_one(hint->tiling->reduce_split_factor_entities[i]));
         the_same = false;
       } else {
@@ -1257,13 +1259,14 @@ BufferInputEntity BufferInputSubSpace::choose_one(BufferInputEntity hint) {
   std::vector<MultiChoiceEntity> choices;
   std::vector<ChoiceEntity> vectorize_choices;
   bool the_same = true;
-  while (the_same) {
+  int count = 0;
+  while (the_same && count++ < 10) {
     choices.clear();
     vectorize_choices.clear();
 
     int i = 0;
     for (auto sp : (*this)->compute_at_position) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         choices.push_back(sp.choose_one(hint->compute_at_position[i]));
         the_same = false;
       } else {
@@ -1274,7 +1277,7 @@ BufferInputEntity BufferInputSubSpace::choose_one(BufferInputEntity hint) {
     
     i = 0;
     for (auto uv : (*this)->use_vectorize) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         vectorize_choices.push_back(uv.choose_one(hint->use_vectorize[i]));
         the_same = false;
       } else {
@@ -1565,43 +1568,44 @@ ScheduleEntity ScheduleSpace::choose_one(ScheduleEntity hint) {
   UnrollEntity unroll;
 
   bool the_same = true;
-  while (the_same) {
-    if (randdouble() < 0.8) {
+  int count = 0;
+  while (the_same && count++ < 10) {
+    if (randdouble() < 0.2) {
       skeleton = choose_one_skeleton(hint->schedule_skeleton);
       the_same = false;
     } else {
       skeleton = hint->schedule_skeleton;
     }
 
-    if (randdouble() < 0.8) {
+    if (randdouble() < 0.9) {
       merge = self->merge.choose_one(hint->merge);
       the_same = false;
     } else {
       merge = hint->merge;
     }
 
-    if (randdouble() < 0.8) {
+    if (randdouble() < 0.9) {
       allreduce = self->allreduce.choose_one(hint->allreduce);
       the_same = false;
     } else {
       allreduce = hint->allreduce;
     }
 
-    if (randdouble() < 0.8) {
+    if (randdouble() < 0.9) {
       tiling_and_binding = self->tiling_and_binding.choose_one(hint->tiling_and_binding);
       the_same = false;
     } else {
       tiling_and_binding = hint->tiling_and_binding;
     }
     
-    if (randdouble() < 0.8) {
+    if (randdouble() < 0.9) {
       buffer_input = self->buffer_input.choose_one(hint->buffer_input);
       the_same = false;
     } else {
       buffer_input = hint->buffer_input;
     }
     
-    if (randdouble() < 0.8) {
+    if (randdouble() < 0.9) {
       unroll = self->unroll.choose_one(hint->unroll);
       the_same = false;
     } else {
@@ -1712,12 +1716,13 @@ MultiScheduleEntity MultiScheduleSpace::choose_one(std::vector<ScheduleSkeleton>
 MultiScheduleEntity MultiScheduleSpace::choose_one(MultiScheduleEntity hint) {
   std::vector<ScheduleEntity> entities;
   bool the_same = true;
-  while (the_same) {
+  int count = 0;
+  while (the_same && count++ < 10) {
     entities.clear();
 
     int i = 0;
     for (auto space : (*this)->spaces) {
-      if (randdouble() < 0.8) {
+      if (randdouble() < 0.9) {
         entities.push_back(space.choose_one(hint->entities[i]));
         the_same = false;
       } else {

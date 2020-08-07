@@ -117,6 +117,7 @@ void AutoScheduler::auto_schedule(
   std::vector<MultiScheduleEntity> new_candidates;
   int must_new = context->new_trial;
   while ((int)new_candidates.size() < context->new_trial) {
+    print(4, log_out) << "schedule not full...\n";
     // choose a seed
     bool use_seed = false;
     EvaluatedScheduleResult seed;

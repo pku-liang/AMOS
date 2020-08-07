@@ -98,22 +98,31 @@ SplitFactorEntity SplitFactorSubSpace::choose_one() {
 
 
 SplitFactorEntity SplitFactorSubSpace::choose_one(SplitFactorEntity hint) {
-  int low = 0, high = (int)(hint->factors.size());
-  if (low + 1 == high) {
-    // only one factor, actually no split
-    return hint;
-  } else if (low + 1 < high) {
-    int pos1 = randint(low, high-1);
-    int pos2 = randint(pos1, high);
-    int exchange = randint(0, 2);
-    if (exchange == 1) {
-      std::swap(pos1, pos2);
+  // int low = 0, high = (int)(hint->factors.size());
+  // if (low + 1 == high) {
+  //   // only one factor, actually no split
+  //   return hint;
+  // } else if (low + 1 < high) {
+  //   int pos1 = randint(low, high-1);
+  //   int pos2 = randint(pos1, high);
+  //   int exchange = randint(0, 2);
+  //   if (exchange == 1) {
+  //     std::swap(pos1, pos2);
+  //   }
+  //   return choose_one(hint, pos1, pos2);
+  // } else {
+  //   ERROR << "Bad SplitFactorEntity with empty factors.\n";
+  //   return hint;
+  // }
+  auto self = (*this);
+  int id = -1;
+  for (int i = 0; i < 10; ++i) {
+    id = randint(0, (int)self->split_factors.size());
+    if (!(self->split_factors[id] == hint)) {
+      return self->split_factors[id];
     }
-    return choose_one(hint, pos1, pos2);
-  } else {
-    ERROR << "Bad SplitFactorEntity with empty factors.\n";
-    return hint;
   }
+  return self->split_factors[id];
 }
 
 
@@ -196,9 +205,18 @@ ChoiceEntity ChoiceSubSpace::choose_one() {
 
 
 ChoiceEntity ChoiceSubSpace::choose_one(ChoiceEntity hint) {
-  int inc = randint(0, 2);
-  int delta = inc == 0 ? -1 : 1;
-  return choose_one(hint, delta);
+  // int inc = randint(0, 2);
+  // int delta = inc == 0 ? -1 : 1;
+  // return choose_one(hint, delta);
+  auto self = (*this);
+  int id = -1;
+  for (int i = 0; i < 10; ++i) {
+    id = randint(0, self->num_choices);
+    if (id != hint->choice) {
+      return ChoiceEntity(id);
+    }
+  }
+  return ChoiceEntity(id);
 }
 
 
@@ -272,9 +290,18 @@ MultiChoiceEntity MultiChoiceSubSpace::choose_one() {
 
 
 MultiChoiceEntity MultiChoiceSubSpace::choose_one(MultiChoiceEntity hint) {
-  int inc = randint(0, 2);
-  int delta = inc == 0 ? -1 : 1;
-  return choose_one(hint, delta);
+  // int inc = randint(0, 2);
+  // int delta = inc == 0 ? -1 : 1;
+  // return choose_one(hint, delta);
+  auto self = (*this);
+  int id = -1;
+  for (int i = 0; i < 10; ++i) {
+    id = randint(0, (int)self->multi_choices.size());
+    if (self->multi_choices[id] != hint) {
+      return self->multi_choices[id];
+    }
+  }
+  return self->multi_choices[id];
 }
 
 
