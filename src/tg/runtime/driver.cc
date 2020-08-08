@@ -1003,8 +1003,10 @@ void Session::prepare_for_test(int task_id, std::string reference) {
 
   for (auto kv : multi_graph.Self()->graphs) {
     if ((best_functions.find(kv.first) == best_functions.end()) || (best_functions[kv.first].empty())) {
-      ASSERT(cache.find(kv.second->tag) != cache.end()) << "Can't find the function for subgraph " << kv.second->tag << "\n";
-      best_functions[kv.first].push(best_functions[cache[kv.second->tag]].front());
+      if (cache.find(kv.second->tag) != cache.end())
+        print(1) << "Can't find the function for subgraph " << kv.second->tag << "\n";
+      else
+        best_functions[kv.first].push(best_functions[cache[kv.second->tag]].front());
     }
   }
 
