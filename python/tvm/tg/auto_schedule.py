@@ -253,7 +253,7 @@ def get_feature(schedule, tensors, target, flatten=True):
         'unrolling_features': ANNOT_FEATURE_KEYS,
         'parallel_features': ANNOT_FEATURE_KEYS,
         'thread_binding_features': THREAD_BIND_KEYS,
-        'allocation_features': ('num_alloc', *[f'out_size{i}' for i in range(6)]),
+        'allocation_features': ('num_alloc', *[f'out_size{i}' for i in range(10)]),
         'other_features': ('num_outer_loops', 'prod_outer_loops', 'auto_unroll_max_step'),
       })
       return {
@@ -284,7 +284,7 @@ def get_feature(schedule, tensors, target, flatten=True):
         'unrolling_features': ('len_imost', 'len_prod', 'loop_num'),
         'parallel_features': ('len_imost', 'len_prod', 'loop_num'),
         'thread_binding_features': THREAD_BIND_KEYS,
-        'allocation_features': ('num_alloc', *[f'out_size{i}' for i in range(6)]),
+        'allocation_features': ('num_alloc', *[f'out_size{i}' for i in range(10)]),
         'other_features': ('num_outer_loops', 'prod_outer_loops', 'auto_unroll_max_step'),
       })
 

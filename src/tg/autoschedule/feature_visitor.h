@@ -69,6 +69,9 @@ class FeatureVisitor : public StmtExprVisitor {
   virtual void EnterMem_(tir::Var buffer_var, tvm::PrimExpr index, AccessType access_type) = 0;
   /*! \brief Exit a memory access node */
   virtual void ExitMem_() = 0;
+
+  virtual void EnterAllocateNode_(std::string scope) = 0;
+  virtual void ExitAllocateNode_() = 0;
 };
 
 }  // namespace autotvm

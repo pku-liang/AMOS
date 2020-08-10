@@ -100,8 +100,9 @@ void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) {
     fea.num_outer_loops ++;
     fea.prod_outer_loops *= extent[var];
 
-    if (item.is_attr_stmt)
+    if (item.is_attr_stmt) {
       fea.thread_bind_len[item.ann] = extent[var];
+    }
     else {
       if (item.ann == AnnotationType::kVectorized) {
         fea.vectorize_len_imost = extent[var];
@@ -182,24 +183,14 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   stmt_feature.accessed_buffers.insert(buffer_var);
   stmt_feature.num_allocation = stmt_feature.accessed_buffers.size();
 
-  for (auto item : this->buffer_info_) {
-    auto& s1 = buffer_var->name_hint;
-    auto& s2 = item.first->name_hint;
-    auto res = std::mismatch(s2.begin(), s2.end(), s1.begin());
-    if (res.first == s2.end()) {
-      buffer_shape = item.second.shape;
-      buffer_elem_bytes = item.second.dtype.bytes();
-      if (s1 == s2)
-        buffer_scope = item.second.scope;
-      else buffer_scope = s1.substr(s1.rfind(".") + 1, s1.size());
-      break;
-    }
-  }
+  buffer_shape = this->buffer_info_[buffer_var].shape;
+  buffer_scope = this->buffer_info_[buffer_var].scope;
+  buffer_elem_bytes = this->buffer_info_[buffer_var].dtype.bytes();
 
   IndexParser parser;
   parser.Parse(index);
 
-  if (access_type | AccessType::kWrite) {
+  if (access_type & AccessType::kWrite) {
     stmt_feature.output_buffer_size = buffer_shape;
     for (auto item: itervar_stack_)
       item.is_reduce = !parser.pattern_map.count(item.var.get());
@@ -291,6 +282,12 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 void TouchExtractor::ExitMem_() { }
 
 
+void TouchExtractor::EnterAllocateNode_(std::string scope) { this->next_allocation_scope_ = scope; }
+
+
+void TouchExtractor::ExitAllocateNode_() {}
+
+
 void TouchExtractor::VisitStmt_(const StoreNode* op) {
   EnterInnermostStmt_(*op);
   EnterMem_(op->buffer_var, op->index, AccessType::kWrite);
@@ -301,12 +298,12 @@ void TouchExtractor::VisitStmt_(const StoreNode* op) {
 
 
 void TouchExtractor::VisitStmt_(const AllocateNode* op) {
-  // std::cout << "Found AllocateNode: " << op->dtype << " " << op->extents << std::endl;
+  assert(buffer_info_.count(op->buffer_var) == 0);
+  std::vector<int64_t> buffer_shape;
+  for (auto x : op->extents) buffer_shape.push_back(x.as<IntImmNode>()->value);
+  buffer_info_.insert({op->buffer_var, BufferInfo{this->next_allocation_scope_, buffer_shape, op->dtype}});
+  next_allocation_scope_ = "";
   StmtExprVisitor::VisitStmt_(op);
-  // auto& info = buffer_info_[op->buffer_var];
-  // info.dtype = op->dtype;
-  // for (auto x : op->extents) info.shape.push_back(x.as<IntImmNode>()->value);
-  // // info.scope
 }
 
 void GetInnerStatementFeature(
@@ -446,7 +443,7 @@ void GetInnerStatementFeature(
       if (fea.thread_bind_len.count(k))
         thread_bind_len.push_back(FloatImm(DataType::Float(32), trans(fea.thread_bind_len[k])));
       else
-        thread_bind_len.push_back(FloatImm(DataType::Float(32), trans(0)));
+        thread_bind_len.push_back(FloatImm(DataType::Float(32), trans(1)));
     }
     feature_row.push_back(thread_bind_len);
 
@@ -454,9 +451,9 @@ void GetInnerStatementFeature(
       std::string("allocation_features"),
       FloatImm(DataType::Float(32), trans(fea.num_allocation)),
     };
-    for (int i = 0; i < std::min(6, int(fea.output_buffer_size.size())); i++)
+    for (int i = 0; i < std::min(10, int(fea.output_buffer_size.size())); i++)
       alloc_features.push_back(FloatImm(DataType::Float(32), trans(fea.output_buffer_size[i])));
-    for (int i = 0; i < 6 - int(fea.output_buffer_size.size()); i++) 
+    for (int i = 0; i < 10 - int(fea.output_buffer_size.size()); i++) 
       alloc_features.push_back(FloatImm(DataType::Float(32), trans(0)));
     feature_row.push_back(alloc_features);
 
@@ -589,13 +586,13 @@ void GetInnerStatementFeatureFlatten(
       if (fea.thread_bind_len.count(k))
         feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.thread_bind_len[k])));
       else
-        feature_vec.push_back(FloatImm(DataType::Float(32), trans(0)));
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(1)));
     }
 
     feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.num_allocation)));
-    for (int i = 0; i < std::min(6, int(fea.output_buffer_size.size())); i++)
+    for (int i = 0; i < std::min(10, int(fea.output_buffer_size.size())); i++)
       feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.output_buffer_size[i])));
-    for (int i = 0; i < 6 - int(fea.output_buffer_size.size()); i++) 
+    for (int i = 0; i < 10 - int(fea.output_buffer_size.size()); i++) 
       feature_vec.push_back(FloatImm(DataType::Float(32), trans(0)));
 
     feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.num_outer_loops)));

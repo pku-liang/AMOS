@@ -111,7 +111,7 @@ struct InnermostStatementFeature {
   std::unordered_map<AnnotationType, int64_t> thread_bind_len;
 
   int64_t vectorize_len_imost{0};
-  int64_t vectorize_len_prod{0};
+  int64_t vectorize_len_prod{1};
   int64_t vectorize_loop_num{0};
   LoopPositionType vectorize_loop_pos{kNonePosition};
 
@@ -126,7 +126,7 @@ struct InnermostStatementFeature {
   LoopPositionType parallel_loop_pos{kNonePosition};
 
   int64_t num_outer_loops{0};
-  int64_t prod_outer_loops{0};
+  int64_t prod_outer_loops{1};
   int64_t auto_unroll_max_step{0};
 
   std::vector<int64_t> output_buffer_size;
@@ -248,6 +248,8 @@ class TouchExtractor : public FeatureVisitor {
   void ExitInnermostStmt_();
   void EnterMem_(Var buffer_var, PrimExpr index, AccessType access_type);
   void ExitMem_();
+  void EnterAllocateNode_(std::string scope);
+  void ExitAllocateNode_();
 
   void VisitStmt_(const StoreNode* op) final;
   void VisitStmt_(const AllocateNode* op) final;
@@ -257,6 +259,7 @@ class TouchExtractor : public FeatureVisitor {
   TvmMap<Var, int64_t> extent;
   TvmMap<Var, int64_t> loop_min;
   size_t innermost_stmt_counter_{0};
+  std::string next_allocation_scope_;
 
   TvmMap<tir::Var, BufferInfo> buffer_info_;
 

@@ -88,6 +88,7 @@ def get_conv2d(oc, ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
           axis=[ric, rkh, rkw]), name='Y')
   return X, K, Y, PaddedX
 
+
 def get_conv2d_unroll(oc, ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
   """Convolution
 
@@ -119,31 +120,68 @@ def get_conv2d_unroll(oc, ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
   return sch, (X, K, Y, PaddedX)
 
 
-def get_depthwise_conv2d(ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
-  """Convolution
+def depthwise_conv_pack(c, nh, nw, kh, kw, ph, pw, tc):
+    """Pack data and weight for depthwise convolution
+       Note that the input channel of kernel is specified as 1,
+       and the output channel of kernel equals the input channel of data
 
-  ic : number of channels for both input and output
-  nh, nw : input width and height
-  kh, kw : kernel width and height
-  ph, pw : height and width padding sizes, default 0
-  sh, sw : height and width strides, default 1
-  """
-  # reduction axes
-  rkh = te.reduce_axis((0, kh), name='rkh')
-  rkw = te.reduce_axis((0, kw), name='rkw')
-  # output height and weights
-  oh = conv_out_size(nh, kh, ph, sh)
-  ow = conv_out_size(nw, kw, pw, sw)
-  # pad X and then compute Y
-  X = te.placeholder((ic, nh, nw), name='X')
-  K = te.placeholder((ic, 1, kh, kw), name='K')
-  PaddedX = padding(X, ph, pw) if ph * pw != 0 else X
-  Y = te.compute(
-      (ic, oh, ow),
-      lambda c, i, j: te.sum(
-          (PaddedX[c, i*sh+rkh, j*sw+rkw] * K[c, 0, rkh, rkw]),
-          axis=[rkh, rkw]), name='Y')
-  return X, K, Y, PaddedX
+    c : input channel of data and output channel of kernel
+    nh, nw : input width and height
+    kh, kw : kernel width and height
+    ph, pw : height and width padding
+    tc : the tiling size of channels
+    """
+    X = te.placeholder((c, nh, nw), name='X')
+    K = te.placeholder((c, 1, kh, kw), name='K')
+    PaddedX = get_padding(X, ph, pw) if ph * pw != 0 else X
+    # make sure the channel tiling is valid
+    if c < tc:
+        tc = c
+    assert c % tc == 0
+    # pack X and K
+    PackedX = te.compute(
+        (c//tc, nh+ph*2, nw+pw*2, tc),
+        lambda c_out, x, y, c_in: PaddedX[c_out*tc + c_in, x, y],
+        name='PackedX')
+    PackedK = te.compute(
+        (c//tc, 1, kh, kw, 1, tc),
+        lambda c_out, _, x, y, __, c_in: K[
+            c_out*tc + c_in, 0, x, y],
+        name='PackedK')
+    return X, K, PaddedX, PackedX, PackedK
+
+
+def get_depthwise_conv2d(c, nh, nw, kh, kw, ph, pw, sh, sw, tc):
+    """depthwise conv
+
+    c : number of channels for both input and output.
+    nh, nw : input width and height
+    kh, kw : kernel width and height
+    ph, pw : height and width padding
+    sh, sw : height and width strides
+    tc : the tiling sizes of channels
+    """
+    X, K, PaddedX, PackedX, PackedK = depthwise_conv_pack(
+        c, nh, nw, kh, kw, ph, pw, tc)
+    # reduction axes
+    rkh = te.reduce_axis((0, kh), name='rkh')
+    rkw = te.reduce_axis((0, kw), name='rkw')
+    # output height and weights
+    oh = conv_out_size(nh, kh, ph, sh)
+    ow = conv_out_size(nw, kw, pw, sw)
+    # compute Y in the packed layout
+    PackedY = te.compute(
+        (c//tc, oh, ow, tc),
+        lambda c_out, x, y, c_in: te.sum(
+            (PackedX[c_out, x*sh+rkh, y*sw+rkw, c_in] *
+             PackedK[c_out, 0, rkh, rkw, 0, c_in]),
+            axis=[rkh, rkw]), name='PackedY')
+
+    # Unpack the result
+    Y = te.compute((c, oh, ow),
+                    lambda c, x, y: PackedY[c//tc, x, y, c%tc],
+                    name='Y')
+    return X, K, Y, PaddedX, PackedX, PackedK, PackedY
 
 
 def get_feature(inputs, outputs, sch=None, target='llvm'):
@@ -365,3 +403,37 @@ def conv2d_gpu_tiled_vthread(oc, ic, n, k, p, s):
       sch[load].bind(tx, te.thread_axis("threadIdx.x"))
 
   return sch, (X, K, Y)
+
+
+def depthwise_cached_block(c, n, k, p, s, tc, tw):
+    X, K, Y, PaddedX, PackedX, PackedK, PackedY = get_depthwise_conv2d(
+        c, n, n, k, k, p, p, s, s, tc)
+    sch = te.create_schedule(Y.op)
+
+    CachedY = sch.cache_write(PackedY, 'global')
+
+    c_out, h, w, c_in = sch[PackedY].op.axis
+    w_out, w_in = sch[PackedY].split(w, factor=tw)
+    sch[PackedY].reorder(c_out, h, w_out, w_in, c_in)
+    c_out_h = sch[PackedY].fuse(c_out, h)
+    sch[PackedY].parallel(c_out_h)
+    sch[CachedY].compute_at(sch[PackedY], w_out)
+
+    cc_out, ch, cw, cc_in = sch[CachedY].op.axis
+    kh, kw = sch[CachedY].op.reduce_axis
+    sch[CachedY].reorder(cc_out, ch, kh, kw, cw, cc_in)
+    sch[CachedY].vectorize(cc_in)
+    sch[CachedY].unroll(cw)
+
+    # Schedule the padding by adding thread-level parallelism
+    if PaddedX != X:
+        sch[PaddedX].parallel(PaddedX.op.axis[0])
+    # Optimize the packing of X and K
+    sch[PackedX].parallel(sch[PackedX].fuse(*PackedX.op.axis[0:2]))
+    sch[PackedX].unroll(PackedX.op.axis[-1])
+    sch[PackedK].parallel(sch[PackedK].fuse(*PackedK.op.axis[0:2]))
+    sch[PackedK].unroll(PackedK.op.axis[-1])
+    # Optimize the unpacking of Y
+    sch[Y].parallel(sch[Y].fuse(*Y.op.axis[0:2]))
+    sch[Y].unroll(Y.op.axis[-1])
+    return sch, (X, K, Y)
