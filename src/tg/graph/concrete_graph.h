@@ -3,6 +3,7 @@
 #define TVM_TG_GRAPH_CONCRETE_GRAPH_H_
 
 #include <tvm/ir/expr.h>
+#include <tvm/tir/expr_functor.h>
 #include <tvm/tg/graph.h>
 
 #include "utils.h"

@@ -282,6 +282,20 @@ MultiChoiceSubSpace::MultiChoiceSubSpace(int total, int want) {
 }
 
 
+MultiChoiceSubSpace::MultiChoiceSubSpace(int total) {
+  auto node = make_object<MultiChoiceSubSpaceNode>();
+  std::vector<std::vector<int> > tmp;
+  for (int i = 0; i < total; ++i) {
+    tmp.push_back({i, 0});
+  }
+  for (auto lst : tmp) {
+    node->multi_choices.push_back(MultiChoiceEntity(lst));
+  }
+
+  data_ = std::move(node);
+}
+
+
 MultiChoiceEntity MultiChoiceSubSpace::choose_one() {
   int low = 0, high = (int)((*this)->multi_choices.size());
   int ind = randint(low, high);

@@ -193,6 +193,7 @@ class MultiChoiceSubSpaceNode : public ParameterSubSpaceNode {
 class MultiChoiceSubSpace : public ParameterSubSpace {
  public:
   MultiChoiceSubSpace(int total, int want);
+  MultiChoiceSubSpace(int total);
 
   /* pure random */
   MultiChoiceEntity choose_one();

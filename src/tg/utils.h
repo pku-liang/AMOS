@@ -12,6 +12,7 @@
 #include <sstream>
 #include <random>
 #include <climits>
+#include <cmath>
 
 #include <tvm/te/operation.h>
 #include <tvm/te/schedule.h>

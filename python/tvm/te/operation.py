@@ -113,21 +113,24 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
         raise ValueError("fcompute do not match dimension, ndim=%d" % ndim)
 
     dim_var = [tvm.tir.IterVar((0, s), x, 0) for x, s in zip(arg_names, shape[:out_ndim])]
+    body = fcompute(*[v.var for v in dim_var])
+
     reorder_dim_var = [x for x in dim_var]
     if reorder is not None:
         assert isinstance(reorder, (list, tuple)) and len(reorder) == out_ndim
         new_dim_var = [dim_var[reorder[i]] for i in range(out_ndim)]
         # print("check new dim var", new_dim_var)
         reorder_dim_var = new_dim_var
-    body = fcompute(*[v.var for v in reorder_dim_var])
-
+    
+    # we don't handle tensor intrin
+    # the reorder behavior is not guaranteed
     if isinstance(body, _tensor.TensorIntrinCall):
         for i, s in enumerate(shape[out_ndim:]):
             var_name = "ax" + str(i)
-            dim_var.append(tvm.tir.IterVar((0, s), var_name, 4))
+            reorder_dim_var.append(tvm.tir.IterVar((0, s), var_name, 4))
         op_node = _ffi_api.TensorComputeOp(name,
                                            tag,
-                                           dim_var,
+                                           reorder_dim_var,
                                            body.reduce_axis,
                                            out_ndim,
                                            body.intrin,
@@ -138,11 +141,11 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
         if not isinstance(body, (list, tuple)):
             body = [body]
         if tag == "TG_AUTOGEN":
-            tag_shape = [x.dom.extent for x in dim_var]
+            tag_shape = [x.dom.extent for x in reorder_dim_var]
             tag = tg.generate_tag_from_body(tag_shape, body)
         body = convert(body)
         op_node = _ffi_api.ComputeOp(
-            name, tag, attrs, dim_var, body, requires_grad)
+            name, tag, attrs, reorder_dim_var, body, requires_grad)
 
     num = op_node.num_outputs
     outputs = tuple(op_node.output(i) for i in range(num))

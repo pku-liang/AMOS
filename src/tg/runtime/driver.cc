@@ -926,6 +926,14 @@ int Session::add_task(TIRGraph graph) {
 
   int task_id = task_count++;
   task_cache[task_id] = multi_graph;
+  int num_subgraphs = (int)multi_graph->graphs.size();
+  print(3) << "Num subgraphs: " << num_subgraphs << "\n";
+
+  std::unordered_set<std::string> tags;
+  for (auto subgraph : multi_graph->graphs) {
+    tags.insert(subgraph.second->tag);
+  }
+  print(3) << "Num unique subgraphs: " << tags.size() << "\n";
 
   std::vector<IntKey> order;
 
@@ -1001,16 +1009,19 @@ void Session::prepare_for_test(int task_id, std::string reference) {
     ERROR << "Can't open schedule reference file " << reference << ".\n";
   }
 
+  bool have_miss = false;
   for (auto kv : multi_graph.Self()->graphs) {
     if ((best_functions.find(kv.first) == best_functions.end()) || (best_functions[kv.first].empty())) {
-      if (cache.find(kv.second->tag) != cache.end())
+      if (cache.find(kv.second->tag) != cache.end()) {
         print(1) << "Can't find the function for subgraph " << kv.second->tag << "\n";
+        have_miss = true;
+      }
       else
         best_functions[kv.first].push(best_functions[cache[kv.second->tag]].front());
     }
   }
 
-  cached_all_functions[task_id] = true;
+  cached_all_functions[task_id] = !have_miss;
 }
 
 

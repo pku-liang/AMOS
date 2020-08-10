@@ -27,7 +27,7 @@ int randint(int low, int high) {
   static std::uniform_real_distribution<> distrib(0.0, 1.0);
   double number = distrib(gen);
   number = number * (double(high) - double(low)) + double(low);
-  int ret = static_cast<int>(number);
+  int ret = std::round(number);
   if (ret < low) {
     ret = low;
   }

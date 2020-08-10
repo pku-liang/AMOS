@@ -1235,7 +1235,7 @@ BufferInputEntity buffer_input_entity_from_string(std::string s) {
 BufferInputSubSpace::BufferInputSubSpace(Array<te::Tensor> tensors, int total, int want) {
   auto node = make_object<BufferInputSubSpaceNode>();
   for (auto t : tensors) {
-    node->compute_at_position.push_back(MultiChoiceSubSpace(total, want));
+    node->compute_at_position.push_back(MultiChoiceSubSpace(total));
     node->use_vectorize.push_back(ChoiceSubSpace(2));
   }
   data_ = std::move(node);
@@ -1249,7 +1249,8 @@ BufferInputEntity BufferInputSubSpace::choose_one() {
   }
   std::vector<ChoiceEntity> vectorize_choices;
   for (auto uv : (*this)->use_vectorize) {
-    vectorize_choices.push_back(uv.choose_one());
+    ChoiceEntity do_vectorize = uv.choose_one();
+    vectorize_choices.push_back(do_vectorize);
   }
   return BufferInputEntity(choices, vectorize_choices);
 }
