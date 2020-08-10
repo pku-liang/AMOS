@@ -88,6 +88,34 @@ def get_conv2d(oc, ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
           axis=[ric, rkh, rkw]), name='Y')
   return X, K, Y, PaddedX
 
+def get_conv2d_unroll(oc, ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
+  """Convolution
+
+  oc, ic : output and input channels
+  nh, nw : input width and height
+  kh, kw : kernel width and height
+  ph, pw : height and width padding sizes, default 0
+  sh, sw : height and width strides, default 1
+  """
+  # reduction axes
+  ric = te.reduce_axis((0, ic), name='ric')
+  rkh = te.reduce_axis((0, kh), name='rkh')
+  rkw = te.reduce_axis((0, kw), name='rkw')
+  # output height and weights
+  oh = conv_out_size(nh, kh, ph, sh)
+  ow = conv_out_size(nw, kw, pw, sw)
+  # pad X and then compute Y
+  X = te.placeholder((ic, nh, nw), name='X')
+  K = te.placeholder((oc, ic, kh, kw), name='K')
+  PaddedX = get_padding(X, ph, pw) if ph * pw != 0 else X
+  Y = te.compute(
+      (oc, oh, ow),
+      lambda c, i, j: te.sum(
+          PaddedX[ric, i*sh+rkh, j*sw+rkw] * K[c, ric, rkh, rkw],
+          axis=[ric, rkh, rkw]), name='Y')
+    
+  return X, K, Y, PaddedX
+
 
 def get_depthwise_conv2d(ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
   """Convolution
@@ -113,8 +141,9 @@ def get_depthwise_conv2d(ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
       lambda c, i, j: te.sum(
           (PaddedX[c, i*sh+rkh, j*sw+rkw] * K[c, 0, rkh, rkw]),
           axis=[rkh, rkw]), name='Y')
-
-  return X, K, Y, PaddedX
+  sch = te.create_schedule(Y.op)
+  sch[Y].pragma(Y.axis[0], 'auto_unroll_max_step', 4)
+  return sch, (X, K, Y, PaddedX)
 
 
 def get_feature(inputs, outputs, sch=None, target='llvm'):

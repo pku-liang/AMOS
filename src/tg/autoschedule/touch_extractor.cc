@@ -61,8 +61,8 @@ class IndexParser: public ExprVisitor {
 };
 
 
-bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt) {
-  itervar_stack_.push_back({var, is_attr_stmt});
+bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt, AnnotationType ann) {
+  itervar_stack_.push_back({var, is_attr_stmt, ann});
   extent[var] = length;
   loop_min[var] = min;
   return true;
@@ -70,14 +70,41 @@ bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, bool is
 
 
 void TouchExtractor::ExitItervar_() {
-  Var var = itervar_stack_.back().first;
+  Var var = std::get<0>(itervar_stack_.back());
   itervar_stack_.pop_back();
 }
 
 
 void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) {
   this->current_stmt = &innermost_stmt;
-  innermost_stmt_map[&innermost_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
+  innermost_stmt_map[current_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
+  for (auto item : itervar_stack_) {
+    Var var = std::get<0>(item);
+    bool is_attr_stmt = std::get<1>(item);
+    AnnotationType ann = std::get<2>(item);
+    auto& fea = innermost_stmt_map[current_stmt];
+
+    fea.num_outer_loops ++;
+    fea.prod_outer_loops *= extent[var];
+
+    if (is_attr_stmt)
+      fea.thread_bind_len[ann] = extent[var];
+    else {
+      if (ann == AnnotationType::kVectorized) {
+        fea.vectorize_len_imost = extent[var];
+        fea.vectorize_len_prod *= extent[var];
+        fea.vectorize_loop_num ++;
+      } else if (ann == AnnotationType::kUnrolled) {
+        fea.unroll_len_imost = extent[var];
+        fea.unroll_len_prod *= extent[var];
+        fea.unroll_loop_num ++;
+      } else if (ann == AnnotationType::kParallel) {
+        fea.parallel_len_imost = extent[var];
+        fea.parallel_len_prod *= extent[var];
+        fea.parallel_loop_num ++;
+      }
+    }
+  }
 }
 
 
@@ -106,6 +133,9 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
     }
   }
 
+  if (access_type | AccessType::kWrite)
+    innermost_stmt_map[current_stmt].output_buffer_size = buffer_shape;
+
   int64_t buffer_nelems =
       std::accumulate(buffer_shape.begin(), buffer_shape.end(), 1, std::multiplies<int64_t>());
 
@@ -130,8 +160,8 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   int64_t topdown = 1;
 
   for (auto item : itervar_stack_) {
-    Var var = item.first;
-    bool is_attr_stmt = item.second;
+    Var var = std::get<0>(item);
+    bool is_attr_stmt = std::get<1>(item);
     auto x = parser.pattern_map.find(var.get());
 
     auto length = extent[var];
@@ -167,7 +197,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 
   int64_t topdown2 = 1;
   for (auto item : itervar_stack_) {
-    auto length = this->extent[item.first];
+    auto length = this->extent[std::get<0>(item)];
     topdown2 *= length;
   }
 
@@ -181,7 +211,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   if (loop_reuse_tag) {
     int64_t bottomup = 1;
     for (auto it = itervar_stack_.rbegin(); it != itervar_stack_.rend(); ++it) {
-      auto var = it->first;
+      auto var = std::get<0>(*it);
       auto x = parser.pattern_map.find(var.get());
       auto length = extent[var];
       if (x != parser.pattern_map.end()) {
@@ -206,6 +236,14 @@ void TouchExtractor::VisitStmt_(const StoreNode* op) {
   ExitInnermostStmt_();
 }
 
+
+void TouchExtractor::VisitStmt_(const AllocateNode* op) {
+  std::cout << "Found AllocateNode: " << op->dtype << " " << op->extents << std::endl;
+  // auto& info = buffer_info_[op->buffer_var];
+  // info.dtype = op->dtype;
+  // for (auto x : op->extents) info.shape.push_back(x.as<IntImmNode>()->value);
+  // // info.scope
+}
 
 void GetInnerStatementFeature(
   Stmt stmt, bool take_log, 

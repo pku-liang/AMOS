@@ -31,6 +31,11 @@ using TvmMap = std::unordered_map<P, Q, tvm::ObjectHash, tvm::ObjectEqual>;
 template <typename T>
 using TvmSet = std::unordered_set<T, tvm::ObjectHash, tvm::ObjectEqual>;
 
+const char* INTRIN_KEYS[17]{
+    "exp", "exp2", "exp10", "erf", "tanh", "sigmoid", "log", "log2", "log10",
+    "tan", "cos", "cosh", "sin", "sinh", "atan", "sqrt", "rsqrt",
+};
+
 enum ReuseType {
   kNoReuse = 0b00,
   kLoopMultipleRead = 0b01,
@@ -68,6 +73,48 @@ struct InnermostStatementFeature {
 
   int64_t order;
 
+  int64_t int_add_ct{0};
+  int64_t int_sub_ct{0};
+  int64_t int_mul_ct{0};
+  int64_t int_div_ct{0};
+  int64_t int_mod_ct{0};
+  int64_t int_cmp_ct{0};
+  std::unordered_map<const char*, int64_t> int_intrin_ct;
+
+  int64_t flt_add_ct{0};
+  int64_t flt_sub_ct{0};
+  int64_t flt_mul_ct{0};
+  int64_t flt_div_ct{0};
+  int64_t flt_mod_ct{0};
+  int64_t flt_cmp_ct{0};
+  std::unordered_map<const char*, int64_t> flt_intrin_ct;
+
+  std::unordered_map<AnnotationType, int64_t> thread_bind_len;
+
+  int64_t vectorize_len_imost{0};
+  int64_t vectorize_len_prod{0};
+  int64_t vectorize_loop_num{0};
+  // reduce axis: IterVarNode.iter_type == IterVarType.kCommReduce
+  // LoopPosition vectorize_loop_pos;
+
+  int64_t unroll_len_imost{0};
+  int64_t unroll_len_prod{1};
+  int64_t unroll_loop_num{0};
+  // LoopPosition unroll_loop_pos;
+
+  int64_t parallel_len_imost{0};
+  int64_t parallel_len_prod{1};
+  int64_t parallel_loop_num{0};
+  // LoopPosition parallel_loop_pos;
+
+  int64_t num_outer_loops{0};
+  int64_t prod_outer_loops{0};
+  // AttrStmtNode.attr_key namespace attr
+  // int64_t auto_unroll_max_step{0}; ItervarAttrNode?
+
+  std::vector<int64_t> output_buffer_size;
+  // int64_t num_allocation;  AllocateNode?
+
   std::unordered_map<TouchedBuffer, BufferAccessFeature> buffer_access_feature;
 };
 
@@ -81,16 +128,84 @@ class TouchExtractor : public FeatureVisitor {
       std::vector<int64_t> shape;
       for (auto x: buf->shape) shape.push_back(x.as<IntImmNode>()->value);
       this->buffer_info_.insert({buf->data, BufferInfo{buf->scope, shape, buf->dtype}});
+      // TODO: retrieve buffer info from AllocateNode
     }
     operator()(stmt);
+  }
+
+  void VisitExpr_(const AddNode* op) final {
+    if (op->dtype.is_float())
+      innermost_stmt_map[current_stmt].flt_add_ct++;
+    else
+      innermost_stmt_map[current_stmt].int_add_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const SubNode* op) final {
+    if (op->dtype.is_float())
+      innermost_stmt_map[current_stmt].flt_sub_ct++;
+    else
+      innermost_stmt_map[current_stmt].int_sub_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const MulNode* op) final {
+    if (op->dtype.is_float())
+      innermost_stmt_map[current_stmt].flt_mul_ct++;
+    else
+      innermost_stmt_map[current_stmt].int_mul_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const DivNode* op) final {
+    assert(!op->dtype.is_float());
+    innermost_stmt_map[current_stmt].int_div_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const ModNode* op) final {
+    assert(!op->dtype.is_float());
+    innermost_stmt_map[current_stmt].int_mod_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const FloorDivNode* op) final {
+    assert(op->dtype.is_float());
+    innermost_stmt_map[current_stmt].flt_div_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const FloorModNode* op) final {
+    assert(op->dtype.is_float());
+    innermost_stmt_map[current_stmt].flt_mod_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  template<typename T>
+  void VisitExpr_(const CmpOpNode<T>* op) {
+    if (op->dtype.is_float())
+      innermost_stmt_map[current_stmt].flt_cmp_ct++;
+    else
+      innermost_stmt_map[current_stmt].int_cmp_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const CallNode* op) {
+    if (op->call_type == CallNode::PureIntrinsic) {
+      if (op->dtype.is_float()) {
+        innermost_stmt_map[current_stmt].flt_intrin_ct[op->name.c_str()]++;
+      } else {
+        innermost_stmt_map[current_stmt].int_intrin_ct[op->name.c_str()]++;
+      }
+    }
+    FeatureVisitor::VisitExpr_(op);
   }
 
   std::unordered_map<const StoreNode*, InnermostStatementFeature> innermost_stmt_map;
   TvmMap<Var, std::unordered_set<const StoreNode*> > buffervar_stmt_map;
 
-
  private:
-  bool EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt);
+  bool EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt, AnnotationType ann);
   void ExitItervar_();
   void EnterInnermostStmt_(const StoreNode &innermost_stmt);
   void ExitInnermostStmt_();
@@ -98,9 +213,10 @@ class TouchExtractor : public FeatureVisitor {
   void ExitMem_();
 
   void VisitStmt_(const StoreNode* op) final;
+  void VisitStmt_(const AllocateNode* op);
 
   const StoreNode *current_stmt {nullptr};
-  std::deque<std::pair<Var, bool> > itervar_stack_;
+  std::deque<std::tuple<Var, bool, AnnotationType> > itervar_stack_;
   // TODO: refactor: loopinfo
   TvmMap<Var, int64_t> extent;
   TvmMap<Var, int64_t> loop_min;

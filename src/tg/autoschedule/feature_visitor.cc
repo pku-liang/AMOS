@@ -17,7 +17,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
   int64_t loop_extent = -1;
   if (extent != nullptr)
     loop_extent = extent->value;
-/*
+
   AnnotationType ann = kSerial;
   switch (op->for_type) {
     case ForType ::Parallel:
@@ -33,9 +33,8 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
       ann = kSerial;
       break;
   }
-  */
 
-  if (EnterItervar_(op->loop_var, min->value, loop_extent, false)) {
+  if (EnterItervar_(op->loop_var, min->value, loop_extent, false, ann)) {
     StmtExprVisitor::VisitStmt_(op);
     ExitItervar_();
   }
@@ -43,6 +42,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
 
 // parallel axis, virtual thread
 void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
+  std::cout << "Found AttrStmtNode: " << op->attr_key << std::endl;
   if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto *extent = op->value.as<IntImmNode>();
@@ -73,7 +73,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
     } else {
       ann = kVirtualThread;
     }
-    if (EnterItervar_(var, min, extent->value, true)) {
+    if (EnterItervar_(var, min, extent->value, true, ann)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
     }

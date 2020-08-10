@@ -498,6 +498,11 @@ def test_gpu_tiled_conv2d():
 
 
 if __name__ == '__main__':
+    sch, (X, K, Y, PaddedX) = get_conv2d_unroll(3, 32, 224, 224, 5, 5)
+    args = [X, K, Y]
+    print(tvm.lower(sch, args, simple_mode=True))
+    exit(0)
+    
     print('checking naive vector add...')
     test_naive_vector_add()
     print('checking naive conv2d...')
