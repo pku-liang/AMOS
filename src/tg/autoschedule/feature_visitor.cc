@@ -11,13 +11,12 @@ namespace tg {
 
 // for loop
 void FeatureVisitor::VisitStmt_(const ForNode* op) {
-
-  const auto *extent = op->extent.as<IntImmNode>();
+  const auto* extent = op->extent.as<IntImmNode>();
   const auto *min = op->min.as<IntImmNode>();
   int64_t loop_extent = -1;
   if (extent != nullptr)
     loop_extent = extent->value;
-/*
+
   AnnotationType ann = kSerial;
   switch (op->for_type) {
     case ForType ::Parallel:
@@ -33,9 +32,8 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
       ann = kSerial;
       break;
   }
-  */
 
-  if (EnterItervar_(op->loop_var, min->value, loop_extent, false)) {
+  if (EnterItervar_(op->loop_var, min->value, loop_extent, false, ann, nullptr, nullptr)) {
     StmtExprVisitor::VisitStmt_(op);
     ExitItervar_();
   }
@@ -43,7 +41,9 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
 
 // parallel axis, virtual thread
 void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
-  if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread) {
+  std::cout << "Found AttrStmtNode: " << op->attr_key << std::endl;
+  if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread ||
+      op->attr_key.find(attr::pragma_scope_prefix) == 0) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto *extent = op->value.as<IntImmNode>();
 
@@ -70,15 +70,19 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
         ann = kThreadZ;
       else
         LOG(FATAL) << "invalid thread itervar " + name;
+    } else if (op->attr_key.find(attr::pragma_scope_prefix) == 0) {
+      ann = kPragma;
     } else {
       ann = kVirtualThread;
     }
-    if (EnterItervar_(var, min, extent->value, true)) {
+    if (EnterItervar_(var, min, extent->value, true, ann, op->attr_key.c_str(), &op->value)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
     }
-  } else {
+  } else if (op->attr_key == attr::storage_scope) {
+    EnterAllocateNode_(op->value.as<StringImmNode>()->value);
     StmtExprVisitor::VisitStmt_(op);
+    ExitAllocateNode_();
   }
 }
 

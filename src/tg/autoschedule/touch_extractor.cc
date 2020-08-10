@@ -14,6 +14,15 @@
 namespace tvm {
 namespace tg {
 
+const char* INTRIN_KEYS[17]{
+  "exp", "exp2", "exp10", "erf", "tanh", "sigmoid", "log", "log2", "log10",
+  "tan", "cos", "cosh", "sin", "sinh", "atan", "sqrt", "rsqrt",
+};
+
+const AnnotationType THREAD_BIND_KEYS[]{
+  kBlockX, kBlockY, kBlockZ, kThreadX, kThreadY, kThreadZ, kVirtualThread,
+};
+
 class IndexMutator : public ExprMutator {
 public:
   PrimExpr VisitExpr_(const FloorDivNode* op) {
@@ -61,8 +70,10 @@ class IndexParser: public ExprVisitor {
 };
 
 
-bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt) {
-  itervar_stack_.push_back({var, is_attr_stmt});
+bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, 
+                                   bool is_attr_stmt, AnnotationType ann, 
+                                   const char *pragma_key, const PrimExpr *pragma_val) {
+  itervar_stack_.push_back({var, is_attr_stmt, ann, pragma_key, pragma_val, false});
   extent[var] = length;
   loop_min[var] = min;
   return true;
@@ -70,47 +81,123 @@ bool TouchExtractor::EnterItervar_(Var var, int64_t min, int64_t length, bool is
 
 
 void TouchExtractor::ExitItervar_() {
-  Var var = itervar_stack_.back().first;
+  // Var var = itervar_stack_.back().var;
   itervar_stack_.pop_back();
 }
 
 
 void TouchExtractor::EnterInnermostStmt_(const StoreNode &innermost_stmt) {
   this->current_stmt = &innermost_stmt;
-  innermost_stmt_map[&innermost_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
+  innermost_stmt_map[current_stmt] = InnermostStatementFeature(this->innermost_stmt_counter_++);
+  auto& fea = innermost_stmt_map[current_stmt];
+
+  for (auto item : itervar_stack_) {
+    Var var = item.var;
+
+    if (item.ann == kPragma && !strcmp(item.pragma_key, "pragma_auto_unroll_max_step"))
+      fea.auto_unroll_max_step = item.pragma_val->as<IntImmNode>()->value;
+
+    fea.num_outer_loops ++;
+    fea.prod_outer_loops *= extent[var];
+
+    if (item.is_attr_stmt) {
+      fea.thread_bind_len[item.ann] = extent[var];
+    }
+    else {
+      if (item.ann == AnnotationType::kVectorized) {
+        fea.vectorize_len_imost = extent[var];
+        fea.vectorize_len_prod *= extent[var];
+        fea.vectorize_loop_num ++;
+      } else if (item.ann == AnnotationType::kUnrolled) {
+        fea.unroll_len_imost = extent[var];
+        fea.unroll_len_prod *= extent[var];
+        fea.unroll_loop_num ++;
+      } else if (item.ann == AnnotationType::kParallel) {
+        fea.parallel_len_imost = extent[var];
+        fea.parallel_len_prod *= extent[var];
+        fea.parallel_loop_num ++;
+      }
+    }
+  }
 }
 
 
-void TouchExtractor::ExitInnermostStmt_() { this->current_stmt = nullptr; }
+void TouchExtractor::ExitInnermostStmt_() {
+  auto& fea = innermost_stmt_map[current_stmt];
+  std::vector<LoopPositionType> loop_pos_types;
+
+  for (auto item : itervar_stack_)
+    loop_pos_types.push_back(item.is_reduce? kMiddleReduce: kMiddleSpatial);
+
+  for (auto it = loop_pos_types.begin(); it != loop_pos_types.end(); it++)
+    if (*it == kMiddleReduce) {
+      *it = kOuterReduce;
+      break;
+    }
+
+  for (auto it = loop_pos_types.rbegin(); it != loop_pos_types.rend(); it++)
+    if (*it == kMiddleReduce) {
+      *it = kInnerReduce;
+      break;
+    }
+
+  for (auto it = loop_pos_types.begin(); it != loop_pos_types.end(); it++)
+    if (*it == kMiddleSpatial) {
+      *it = kOuterSpatial;
+      break;
+    }
+  
+  for (auto it = loop_pos_types.rbegin(); it != loop_pos_types.rend(); it++)
+    if (*it == kMiddleSpatial) {
+      *it = kInnerSpatial;
+      break;
+    }
+
+  for (size_t i = 0; i < itervar_stack_.size(); i++) {
+    auto& item = itervar_stack_[i];
+    if (item.ann == kVectorized) {
+      if (fea.vectorize_loop_pos) fea.vectorize_loop_pos = kMixedPosition;
+      else fea.vectorize_loop_pos = loop_pos_types[i];
+    } else if (item.ann == kUnrolled) {
+      if (fea.unroll_loop_pos) fea.unroll_loop_pos = kMixedPosition;
+      else fea.unroll_loop_pos = loop_pos_types[i];
+    } else if (item.ann == kParallel) {
+      if (fea.parallel_loop_pos) fea.parallel_loop_pos = kMixedPosition;
+      else fea.parallel_loop_pos = loop_pos_types[i];
+    }
+  }
+  this->current_stmt = nullptr; 
+}
 
 
 void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access_type) {
   TouchedBuffer buf = buffer_var.get()->name_hint;
-  auto& feature = innermost_stmt_map[current_stmt].buffer_access_feature;
+  auto& stmt_feature = innermost_stmt_map[current_stmt];
+  auto& feature = stmt_feature.buffer_access_feature;
+  
 
   std::vector<int64_t> buffer_shape;
   std::string buffer_scope;
   int64_t buffer_elem_bytes = -1;
 
-  for (auto item : this->buffer_info_) {
-    auto& s1 = buffer_var->name_hint;
-    auto& s2 = item.first->name_hint;
-    auto res = std::mismatch(s2.begin(), s2.end(), s1.begin());
-    if (res.first == s2.end()) {
-      buffer_shape = item.second.shape;
-      buffer_elem_bytes = item.second.dtype.bytes();
-      if (s1 == s2)
-        buffer_scope = item.second.scope;
-      else buffer_scope = s1.substr(s1.rfind(".") + 1, s1.size());
-      break;
-    }
+  stmt_feature.accessed_buffers.insert(buffer_var);
+  stmt_feature.num_allocation = stmt_feature.accessed_buffers.size();
+
+  buffer_shape = this->buffer_info_[buffer_var].shape;
+  buffer_scope = this->buffer_info_[buffer_var].scope;
+  buffer_elem_bytes = this->buffer_info_[buffer_var].dtype.bytes();
+
+  IndexParser parser;
+  parser.Parse(index);
+
+  if (access_type & AccessType::kWrite) {
+    stmt_feature.output_buffer_size = buffer_shape;
+    for (auto item: itervar_stack_)
+      item.is_reduce = !parser.pattern_map.count(item.var.get());
   }
 
   int64_t buffer_nelems =
       std::accumulate(buffer_shape.begin(), buffer_shape.end(), 1, std::multiplies<int64_t>());
-
-  IndexParser parser;
-  parser.Parse(index);
 
   // access type
   feature[buf].access_type = AccessType(feature[buf].access_type | access_type);
@@ -130,13 +217,11 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   int64_t topdown = 1;
 
   for (auto item : itervar_stack_) {
-    Var var = item.first;
-    bool is_attr_stmt = item.second;
-    auto x = parser.pattern_map.find(var.get());
+    auto x = parser.pattern_map.find(item.var.get());
 
-    auto length = extent[var];
+    auto length = extent[item.var];
     bytes *= length;
-    if (!is_attr_stmt) topdown *= length;
+    if (!item.is_attr_stmt) topdown *= length;
 
     if (x != parser.pattern_map.end()) {
       // unique_bytes *= length;
@@ -167,7 +252,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 
   int64_t topdown2 = 1;
   for (auto item : itervar_stack_) {
-    auto length = this->extent[item.first];
+    auto length = this->extent[item.var];
     topdown2 *= length;
   }
 
@@ -181,9 +266,8 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
   if (loop_reuse_tag) {
     int64_t bottomup = 1;
     for (auto it = itervar_stack_.rbegin(); it != itervar_stack_.rend(); ++it) {
-      auto var = it->first;
-      auto x = parser.pattern_map.find(var.get());
-      auto length = extent[var];
+      auto x = parser.pattern_map.find(it->var.get());
+      auto length = extent[it->var];
       if (x != parser.pattern_map.end()) {
         bottomup *= length;
       } else {
@@ -198,6 +282,12 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, AccessType access
 void TouchExtractor::ExitMem_() { }
 
 
+void TouchExtractor::EnterAllocateNode_(std::string scope) { this->next_allocation_scope_ = scope; }
+
+
+void TouchExtractor::ExitAllocateNode_() {}
+
+
 void TouchExtractor::VisitStmt_(const StoreNode* op) {
   EnterInnermostStmt_(*op);
   EnterMem_(op->buffer_var, op->index, AccessType::kWrite);
@@ -206,6 +296,15 @@ void TouchExtractor::VisitStmt_(const StoreNode* op) {
   ExitInnermostStmt_();
 }
 
+
+void TouchExtractor::VisitStmt_(const AllocateNode* op) {
+  assert(buffer_info_.count(op->buffer_var) == 0);
+  std::vector<int64_t> buffer_shape;
+  for (auto x : op->extents) buffer_shape.push_back(x.as<IntImmNode>()->value);
+  buffer_info_.insert({op->buffer_var, BufferInfo{this->next_allocation_scope_, buffer_shape, op->dtype}});
+  next_allocation_scope_ = "";
+  StmtExprVisitor::VisitStmt_(op);
+}
 
 void GetInnerStatementFeature(
   Stmt stmt, bool take_log, 
@@ -276,6 +375,94 @@ void GetInnerStatementFeature(
                 FloatImm(DataType::Float(32), trans(v.topdown)),
                 });
     }
+
+    Array<PrimExpr> int_arithmetic_features{
+      std::string("int_arith_features"),
+      FloatImm(DataType::Float(32), trans(fea.int_add_ct)),
+      FloatImm(DataType::Float(32), trans(fea.int_sub_ct)),
+      FloatImm(DataType::Float(32), trans(fea.int_mul_ct)),
+      FloatImm(DataType::Float(32), trans(fea.int_div_ct)),
+      FloatImm(DataType::Float(32), trans(fea.int_mod_ct)),
+      FloatImm(DataType::Float(32), trans(fea.int_cmp_ct)),
+    };
+
+    for (auto k: INTRIN_KEYS) {
+      if (fea.int_intrin_ct.count(k))
+        int_arithmetic_features.push_back(FloatImm(DataType::Float(32), trans(fea.int_intrin_ct[k])));
+      else
+        int_arithmetic_features.push_back(FloatImm(DataType::Float(32), trans(0)));
+    }
+    feature_row.push_back(int_arithmetic_features);
+
+    Array<PrimExpr> float_arithmetic_features{
+      std::string("flt_arith_features"),
+      FloatImm(DataType::Float(32), trans(fea.flt_add_ct)),
+      FloatImm(DataType::Float(32), trans(fea.flt_sub_ct)),
+      FloatImm(DataType::Float(32), trans(fea.flt_mul_ct)),
+      FloatImm(DataType::Float(32), trans(fea.flt_div_ct)),
+      FloatImm(DataType::Float(32), trans(fea.flt_mod_ct)),
+      FloatImm(DataType::Float(32), trans(fea.flt_cmp_ct)),
+    };
+
+    for (auto k: INTRIN_KEYS) {
+      if (fea.flt_intrin_ct.count(k))
+        float_arithmetic_features.push_back(FloatImm(DataType::Float(32), trans(fea.flt_intrin_ct[k])));
+      else
+        float_arithmetic_features.push_back(FloatImm(DataType::Float(32), trans(0)));
+    }
+    feature_row.push_back(float_arithmetic_features);
+
+    feature_row.push_back(Array<PrimExpr>{
+      std::string("vectorization_features"),
+      FloatImm(DataType::Float(32), trans(fea.vectorize_len_imost)),
+      FloatImm(DataType::Float(32), trans(fea.vectorize_len_prod)),
+      FloatImm(DataType::Float(32), trans(fea.vectorize_loop_num)),
+      fea.vectorize_loop_pos,
+    });
+
+    feature_row.push_back(Array<PrimExpr>{
+      std::string("unrolling_features"),
+      FloatImm(DataType::Float(32), trans(fea.unroll_len_imost)),
+      FloatImm(DataType::Float(32), trans(fea.unroll_len_prod)),
+      FloatImm(DataType::Float(32), trans(fea.unroll_loop_num)),
+      fea.unroll_loop_pos,
+    });
+
+    feature_row.push_back(Array<PrimExpr>{
+      std::string("parallel_features"),
+      FloatImm(DataType::Float(32), trans(fea.parallel_len_imost)),
+      FloatImm(DataType::Float(32), trans(fea.parallel_len_prod)),
+      FloatImm(DataType::Float(32), trans(fea.parallel_loop_num)),
+      fea.parallel_loop_pos,
+    });
+
+    Array<PrimExpr> thread_bind_len{
+      std::string("thread_binding_features"),
+    };
+    for (auto k : THREAD_BIND_KEYS) {
+      if (fea.thread_bind_len.count(k))
+        thread_bind_len.push_back(FloatImm(DataType::Float(32), trans(fea.thread_bind_len[k])));
+      else
+        thread_bind_len.push_back(FloatImm(DataType::Float(32), trans(1)));
+    }
+    feature_row.push_back(thread_bind_len);
+
+    Array<PrimExpr> alloc_features{
+      std::string("allocation_features"),
+      FloatImm(DataType::Float(32), trans(fea.num_allocation)),
+    };
+    for (int i = 0; i < std::min(10, int(fea.output_buffer_size.size())); i++)
+      alloc_features.push_back(FloatImm(DataType::Float(32), trans(fea.output_buffer_size[i])));
+    for (int i = 0; i < 10 - int(fea.output_buffer_size.size()); i++) 
+      alloc_features.push_back(FloatImm(DataType::Float(32), trans(0)));
+    feature_row.push_back(alloc_features);
+
+    feature_row.push_back(Array<PrimExpr>{
+        std::string("other_features"),
+        FloatImm(DataType::Float(32), trans(fea.num_outer_loops)),
+        FloatImm(DataType::Float(32), trans(fea.prod_outer_loops)),
+        FloatImm(DataType::Float(32), trans(fea.auto_unroll_max_step)),
+    });
 
     ret_feature->push_back(feature_row);
   }
@@ -348,6 +535,69 @@ void GetInnerStatementFeatureFlatten(
     for (auto i = 0; i < 5 - int(bufs.size()); i++)
       for (auto j = 0; j < 16; j++)
         feature_vec.push_back(FloatImm(DataType::Float(32), 0));
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_add_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_sub_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_mul_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_div_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_mod_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_cmp_ct)));
+
+    for (auto k: INTRIN_KEYS) {
+      if (fea.int_intrin_ct.count(k))
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.int_intrin_ct[k])));
+      else
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(0)));
+    }
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_add_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_sub_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_mul_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_div_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_mod_ct)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_cmp_ct)));
+
+    for (auto k: INTRIN_KEYS) {
+      if (fea.flt_intrin_ct.count(k))
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.flt_intrin_ct[k])));
+      else
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(0)));
+    }
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.vectorize_len_imost)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.vectorize_len_prod)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.vectorize_loop_num)));
+    for (auto j = 0; j < 8; j++)
+        feature_vec.push_back(FloatImm(DataType::Float(32), fea.vectorize_loop_pos == j));
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.unroll_len_imost)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.unroll_len_prod)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.unroll_loop_num)));
+    for (auto j = 0; j < 8; j++)
+        feature_vec.push_back(FloatImm(DataType::Float(32), fea.unroll_loop_pos == j));
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.parallel_len_imost)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.parallel_len_prod)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.parallel_loop_num)));
+    for (auto j = 0; j < 8; j++)
+        feature_vec.push_back(FloatImm(DataType::Float(32), fea.parallel_loop_pos == j));
+
+    for (auto k : THREAD_BIND_KEYS) {
+      if (fea.thread_bind_len.count(k))
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.thread_bind_len[k])));
+      else
+        feature_vec.push_back(FloatImm(DataType::Float(32), trans(1)));
+    }
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.num_allocation)));
+    for (int i = 0; i < std::min(10, int(fea.output_buffer_size.size())); i++)
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.output_buffer_size[i])));
+    for (int i = 0; i < 10 - int(fea.output_buffer_size.size()); i++) 
+      feature_vec.push_back(FloatImm(DataType::Float(32), trans(0)));
+
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.num_outer_loops)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.prod_outer_loops)));
+    feature_vec.push_back(FloatImm(DataType::Float(32), trans(fea.auto_unroll_max_step)));
 
     ret_feature->push_back(feature_vec);
   }

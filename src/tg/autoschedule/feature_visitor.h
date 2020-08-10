@@ -31,7 +31,7 @@ enum AccessType {
 enum AnnotationType {
   kBlockX, kBlockY, kBlockZ, kThreadX, kThreadY, kThreadZ,
   kUnrolled, kVectorized, kParallel, kSerial, kVirtualThread,
-  kNum,
+  kPragma, kNum,
 };
 
 /*!
@@ -57,7 +57,8 @@ class FeatureVisitor : public StmtExprVisitor {
  * \param var The expression to be printed.
  * \return skip Whether skip this node
  */
-  virtual bool EnterItervar_(tir::Var var, int64_t min, int64_t length, bool is_attr_stmt) = 0;
+  virtual bool EnterItervar_(tir::Var var, int64_t min, int64_t length, bool is_attr_stmt, 
+                             AnnotationType ann, const char *pragma_key, const PrimExpr *pragma_val) = 0;
   /*! \brief Exit a for loop subtree */
   virtual void ExitItervar_() = 0;
   /*!
@@ -68,6 +69,9 @@ class FeatureVisitor : public StmtExprVisitor {
   virtual void EnterMem_(tir::Var buffer_var, tvm::PrimExpr index, AccessType access_type) = 0;
   /*! \brief Exit a memory access node */
   virtual void ExitMem_() = 0;
+
+  virtual void EnterAllocateNode_(std::string scope) = 0;
+  virtual void ExitAllocateNode_() = 0;
 };
 
 }  // namespace autotvm
