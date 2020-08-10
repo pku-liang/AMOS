@@ -113,8 +113,10 @@ def get_conv2d_unroll(oc, ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
       lambda c, i, j: te.sum(
           PaddedX[ric, i*sh+rkh, j*sw+rkw] * K[c, ric, rkh, rkw],
           axis=[ric, rkh, rkw]), name='Y')
-    
-  return X, K, Y, PaddedX
+  
+  sch = te.create_schedule(Y.op)
+  sch[Y].pragma(Y.op.axis[0], 'auto_unroll_max_step', 4)
+  return sch, (X, K, Y, PaddedX)
 
 
 def get_depthwise_conv2d(ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
@@ -141,9 +143,7 @@ def get_depthwise_conv2d(ic, nh, nw, kh, kw, ph=0, pw=0, sh=1, sw=1):
       lambda c, i, j: te.sum(
           (PaddedX[c, i*sh+rkh, j*sw+rkw] * K[c, 0, rkh, rkw]),
           axis=[rkh, rkw]), name='Y')
-  sch = te.create_schedule(Y.op)
-  sch[Y].pragma(Y.axis[0], 'auto_unroll_max_step', 4)
-  return sch, (X, K, Y, PaddedX)
+  return X, K, Y, PaddedX
 
 
 def get_feature(inputs, outputs, sch=None, target='llvm'):

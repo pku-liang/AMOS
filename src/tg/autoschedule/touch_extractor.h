@@ -31,9 +31,20 @@ using TvmMap = std::unordered_map<P, Q, tvm::ObjectHash, tvm::ObjectEqual>;
 template <typename T>
 using TvmSet = std::unordered_set<T, tvm::ObjectHash, tvm::ObjectEqual>;
 
-const char* INTRIN_KEYS[17]{
-    "exp", "exp2", "exp10", "erf", "tanh", "sigmoid", "log", "log2", "log10",
-    "tan", "cos", "cosh", "sin", "sinh", "atan", "sqrt", "rsqrt",
+// const char* INTRIN_KEYS[17]{
+//     "exp", "exp2", "exp10", "erf", "tanh", "sigmoid", "log", "log2", "log10",
+//     "tan", "cos", "cosh", "sin", "sinh", "atan", "sqrt", "rsqrt",
+// };
+
+enum LoopPositionType { 
+  kNonePosition = 0,
+  kInnerSpatial = 1,
+  kMiddleSpatial = 2,
+  kOuterSpatial = 3,
+  kInnerReduce = 4,
+  kMiddleReduce = 5,
+  kOuterReduce = 6,
+  kMixedPosition = 7,
 };
 
 enum ReuseType {
@@ -43,11 +54,19 @@ enum ReuseType {
   kReuseTypeNum = 3,
 };
 
-
 struct BufferInfo {
   std::string scope;
   std::vector<int64_t> shape;
   DataType dtype;
+};
+
+struct IterVarInfo {
+  Var var;
+  bool is_attr_stmt;
+  AnnotationType ann;
+  const char *pragma_key;
+  const PrimExpr *pragma_val;
+  bool is_reduce;
 };
 
 
@@ -94,26 +113,25 @@ struct InnermostStatementFeature {
   int64_t vectorize_len_imost{0};
   int64_t vectorize_len_prod{0};
   int64_t vectorize_loop_num{0};
-  // reduce axis: IterVarNode.iter_type == IterVarType.kCommReduce
-  // LoopPosition vectorize_loop_pos;
+  LoopPositionType vectorize_loop_pos{kNonePosition};
 
   int64_t unroll_len_imost{0};
   int64_t unroll_len_prod{1};
   int64_t unroll_loop_num{0};
-  // LoopPosition unroll_loop_pos;
+  LoopPositionType unroll_loop_pos{kNonePosition};
 
   int64_t parallel_len_imost{0};
   int64_t parallel_len_prod{1};
   int64_t parallel_loop_num{0};
-  // LoopPosition parallel_loop_pos;
+  LoopPositionType parallel_loop_pos{kNonePosition};
 
   int64_t num_outer_loops{0};
   int64_t prod_outer_loops{0};
-  // AttrStmtNode.attr_key namespace attr
-  // int64_t auto_unroll_max_step{0}; ItervarAttrNode?
+  int64_t auto_unroll_max_step{0};
 
   std::vector<int64_t> output_buffer_size;
-  // int64_t num_allocation;  AllocateNode?
+  TvmSet<Var> accessed_buffers;
+  int64_t num_allocation;
 
   std::unordered_map<TouchedBuffer, BufferAccessFeature> buffer_access_feature;
 };
@@ -134,78 +152,97 @@ class TouchExtractor : public FeatureVisitor {
   }
 
   void VisitExpr_(const AddNode* op) final {
-    if (op->dtype.is_float())
-      innermost_stmt_map[current_stmt].flt_add_ct++;
-    else
-      innermost_stmt_map[current_stmt].int_add_ct++;
+    if (current_stmt) {
+      if (op->dtype.is_float())
+        innermost_stmt_map[current_stmt].flt_add_ct++;
+      else
+        innermost_stmt_map[current_stmt].int_add_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const SubNode* op) final {
-    if (op->dtype.is_float())
-      innermost_stmt_map[current_stmt].flt_sub_ct++;
-    else
-      innermost_stmt_map[current_stmt].int_sub_ct++;
+    if (current_stmt) {
+      if (op->dtype.is_float())
+        innermost_stmt_map[current_stmt].flt_sub_ct++;
+      else
+        innermost_stmt_map[current_stmt].int_sub_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const MulNode* op) final {
-    if (op->dtype.is_float())
-      innermost_stmt_map[current_stmt].flt_mul_ct++;
-    else
-      innermost_stmt_map[current_stmt].int_mul_ct++;
+    if (current_stmt) {
+      if (op->dtype.is_float())
+        innermost_stmt_map[current_stmt].flt_mul_ct++;
+      else
+        innermost_stmt_map[current_stmt].int_mul_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const DivNode* op) final {
     assert(!op->dtype.is_float());
-    innermost_stmt_map[current_stmt].int_div_ct++;
+    if (current_stmt)
+      innermost_stmt_map[current_stmt].int_div_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const ModNode* op) final {
     assert(!op->dtype.is_float());
-    innermost_stmt_map[current_stmt].int_mod_ct++;
+    if (current_stmt)
+      innermost_stmt_map[current_stmt].int_mod_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const FloorDivNode* op) final {
     assert(op->dtype.is_float());
-    innermost_stmt_map[current_stmt].flt_div_ct++;
+    if (current_stmt)
+      innermost_stmt_map[current_stmt].flt_div_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const FloorModNode* op) final {
     assert(op->dtype.is_float());
-    innermost_stmt_map[current_stmt].flt_mod_ct++;
+    if (current_stmt)
+      innermost_stmt_map[current_stmt].flt_mod_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   template<typename T>
   void VisitExpr_(const CmpOpNode<T>* op) {
-    if (op->dtype.is_float())
-      innermost_stmt_map[current_stmt].flt_cmp_ct++;
-    else
-      innermost_stmt_map[current_stmt].int_cmp_ct++;
+    if (current_stmt) {
+      if (op->dtype.is_float())
+        innermost_stmt_map[current_stmt].flt_cmp_ct++;
+      else
+        innermost_stmt_map[current_stmt].int_cmp_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const CallNode* op) {
     if (op->call_type == CallNode::PureIntrinsic) {
-      if (op->dtype.is_float()) {
-        innermost_stmt_map[current_stmt].flt_intrin_ct[op->name.c_str()]++;
-      } else {
-        innermost_stmt_map[current_stmt].int_intrin_ct[op->name.c_str()]++;
+      if (current_stmt) {
+        if (op->dtype.is_float()) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct[op->name.c_str()]++;
+        } else {
+          innermost_stmt_map[current_stmt].int_intrin_ct[op->name.c_str()]++;
+        }
       }
     }
     FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const IterVarNode* op) {
+    std::cout << "Found IterVarNode: " << op->iter_type << " " << op->dom << std::endl;
   }
 
   std::unordered_map<const StoreNode*, InnermostStatementFeature> innermost_stmt_map;
   TvmMap<Var, std::unordered_set<const StoreNode*> > buffervar_stmt_map;
 
  private:
-  bool EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt, AnnotationType ann);
+  bool EnterItervar_(Var var, int64_t min, int64_t length, bool is_attr_stmt, AnnotationType ann, 
+                     const char *pragma_key, const PrimExpr *pragma_val);
   void ExitItervar_();
   void EnterInnermostStmt_(const StoreNode &innermost_stmt);
   void ExitInnermostStmt_();
@@ -213,11 +250,10 @@ class TouchExtractor : public FeatureVisitor {
   void ExitMem_();
 
   void VisitStmt_(const StoreNode* op) final;
-  void VisitStmt_(const AllocateNode* op);
+  void VisitStmt_(const AllocateNode* op) final;
 
   const StoreNode *current_stmt {nullptr};
-  std::deque<std::tuple<Var, bool, AnnotationType> > itervar_stack_;
-  // TODO: refactor: loopinfo
+  std::deque<IterVarInfo> itervar_stack_;
   TvmMap<Var, int64_t> extent;
   TvmMap<Var, int64_t> loop_min;
   size_t innermost_stmt_counter_{0};

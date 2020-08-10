@@ -218,6 +218,23 @@ def get_feature(schedule, tensors, target, flatten=True):
     features = _ffi_api.get_feature(schedule, tensors, target)
     features = [[v.value for v in fea.features] for fea in features]
   else:
+    BUFFER_ACCESS_PATTERN_DEF = (
+      'access_type', 'bytes', 'unique_bytes', 'lines', 'unique_lines',
+      'reuse_type', 'reuse_distance', 'reuse_counter', 'stride', 'topdown',
+    )
+    INTRIN_KEYS = (
+      "exp", "exp2", "exp10", "erf", "tanh", "sigmoid", "log", "log2", "log10",
+      "tan", "cos", "cosh", "sin", "sinh", "atan", "sqrt", "rsqrt",
+    )
+    ARITH_FEATURE_KEYS = (
+      'add', 'sub', 'mul', 'div', 'mod', 'cmp', *INTRIN_KEYS
+    )
+    ANNOT_FEATURE_KEYS = ('len_imost', 'len_prod', 'loop_num', 'loop_pos')
+    THREAD_BIND_KEYS = (
+      'kBlockX', 'kBlockY', 'kBlockZ', 'kThreadX', 'kThreadY',
+      'kThreadZ', 'kVirtualThread'
+    )
+
     def pythonify_features(f):
       if isinstance(f, tvm.ir.container.Array):
         return [pythonify_features(ff) for ff in f]
@@ -226,13 +243,18 @@ def get_feature(schedule, tensors, target, flatten=True):
 
     def feature_row_to_dict(row):
       from collections import defaultdict
-      BUFFER_ACCESS_PATTERN_DEF = (
-        'access_type', 'bytes', 'unique_bytes', 'lines', 'unique_lines',
-        'reuse_type', 'reuse_distance', 'reuse_counter', 'stride', 'topdown',
-      )
+      
       FEATURE_DEF = defaultdict(lambda: BUFFER_ACCESS_PATTERN_DEF)
       FEATURE_DEF.update({
         '_stmt_': ('name',),
+        'int_arith_features': ARITH_FEATURE_KEYS,
+        'flt_arith_features': ARITH_FEATURE_KEYS,
+        'vectorization_features': ANNOT_FEATURE_KEYS,
+        'unrolling_features': ANNOT_FEATURE_KEYS,
+        'parallel_features': ANNOT_FEATURE_KEYS,
+        'thread_binding_features': THREAD_BIND_KEYS,
+        'allocation_features': ('num_alloc', *[f'out_size{i}' for i in range(6)]),
+        'other_features': ('num_outer_loops', 'prod_outer_loops', 'auto_unroll_max_step'),
       })
       return {
         entry[0]: dict(zip(FEATURE_DEF[entry[0]], entry[1:]))
@@ -242,7 +264,7 @@ def get_feature(schedule, tensors, target, flatten=True):
     def untake_log(row):
       from collections import defaultdict
 
-      def weak_round(x, eps=1e-6):
+      def weak_round(x, eps=1e-4):
         return round(x) if abs(x - round(x)) < eps else x
 
       def unlog(x):
@@ -256,6 +278,14 @@ def get_feature(schedule, tensors, target, flatten=True):
       ))
       SHOULD_UNLOG.update({
         '_stmt_': (),
+        'int_arith_features': ARITH_FEATURE_KEYS,
+        'flt_arith_features': ARITH_FEATURE_KEYS,
+        'vectorization_features': ('len_imost', 'len_prod', 'loop_num'),
+        'unrolling_features': ('len_imost', 'len_prod', 'loop_num'),
+        'parallel_features': ('len_imost', 'len_prod', 'loop_num'),
+        'thread_binding_features': THREAD_BIND_KEYS,
+        'allocation_features': ('num_alloc', *[f'out_size{i}' for i in range(6)]),
+        'other_features': ('num_outer_loops', 'prod_outer_loops', 'auto_unroll_max_step'),
       })
 
       return {
@@ -271,6 +301,9 @@ def get_feature(schedule, tensors, target, flatten=True):
           return ['kNone', 'kRead', 'kWrite', 'kReadWrite'][v]
         elif k == 'reuse_type':
           return ['kNoReuse', 'kLoopMultipleRead', 'kSerialMultipleRead', 'kBothReuse'][v]
+        elif k == 'loop_pos':
+          return ['kNonePosition', 'kInnerSpatial', 'kMiddleSpatial', 'kOuterSpatial',
+            'kInnerReduce', 'kMiddleReduce', 'kOuterReduce', 'kMixedPosition'][v]
         else:
           raise ValueError(f"Unrecognized enum: {k}")
 
@@ -279,6 +312,14 @@ def get_feature(schedule, tensors, target, flatten=True):
       ))
       SHOULD_CONVERT.update({
         '_stmt_': (),
+        'int_arith_features': (),
+        'flt_arith_features': (),
+        'vectorization_features': ('loop_pos'),
+        'unrolling_features': ('loop_pos'),
+        'parallel_features': ('loop_pos'),
+        'thread_binding_features': (),
+        'allocation_features': (),
+        'other_features': (),
       })
 
       return {

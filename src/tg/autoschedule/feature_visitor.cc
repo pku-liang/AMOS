@@ -11,8 +11,7 @@ namespace tg {
 
 // for loop
 void FeatureVisitor::VisitStmt_(const ForNode* op) {
-
-  const auto *extent = op->extent.as<IntImmNode>();
+  const auto* extent = op->extent.as<IntImmNode>();
   const auto *min = op->min.as<IntImmNode>();
   int64_t loop_extent = -1;
   if (extent != nullptr)
@@ -34,7 +33,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
       break;
   }
 
-  if (EnterItervar_(op->loop_var, min->value, loop_extent, false, ann)) {
+  if (EnterItervar_(op->loop_var, min->value, loop_extent, false, ann, nullptr, nullptr)) {
     StmtExprVisitor::VisitStmt_(op);
     ExitItervar_();
   }
@@ -42,8 +41,8 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
 
 // parallel axis, virtual thread
 void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
-  std::cout << "Found AttrStmtNode: " << op->attr_key << std::endl;
-  if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread) {
+  if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread ||
+      op->attr_key.find(attr::pragma_scope_prefix) == 0) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto *extent = op->value.as<IntImmNode>();
 
@@ -70,10 +69,12 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
         ann = kThreadZ;
       else
         LOG(FATAL) << "invalid thread itervar " + name;
+    } else if (op->attr_key.find(attr::pragma_scope_prefix) == 0) {
+      ann = kPragma;
     } else {
       ann = kVirtualThread;
     }
-    if (EnterItervar_(var, min, extent->value, true, ann)) {
+    if (EnterItervar_(var, min, extent->value, true, ann, op->attr_key.c_str(), &op->value)) {
       StmtExprVisitor::VisitStmt_(op);
       ExitItervar_();
     }
