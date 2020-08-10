@@ -9,24 +9,6 @@ namespace tvm {
 namespace tg {
 
 
-bool able_inline(
-  const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph) {
-  
-  const te::ComputeOpNode *as_compute = op.as<te::ComputeOpNode>();
-  if (as_compute == nullptr) return false;
-
-  if (as_compute->reduce_axis.size() != 0U) {
-    return false;
-  }
-
-  if (down_graph.find(op) == down_graph.end()) {
-    return false;
-  }
-
-  return true;
-}
-
-
 int get_minimal_factor(int value) {
   int bound = (int)std::sqrt(value);
   for (int i = 2; i <= bound; ++i) {

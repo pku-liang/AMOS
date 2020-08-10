@@ -56,6 +56,10 @@ std::vector<int> int_vector_from_string(std::string s);
 std::vector<bool> bool_vector_from_string(std::string s);
 
 
+bool able_inline(
+  const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph);
+
+
 class IntKeyNode : public Object {
  public:
   int value;

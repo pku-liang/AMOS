@@ -220,6 +220,162 @@ double get_gflop(TIRGraph subgraph) {
 }
 
 
+class RewriteInput : public ExprMutator {
+ public:
+  using ExprMutator::VisitExpr;
+
+  RewriteInput(Array<Tensor> org, Array<Tensor> replace) : org_(org), replace_(replace) {}
+ private:
+  Array<Tensor> org_;
+  Array<Tensor> replace_;
+ protected:
+ using ExprMutator::VisitExpr_;
+  // list of functions to override.
+  PrimExpr VisitExpr_(const CallNode* op) override {
+    if (op->call_type == CallNode::CallType::Halide) {
+      int i = 0;
+      for (auto t : org_) {
+        if (t->op.same_as(op->func)) {
+          return CallNode::make(op->dtype,
+                    replace_[i]->op->name,
+                    op->args,
+                    op->call_type,
+                    replace_[i]->op,
+                    op->value_index);
+        }
+        i += 1;
+      }
+    }
+    return ExprMutator::VisitExpr_(op);
+  }
+};
+
+
+class InlineExpression : public ExprMutator {
+ private:
+  Operation inlined;
+  Array<PrimExpr> body;
+  Array<IterVar> axis;
+ public:
+  using ExprMutator::VisitExpr;
+
+  InlineExpression(Operation inlined) : inlined(inlined) {
+    const ComputeOpNode* as_compute = inlined.as<ComputeOpNode>();
+    ASSERT(as_compute != nullptr);
+    body = as_compute->body;
+    axis = as_compute->axis;
+  }
+
+  PrimExpr VisitExpr_(const CallNode* op) override {
+    if (op->func.same_as(inlined) && op->call_type == CallNode::CallType::Halide) {
+      PrimExpr inline_body = body[op->value_index];
+      Map<Var, PrimExpr> var_map;
+      ASSERT(axis.size() == op->args.size());
+      int count_axis = 0;
+      for (auto iv : axis) {
+        var_map.Set(iv->var, op->args[count_axis++]);
+      }
+
+      inline_body = Substitute(inline_body, var_map);
+      return inline_body;
+    } else {
+      return ExprMutator::VisitExpr_(op);
+    }
+  }
+};
+
+
+TIRGraph inline_graph(TIRGraph graph) {
+  std::unordered_map<Operation, std::pair<bool, Operation> > cache;
+  
+  std::function<void(Operation op)> helper;
+  helper = [&] (Operation op) {
+    if (cache.find(op) != cache.end()) {
+      return;
+    }
+    const ComputeOpNode* as_compute = op.as<ComputeOpNode>();
+    if (as_compute == nullptr) {
+      cache[op] = std::make_pair(false, op);
+      return;
+    }
+
+    Array<Tensor> old_inputs, new_inputs;
+    std::vector<Operation> to_inline;
+    for (auto inp : as_compute->InputTensors()) {
+      old_inputs.push_back(inp);
+      helper(inp->op);
+      ASSERT(cache.find(inp->op) != cache.end());
+      new_inputs.push_back(cache[inp->op].second.output(inp->value_index));
+      if (cache[inp->op].first) {
+        to_inline.push_back(cache[inp->op].second);
+      }
+    }
+
+    bool can_inline = able_inline(op, graph->down_graph);
+
+    RewriteInput ri(old_inputs, new_inputs);
+    Array<PrimExpr> new_bodies;
+    for (auto b : as_compute->body) {
+      new_bodies.push_back(ri.VisitExpr(b));
+    }
+    
+    Array<PrimExpr> bodies_after_inline = new_bodies;
+    for (auto to_inline_op : to_inline) {
+      InlineExpression ie(to_inline_op);
+      Array<PrimExpr> tmp;
+      for (auto b : bodies_after_inline) {
+        tmp.push_back(ie.VisitExpr(b));
+      }
+      bodies_after_inline = tmp;
+    }
+
+    Array<PrimExpr> shape;
+    for (auto iv : as_compute->axis) {
+      shape.push_back(iv->dom->extent);
+    }
+    auto new_op = ComputeOpNode::make(
+      op->name, generate_tag_from_body(shape, bodies_after_inline), op->attrs, as_compute->axis, bodies_after_inline);
+    
+    cache[op] = std::make_pair(can_inline, new_op);
+  };
+
+  for (auto op : graph->root_ops) {
+    helper(op);
+  }
+
+  Array<Tensor> inputs = graph->inputs;
+
+  Array<Tensor> labels = graph->labels;
+
+  Array<Tensor> outputs;
+  for (auto t : graph->outputs) {
+    ASSERT(cache.find(t->op) != cache.end());
+    outputs.push_back(cache[t->op].second.output(t->value_index));
+  }
+
+  Array<Tensor> weights = graph->weights;
+
+  ASSERT(cache.find(graph->loss->op) != cache.end());
+  Tensor loss = cache[graph->loss->op].second.output(graph->loss->value_index);
+
+  Array<Tensor> gradients;
+  for (auto t : graph->gradients) {
+    ASSERT(cache.find(t->op) != cache.end());
+    gradients.push_back(cache[t->op].second.output(t->value_index));
+  }
+
+  Tensor lr = graph->lr;
+
+  Array<Tensor> updates;
+  for (auto t : graph->updates) {
+    ASSERT(cache.find(t->op) != cache.end());
+    updates.push_back(cache[t->op].second.output(t->value_index));
+  }
+
+  return TIRGraph(inputs, labels, outputs, weights, loss, gradients, lr, updates);
+}
+
+
 TVM_REGISTER_NODE_TYPE(TIRGraphNode);
 TVM_REGISTER_NODE_TYPE(OpAttrNode);
 
@@ -246,6 +402,14 @@ TVM_REGISTER_GLOBAL("tg.make_tir_graph_training")
   Array<Tensor> updates
 ){
   return TIRGraph(inputs, labels, outputs, weights, loss, gradients, lr, updates);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.inline_graph")
+.set_body_typed([](
+  TIRGraph graph
+){
+  return inline_graph(graph);
 });
 
 

@@ -6,6 +6,7 @@
 #include <tvm/tir/expr_functor.h>
 #include <tvm/tg/graph.h>
 
+#include "abstract_graph.h"
 #include "utils.h"
 #include "../utils.h"
 

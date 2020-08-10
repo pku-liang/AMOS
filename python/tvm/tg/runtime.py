@@ -359,3 +359,19 @@ def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profi
     -------
   """
   _ffi_api.run_task(session_id, task_id, bindings, save_to, profile_level, no_actual_run)
+
+
+def print_subgraphs(session_id, task_id):
+  """Run a task in the Session.
+
+    Parameters
+    ----------
+    session_id : int
+        The Session in which the graph is initialized.
+
+    task_id : int
+
+    Returns
+    -------
+  """
+  _ffi_api.print_subgraphs(session_id, task_id)

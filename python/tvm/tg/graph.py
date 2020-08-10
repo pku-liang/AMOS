@@ -67,3 +67,17 @@ def generate_tag_from_body(shape, body):
     tage: string
   """
   return _ffi_api.generate_tag_from_body(shape, body)
+
+
+def inline_graph(graph):
+  """Optimize a graph by inlining.
+
+    Parameters
+    ----------
+    graph: TIRGraph
+
+    Returns
+    -------
+    tage: TIRGraph
+  """
+  return _ffi_api.inline_graph(graph)

@@ -184,6 +184,24 @@ std::vector<bool> bool_vector_from_string(std::string s) {
 }
 
 
+bool able_inline(
+  const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph) {
+  
+  const te::ComputeOpNode *as_compute = op.as<te::ComputeOpNode>();
+  if (as_compute == nullptr) return false;
+
+  if (as_compute->reduce_axis.size() != 0U) {
+    return false;
+  }
+
+  if (down_graph.find(op) == down_graph.end()) {
+    return false;
+  }
+
+  return true;
+}
+
+
 IntKey::IntKey(int value) {
   auto node = make_object<IntKeyNode>();
 

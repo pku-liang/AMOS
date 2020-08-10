@@ -1432,6 +1432,30 @@ TVM_REGISTER_GLOBAL("tg.run_task")
 });
 
 
+TVM_REGISTER_GLOBAL("tg.print_subgraphs")
+.set_body_typed([](
+  int session_id, int task_id){
+  auto sess = get_session(session_id);
+  ASSERT(sess->task_cache.find(task_id) != sess->task_cache.end());
+  TIRMultiGraph multi_graph = sess->task_cache[task_id];
+  std::unordered_map<std::string, TIRGraph> tag_to_graph;
+  for (auto kv : multi_graph.Self()->graphs) {
+    tag_to_graph[kv.second->tag] = kv.second;
+  }
+  for (auto kv : tag_to_graph) {
+    print(0) << "=======================================================\n";
+    print(0) << "Tag:\n" << kv.first << "\n" << "Subgraph:\n";
+    for (auto op : kv.second->operation_list) {
+      print(0) << "-------------------------------------------------------\n";
+      print(0) << op << "\n";
+      if (op.as<ComputeOpNode>()) {
+        print(0) << op.as<ComputeOpNode>()->body << "\n";
+      }
+    }
+  }
+});
+
+
 }  // namespace tg
 
 

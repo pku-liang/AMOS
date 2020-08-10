@@ -90,7 +90,8 @@ class print{
   bool do_print;
   std::ostream& out;
  public:
-  print(int level, std::ostream& out=std::cerr) : do_print(level <= get_evn_value("TG_PRINT_LEVEL")), out(out) {}
+  print(int level, std::ostream& out=std::cerr)
+  : do_print(level == 0 || level <= get_evn_value("TG_PRINT_LEVEL")), out(out) {}
 
   template<typename T>
   print& operator<< (T&& x) {

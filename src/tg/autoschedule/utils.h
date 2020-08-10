@@ -18,10 +18,6 @@ namespace tvm {
 namespace tg {
 
 
-bool able_inline(
-  const te::Operation &op, const Map<te::Operation, Array<te::Operation> > &down_graph);
-
-
 int get_minimal_factor(int value);
 
 
