@@ -51,13 +51,13 @@ def make_tir_multi_graph(graph):
   return _ffi_api.make_tir_multi_graph(graph)
 
 
-def generate_tag_from_body(shape, body):
+def generate_tag_from_body(axis, body):
   """Generate string tag from body.
 
     Parameters
     ----------
-    shape: Array<PrimExpr>
-        The shape of output
+    axis: Array<IterVar>
+        The axis of output
     
     body : Array<PrimExpr>
         The body of compute.
@@ -66,7 +66,7 @@ def generate_tag_from_body(shape, body):
     -------
     tage: string
   """
-  return _ffi_api.generate_tag_from_body(shape, body)
+  return _ffi_api.generate_tag_from_body(axis, body)
 
 
 def inline_graph(graph):

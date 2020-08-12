@@ -21,7 +21,11 @@ Tensor ones_like(const Tensor &tensor) {
   func = [&tensor](const Array<Var> &input_indices){
     return make_const(tensor->dtype, 1);
   };
-  std::string tag = generate_tag_from_body(shape, {make_const(tensor->dtype, 1)});
+  Array<IterVar> axis;
+  for (auto s : shape) {
+    axis.push_back(IterVarNode::make(Range(0, s), Var(""), IterVarType::kDataPar));
+  }
+  std::string tag = generate_tag_from_body(axis, {make_const(tensor->dtype, 1)});
   return te::compute(shape, func, "ones_" + tensor->op->name, tag, {}, false);
 }
 
@@ -32,7 +36,15 @@ Tensor zeros_like(const Tensor &tensor) {
   func = [&tensor](const Array<Var> &input_indices) {
     return make_const(tensor->dtype, 0);
   };
-  std::string tag = generate_tag_from_body(shape, {make_const(tensor->dtype, 0)});
+  
+  Array<IterVar> axis;
+  Array<Var> vars;
+  for (auto s : shape) {
+    auto var = Var("");
+    vars.push_back(var);
+    axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+  }
+  std::string tag = generate_tag_from_body(axis, {func(vars)});
   return te::compute(shape, func, "zeros_" + tensor->op->name, tag, {}, false);
 }
 
@@ -64,14 +76,18 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
   // std::string dim = std::to_string(input->shape.size());
   // std::string num = std::to_string(num_outputs);
   Array<Var> indices;
+  Array<IterVar> axis;
   for (auto s : shape) {
-    indices.push_back(Var(""));
+    auto var = Var("");
+    indices.push_back(var);
+    axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
   }
   PrimExpr res = partial_grads[0](indices);
   for (size_t i = 1; i < num_outputs; ++i) {
     res = AddNode::make(res, partial_grads[i](indices));
   }
-  std::string tag = generate_tag_from_body(shape, {res});
+
+  std::string tag = generate_tag_from_body(axis, {res});
   return te::compute(shape, func, "collect_" + input->op->name, tag, {}, true);
 }
 

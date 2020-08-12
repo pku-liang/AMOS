@@ -376,8 +376,8 @@ std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   
   std::unordered_set<Operation> visited;
   std::vector<Operation> ret;
-  std::unordered_map<Operation, std::unordered_set<Operation> > down_graph;
-  std::unordered_map<Operation, Array<Operation> > ret_down_graph;
+  std::unordered_map<Operation, std::unordered_set<Operation> > down_graph_set;
+  std::unordered_map<Operation, Array<Operation> > down_graph;
   // std::deque<Operation> q;
 
   std::function<void(Operation)> helper;
@@ -395,7 +395,14 @@ std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
       //     Array<Operation> tmp;
       //     down_graph[t->op] = tmp;
       // }
-      down_graph[t->op].insert(op);
+      if (down_graph_set.find(t->op) == down_graph_set.end()) {
+        down_graph_set[t->op] = std::unordered_set<Operation>();
+      }
+      if (down_graph_set[t->op].find(op) == down_graph_set[t->op].end()) {
+        down_graph_set[t->op].insert(op);
+        down_graph[t->op].push_back(op);
+      }
+      
     }
     ret.push_back(op);
     visited.insert(op);
@@ -433,12 +440,8 @@ std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   if (output_first) {
     std::reverse(std::begin(ret), std::end(ret));
   }
-  for (auto kv : down_graph) {
-    for (auto kvv : kv.second)
-      ret_down_graph[kv.first].push_back(kvv);
-  }
   
-  return std::make_pair(Array<Operation>(ret), Map<Operation, Array<Operation> >(ret_down_graph));
+  return std::make_pair(Array<Operation>(ret), Map<Operation, Array<Operation> >(down_graph));
 }
 
 

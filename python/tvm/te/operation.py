@@ -141,8 +141,7 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
         if not isinstance(body, (list, tuple)):
             body = [body]
         if tag == "TG_AUTOGEN":
-            tag_shape = [x.dom.extent for x in reorder_dim_var]
-            tag = tg.generate_tag_from_body(tag_shape, body)
+            tag = tg.generate_tag_from_body(reorder_dim_var, body)
         body = convert(body)
         op_node = _ffi_api.ComputeOp(
             name, tag, attrs, reorder_dim_var, body, requires_grad)

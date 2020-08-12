@@ -27,7 +27,11 @@ class ExprReMapper : public tir::ExprMutator {
   PrimExpr VisitExpr_(const ReduceNode* op) final;
 
 
-  ExprReMapper() : count_var(0), count_call(0) {}
+  ExprReMapper(Array<IterVar> axis) : count_var(0), count_call(0) {
+    for (auto iv : axis) {
+      var_map[iv->var.get()] = Var(get_new_var_name());
+    }
+  }
  private:
   std::string get_new_var_name() {
     int current = count_var++;
@@ -47,9 +51,7 @@ class ExprReMapper : public tir::ExprMutator {
 };
 
 
-std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body);
-
-std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>&& body);
+std::string generate_tag_from_body(Array<IterVar> axis, Array<PrimExpr> body);
 
 
 }  // namespace tg

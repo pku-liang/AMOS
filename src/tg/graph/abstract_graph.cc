@@ -115,32 +115,38 @@ PrimExpr ExprReMapper::VisitExpr_(const ReduceNode* op) {
 }
 
 
-std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body) {
+std::string generate_tag_from_body(Array<IterVar> axis, Array<PrimExpr> body) {
   std::ostringstream oss;
   oss.str("");
   if (body.size() == 0U) {
-    std::cout << "here\n";
-    return oss.str();
+    ERROR << "Unexpected empty body!";
   }
 
   const ReduceNode* as_reduce = body[0].as<ReduceNode>();
 
   if (as_reduce != nullptr) {
     CHECK(body.size() == 1U) << "Only support reduce with one body.";
-    ExprReMapper remapper;
+    Array<IterVar> axis_;
+    for (auto iv : axis) {
+      axis_.push_back(iv);
+    }
+    for (auto iv : as_reduce->axis) {
+      axis_.push_back(iv);
+    }
+    ExprReMapper remapper(axis_);
     PrimExpr new_reduce = remapper(body[0]);
     const ReduceNode* as_reduce = new_reduce.as<ReduceNode>();
     CHECK(as_reduce != nullptr);
 
     oss << "R[";
     bool add_colon = false;
-    for (auto s : shape) {
+    for (auto s : axis) {
       if (add_colon) {
         oss << ", ";
       } else {
         add_colon = true;
       }
-      oss << s;
+      oss << s->dom->extent;
     }
     oss << "] [";
     add_colon = false;
@@ -166,19 +172,19 @@ std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body
     // not reduce
     oss << "S[";
     bool add_colon = false;
-    for (auto s : shape) {
+    for (auto s : axis) {
       if (add_colon) {
         oss << ", ";
       } else {
         add_colon = true;
       }
-      oss << s;
+      oss << s->dom->extent;
     }
     oss << "] [ ] { } { ";
     bool add_semicolon = false;
     for (auto b : body) {
       CHECK(b.as<ReduceNode>() == nullptr) << "Should only contain non-reduce expr.";
-      ExprReMapper remapper;
+      ExprReMapper remapper(axis);
       PrimExpr new_b = remapper(b);
       if (add_semicolon) {
         oss << "; ";
@@ -194,15 +200,10 @@ std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>& body
 }
 
 
-std::string generate_tag_from_body(Array<PrimExpr>& shape, Array<PrimExpr>&& body) {
-  Array<PrimExpr> tmp = std::move(body);
-  return generate_tag_from_body(shape, tmp);
-}
-
 
 TVM_REGISTER_GLOBAL("tg.generate_tag_from_body")
-.set_body_typed([](Array<PrimExpr> shape, Array<PrimExpr> body) {
-  return generate_tag_from_body(shape, body);
+.set_body_typed([](Array<IterVar> axis, Array<PrimExpr> body) {
+  return generate_tag_from_body(axis, body);
 });
 
 

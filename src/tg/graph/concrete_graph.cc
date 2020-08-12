@@ -169,46 +169,71 @@ TIRGraph::TIRGraph(
   node->tag = "";
   node->gflop = 0;
   Array<te::Tensor> tensors;
+  node->tag += "inputs: ";
   for (auto t : inputs) {
     tensors.push_back(t);
     node->tag +=  get_const_shape_string(t->shape) + " ";
   }
+  node->tag += "labels: ";
   for (auto t : labels) {
     tensors.push_back(t);
     node->tag +=  get_const_shape_string(t->shape) + " ";
   }
+  node->tag += "outputs: ";
   for (auto t : outputs) {
     tensors.push_back(t);
     node->tag +=  get_const_shape_string(t->shape) + " ";
   }
+  node->tag += "weights: ";
   for (auto t : weights) {
     tensors.push_back(t);
     node->tag +=  get_const_shape_string(t->shape) + " ";
   }
+  node->tag += "loss: ";
   if (loss.defined()) {
     tensors.push_back(loss);
     node->tag +=  get_const_shape_string(loss->shape) + " ";
   }
+  node->tag += "gradients: ";
   for (auto t : gradients) {
     tensors.push_back(t);
     node->tag +=  get_const_shape_string(t->shape) + " ";
   }
+  node->tag += "lr: ";
   if (lr.defined()) {
     tensors.push_back(lr);
     node->tag +=  get_const_shape_string(lr->shape) + " ";
   }
+  node->tag += "updates: ";
   for (auto t : updates) {
     tensors.push_back(t);
     node->tag +=  get_const_shape_string(t->shape) + " ";
   }
 
   node->tensors = tensors;
-
+  node->tag += "operations: ";
+  std::unordered_map<Operation, int> op_to_id;
+  int count_id = 0;
   for (auto op : node->operation_list) {
+    op_to_id[op] = count_id++;
     node->operation_key_dict.Set(op, OperationKey(op));
     node->operation_stat_dict.Set(op, OpAttr(op, node->down_graph, node->root_ops));
     node->tag += op->tag + "$";
     node->gflop += get_gflop(op);
+  }
+  node->tag += "graph: ";
+  for (int i = 0; i < count_id; ++i) {
+    Operation op = node->operation_list[i];
+    if (node->down_graph.find(op) != node->down_graph.end()) {
+      node->tag += "[" + std::to_string(i) + ":";
+      std::vector<std::string> strings;
+      for (auto cop : node->down_graph[op]) {
+        ASSERT(op_to_id.find(cop) != op_to_id.end());
+        strings.push_back(std::to_string(op_to_id[cop]));
+      }
+      node->tag += string_join(",", strings);
+      node->tag += "]";
+    }
   }
 
   data_ = std::move(node);
@@ -328,13 +353,8 @@ TIRGraph inline_graph(TIRGraph graph) {
       }
       bodies_after_inline = tmp;
     }
-
-    Array<PrimExpr> shape;
-    for (auto iv : as_compute->axis) {
-      shape.push_back(iv->dom->extent);
-    }
     auto new_op = ComputeOpNode::make(
-      op->name, generate_tag_from_body(shape, bodies_after_inline), op->attrs, as_compute->axis, bodies_after_inline);
+      op->name, generate_tag_from_body(as_compute->axis, bodies_after_inline), op->attrs, as_compute->axis, bodies_after_inline);
     
     cache[op] = std::make_pair(can_inline, new_op);
   };

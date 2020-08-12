@@ -1395,7 +1395,15 @@ class FormCompute : public ExprVisitor {
         return Substitute(Var(op->name_hint, op->dtype), vmap);
       };
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-    std::string tag = generate_tag_from_body(shape_, {Var(op->name_hint, op->dtype)});
+
+    Array<IterVar> axis;
+    Array<Var> vars;
+    for (auto s : shape_) {
+      auto var = Var("");
+      vars.push_back(var);
+      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    }
+    std::string tag = generate_tag_from_body(axis, {func(vars)});
     tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
@@ -1420,15 +1428,16 @@ class FormCompute : public ExprVisitor {
                 op->func,
                 op->value_index), vmap);
       };
+
+    Array<IterVar> axis;
+    Array<Var> vars;
+    for (auto s : shape_) {
+      auto var = Var("");
+      vars.push_back(var);
+      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-    std::string tag = generate_tag_from_body(
-      shape_, {CallNode::make(
-                op->dtype,
-                op->name,
-                op->args,
-                op->call_type,
-                op->func,
-                op->value_index)});
+    std::string tag = generate_tag_from_body(axis, {func(vars)});
     tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
@@ -1476,28 +1485,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      PrimExpr a_body = CallNode::make(
-        ta->dtype,
-        ta->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        ta->op,
-        ta->value_index
-      );
-      PrimExpr b_body = CallNode::make(
-        tb->dtype,
-        tb->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        tb->op,
-        tb->value_index
-      );
-      std::string tag = generate_tag_from_body(shape_, {T::make(a_body, b_body)});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.push_back(new_tensor);
     } else if (a_red == nullptr && b_red != nullptr) {
@@ -1532,22 +1529,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      CHECK((int)ca->body.size() == 1);
-      PrimExpr a_body = ca->body[0];
-      PrimExpr b_body = CallNode::make(
-        tb->dtype,
-        tb->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        tb->op,
-        tb->value_index
-      );
-      std::string tag = generate_tag_from_body(shape_, {T::make(a_body, b_body)});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
@@ -1585,22 +1576,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      CHECK((int)cb->body.size() == 1);
-      PrimExpr b_body = cb->body[0];
-      PrimExpr a_body = CallNode::make(
-        ta->dtype,
-        ta->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        ta->op,
-        ta->value_index
-      );
-      std::string tag = generate_tag_from_body(shape_, {T::make(a_body, b_body)});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
@@ -1634,8 +1619,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(T::make(a_body, b_body), vmap);
         };
+
+      Array<IterVar> axis;
+      Array<Var> vars;
+      for (auto s : shape_) {
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      std::string tag = generate_tag_from_body(shape_, {T::make(ca->body[0], cb->body[0])});
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
@@ -1704,14 +1697,16 @@ class FormCompute : public ExprVisitor {
                 op->value_index), vmap);
       };
     std::string name = generator_.unique_name(tensor_name_key_);
+
+    Array<IterVar> axis;
+    Array<Var> vars;
+    for (auto s : shape_) {
+      auto var = Var("");
+      vars.push_back(var);
+      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-    std::string tag = generate_tag_from_body(
-      shape_, {ReduceNode::make(
-                op->combiner,
-                op->source,
-                op->axis,
-                op->condition,
-                op->value_index)});
+    std::string tag = generate_tag_from_body(axis, {func(vars)});
     tensor_list.push_back(te::compute(shape_, func, name, tag, {}, true));
   }
 
@@ -1733,16 +1728,16 @@ class FormCompute : public ExprVisitor {
           body = CastNode::make(op->dtype, body);
           return body;
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      // dummy
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      PrimExpr body = CallNode::make(
-        t->dtype, t->op->name, call_args, CallNode::CallType::Halide, t->op, t->value_index);
-      body = CastNode::make(op->dtype, body);
-      std::string tag = generate_tag_from_body(shape_, {body});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.push_back(new_tensor);
     } else {
@@ -1760,11 +1755,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(body, vmap);
         };
+
+      Array<IterVar> axis;
+      Array<Var> vars;
+      for (auto s : shape_) {
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      // dummy
-      PrimExpr body = cop->body[0];
-      body = CastNode::make(op->dtype, body);
-      std::string tag = generate_tag_from_body(shape_, {body});
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.push_back(new_tensor);
@@ -1817,28 +1817,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      PrimExpr true_body = CallNode::make(
-        true_tensor->dtype,
-        true_tensor->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        true_tensor->op,
-        true_tensor->value_index
-      );
-      PrimExpr false_body = CallNode::make(
-        false_tensor->dtype,
-        false_tensor->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        false_tensor->op,
-        false_tensor->value_index
-      );
-      std::string tag = generate_tag_from_body(shape_, {SelectNode::make(op->condition, true_body, false_body)});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.push_back(new_tensor);
     } else if (t_as_red == nullptr && f_as_red != nullptr) {
@@ -1873,22 +1861,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      CHECK((int)top->body.size() == 1);
-      PrimExpr true_body = top->body[0];
-      PrimExpr false_body = CallNode::make(
-        false_tensor->dtype,
-        false_tensor->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        false_tensor->op,
-        false_tensor->value_index
-      );
-      std::string tag = generate_tag_from_body(shape_, {SelectNode::make(op->condition, true_body, false_body)});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
@@ -1926,22 +1908,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
-      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      Array<PrimExpr> call_args;
+
+      Array<IterVar> axis;
+      Array<Var> vars;
       for (auto s : shape_) {
-        call_args.push_back(Var(""));
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
       }
-      CHECK((int)fop->body.size() == 1);
-      PrimExpr false_body = fop->body[0];
-      PrimExpr true_body = CallNode::make(
-        true_tensor->dtype,
-        true_tensor->op->name,
-        call_args,
-        CallNode::CallType::Halide,
-        true_tensor->op,
-        true_tensor->value_index
-      );
-      std::string tag = generate_tag_from_body(shape_, {SelectNode::make(op->condition, true_body, false_body)});
+      // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
@@ -1975,8 +1951,16 @@ class FormCompute : public ExprVisitor {
           }
           return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
         };
+
+      Array<IterVar> axis;
+      Array<Var> vars;
+      for (auto s : shape_) {
+        auto var = Var("");
+        vars.push_back(var);
+        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-      std::string tag = generate_tag_from_body(shape_, {SelectNode::make(op->condition, top->body[0], fop->body[0])});
+      std::string tag = generate_tag_from_body(axis, {func(vars)});
       Tensor new_tensor = te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true);
       tensor_list.pop_back();
       tensor_list.pop_back();
@@ -1993,8 +1977,16 @@ class FormCompute : public ExprVisitor {
       [=](const Array<Var> &input_indices) {
         return make_const(op->dtype, op->value);
       };
+
+    Array<IterVar> axis;
+    Array<Var> vars;
+    for (auto s : shape_) {
+      auto var = Var("");
+      vars.push_back(var);
+      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-    std::string tag = generate_tag_from_body(shape_, {make_const(op->dtype, op->value)});
+    std::string tag = generate_tag_from_body(axis, {func(vars)});
     tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
@@ -2004,8 +1996,16 @@ class FormCompute : public ExprVisitor {
         PrimExpr ret = make_const(op->dtype, op->value);
         return ret;
       };
+
+    Array<IterVar> axis;
+    Array<Var> vars;
+    for (auto s : shape_) {
+      auto var = Var("");
+      vars.push_back(var);
+      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
-    std::string tag = generate_tag_from_body(shape_, { make_const(op->dtype, op->value)});
+    std::string tag = generate_tag_from_body(axis, {func(vars)});
     tensor_list.push_back(te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
