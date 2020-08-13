@@ -1,6 +1,8 @@
 #include "driver.h"
 #include <unistd.h>
 #include <cmath>
+#include <set>
+#include <map>
 
 
 #include "../graph/concrete_graph.h"
@@ -164,6 +166,11 @@ void Session::initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArr
     << "Should initialize for weight " << graph->weights[i];
     // share buffer with weight
     persistent_tensors[graph->updates[i]] = persistent_tensors[graph->weights[i]];
+    // std::vector<int64_t> shape;
+    // for (auto p : t->shape) {
+    //   shape.push_back(get_const_int(p));
+    // }
+    // persistent_tensors[graph->updates[i]] = tvm::runtime::NDArray::Empty(shape, t->dtype, ctx);
     i += 1;
   }
 
@@ -379,7 +386,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph) {
           succ = true;
         } catch (const std::exception &e) {
           print(2, build_log) << "Can't get build for: " << e.what() << "\n";
-          auto_scheduler->feedback_for(key, subgraph, sch, 0.0);
+          auto_scheduler->feedback_for(key, subgraph, target, sch, 0.0);
         }  // try catch
       }  // if (!future_functions[key].empty())
 
@@ -582,7 +589,7 @@ void Session::run_evaluate(
           if (elapsed_time > 0) {
             // feedback
             double gflops = get_gflop(subgraph) / (elapsed_time / 1e3 + 1e-8);
-            auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+            auto_scheduler->feedback_for(key, subgraph, target, schedule_result, gflops);
 
             if (gflops > best_perf) {
               best_id = i;
@@ -599,7 +606,7 @@ void Session::run_evaluate(
               print(4, evaluate_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
             }
             // feedback
-            auto_scheduler->feedback_for(key, subgraph, schedule_result, 0.0);
+            auto_scheduler->feedback_for(key, subgraph, target, schedule_result, 0.0);
           }
         }
 
@@ -816,6 +823,7 @@ void Session::run_functions(
       */
       std::function<bool(IntKey key)> run_helper;
       run_helper = [&] (IntKey key) {
+        print(4, exe_log) << "do " << key->value << "\n";
 
         // the mark that indicates this subgraph is done
         bool succ = false;
@@ -828,14 +836,54 @@ void Session::run_functions(
 
         if (!this->best_functions[key].empty()) {
           auto mod_func = this->best_functions[key].front();
-
+          auto sch = std::get<0>(mod_func);
           auto mod = std::get<1>(mod_func);
           auto func = std::get<2>(mod_func);
           ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
 
           if (profile_level >= 2) {
             TIRGraph subgraph = multi_graph.Self()->graphs[key];
+            print(4, exe_log) << sch->schedule_entities.to_string() << "\n";
+            for (auto op : subgraph->operation_list) {
+              print(4, exe_log) << op.as<ComputeOpNode>()->axis << " " <<  op.as<ComputeOpNode>()->body << "\n";
+            }
             auto beg = std::chrono::steady_clock::now();
+            for (auto t : subgraph->tensors) {
+              print(4, exe_log) << t << " ";
+            }
+            print(4, exe_log) << "\n";
+            for (auto t : arrays) {
+              Array<PrimExpr> t_shape;
+              for (auto s : t.Shape()) {
+                t_shape.push_back((int)s);
+              }
+              print(4, exe_log) << t_shape << " ";
+            }
+            print(4, exe_log) << "\n";
+            print(4, exe_log) << subgraph->tag << "\n";
+            auto lowered = tvm::lower(sch->schedule, sch->tensors, get_func_name(key),
+              std::unordered_map<te::Tensor, tir::Buffer>(),
+              tvm::BuildConfig::Create());
+            print(4, exe_log) << lowered << "\n";
+            auto sub_mods = mod->imports();
+            if (sub_mods.size() > 0U) {
+              runtime::Module sub_mod = (mod->imports().at(0));
+              print(4, exe_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
+            }
+
+            tvm::runtime::Module another_mod = tvm::build(
+              lowered,
+              target,
+              Target::Create("llvm"),
+              tvm::BuildConfig::Create()
+            );
+            auto another_sub_mods = another_mod->imports();
+            if (another_sub_mods.size() > 0U) {
+              runtime::Module another_sub_mod = (another_mod->imports().at(0));
+              print(4, exe_log) << "Check another source:\n" << another_sub_mod->GetSource() << "\n";
+            }
+
+ 
             (*call_unpack)(func, arrays);
             runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
             auto end = std::chrono::steady_clock::now();
@@ -894,14 +942,26 @@ void Session::run_functions(
   }
   // save the functions
   if (save_to != "") {
-    std::ofstream fout(save_to, std::ios::out);
+    std::unordered_set<std::string> stored;
+    std::fstream fs(save_to, std::ios::in | std::ios::app);
+    std::string line;
+    while (std::getline(fs, line)) {
+      std::vector<std::string> parts = string_split("|", line);
+      stored.insert(parts[0]);
+    }
+    fs.close();
+
+    std::fstream fout(save_to, std::ios::app);
     for (auto& kv : best_functions) {
       if (!kv.second.empty()) {
         auto sch_mod_func_perf = kv.second.front();
-        std::string line = \
-          std::to_string(kv.first->value) + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() \
-          + "|" + std::to_string(std::get<3>(sch_mod_func_perf)) + "|" + std::to_string(std::get<4>(sch_mod_func_perf));
-        fout << line << "\n";
+        std::string tag = multi_graph.Self()->graphs[kv.first]->tag;
+        if (stored.find(tag) == stored.end()) {
+          std::string line = \
+            tag + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() \
+            + "|" + std::to_string(std::get<3>(sch_mod_func_perf)) + "|" + std::to_string(std::get<4>(sch_mod_func_perf));
+          fout << line << "\n";
+        }
       }
     }
     fout.close();
@@ -938,7 +998,7 @@ int Session::add_task(TIRGraph graph) {
   std::vector<IntKey> order;
 
   std::unordered_map<IntKey, int> call_order;
-  std::unordered_set<IntKey> free_set;
+  std::set<IntKey> free_set;
   for (auto kv : multi_graph->graph_attrs) {
     call_order[kv.first] = kv.second->num_predecessor;
     if (kv.second->num_predecessor == 0) {
@@ -971,23 +1031,26 @@ int Session::add_task(TIRGraph graph) {
 void Session::prepare_for_test(int task_id, std::string reference) {
   // load reference
   // this will add additional schedule results
-  std::unordered_map<std::string, IntKey> cache;
+  std::unordered_map<std::string, IntKey> need_functions;
+  std::unordered_map<
+    std::string,
+    std::shared_future<
+      std::tuple<ScheduleResult, runtime::Module, runtime::PackedFunc, double, double> > > target_subgraph_functions;
+  /* get subgraph */
   ASSERT(task_cache.find(task_id) != task_cache.end()) << "No such task " << task_id << "\n";
   TIRMultiGraph multi_graph = task_cache[task_id];
+  for (auto kv : multi_graph.Self()->graphs) {
+    need_functions[kv.second->tag] = kv.first;
+  }
 
-  std::ifstream fin(reference);
-  if (fin) {
-    std::string line;
-    while (std::getline(fin, line)) {
-      std::vector<std::string> parts = string_split("|", line);
-      ASSERT(parts.size() >= 4U) << "Bad line: " << line << ".\n";
-      IntKey key(std::stoi(parts[0]));
-      MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
-      ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
-        key, multi_graph.Self()->graphs[key], target, entity);
-      double perf = std::stod(parts[2]);
-      double time = std::stod(parts[3]);
-
+  /* helper for schedule and build */
+  ThreadPool pool;
+  auto schedule_and_build = [&] (IntKey key, std::vector<std::string> parts) {
+    MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
+    double perf = std::stod(parts[2]);
+    double time = std::stod(parts[3]);
+    ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
+      multi_graph.Self()->graphs[key], target, entity);
       std::string name = get_func_name(key);
       
       auto module = function_builder->build_func(
@@ -995,33 +1058,94 @@ void Session::prepare_for_test(int task_id, std::string reference) {
         name, std::unordered_map<te::Tensor, tir::Buffer>(), tvm::BuildConfig::Create());
 
       auto func = module->GetFunction(name);
+      return std::make_tuple(schedule_result, module, func, perf, time);
+  };
+  // std::unordered_map<
+  //   IntKey,
+  //   std::shared_future<std::tuple<ScheduleResult, runtime::Module, runtime::PackedFunc, double, double> > > future_map;
 
-      built_functions[key].push(std::make_tuple(schedule_result, module, func));
-      best_functions[key].push(std::make_tuple(schedule_result, module, func, perf, time));
-
-      TIRGraph subgraph = multi_graph.Self()->graphs[key];
-      if (cache.find(subgraph->tag) == cache.end()) {
-        cache[subgraph->tag] = key;
+  /* load the lib */
+  std::unordered_set<std::string> unique_check;
+  std::ifstream fin(reference);
+  if (fin) {
+    int count_line = 0;
+    std::string line;
+    while (std::getline(fin, line)) {
+      std::vector<std::string> parts = string_split("|", line);
+      ASSERT(parts.size() >= 4U) << "Bad line: " << line << ".\n";
+      // IntKey key(std::stoi(parts[0]));
+      if (unique_check.find(parts[0]) != unique_check.end()) {
+        ERROR << "The library has repeated item with tag:\n" << parts[0] << "\n"
+              << "at line " << count_line << "\n";
       }
+      unique_check.insert(parts[0]);
+      if (need_functions.find(parts[0]) != need_functions.end()) {
+        auto future_sch_mod_func_perf_time = pool.push_back(schedule_and_build, need_functions[parts[0]], parts);
+        target_subgraph_functions[parts[0]] = future_sch_mod_func_perf_time;
+      }
+      count_line += 1;
+      // ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
+      //   key, multi_graph.Self()->graphs[key], target, entity);
+
+      // std::string name = get_func_name(key);
+      
+      // auto module = function_builder->build_func(
+      //   schedule_result->schedule, schedule_result->tensors, target, Target::Create("llvm"),
+      //   name, std::unordered_map<te::Tensor, tir::Buffer>(), tvm::BuildConfig::Create());
+
+      // auto func = module->GetFunction(name);
+      // auto future_sch_mod_func_perf_time = pool.push_back(schedule_and_build, key, parts);
+      // auto sch_mod_func = schedule_and_build(key, entity);
+      // auto schedule_result = std::get<0>(sch_mod_func);
+      // auto module = std::get<1>(sch_mod_func);
+      // auto func = std::get<2>(sch_mod_func);
+
+      // built_functions[key].push(std::make_tuple(schedule_result, module, func));
+      // best_functions[key].push(std::make_tuple(schedule_result, module, func, perf, time));
+      // future_map[key] = future_sch_mod_func_perf_time;
+
+      // TIRGraph subgraph = multi_graph.Self()->graphs[key];
+      // if (cache.find(subgraph->tag) == cache.end()) {
+      //   cache[subgraph->tag] = key;
+      // }
     }
     fin.close();
+
+    // for (auto& kv : future_map) {
+    //   auto sch_mod_func_perf_time = kv.second.get();
+    //   best_functions[kv.first].push(sch_mod_func_perf_time);
+    // }
   } else {
     ERROR << "Can't open schedule reference file " << reference << ".\n";
   }
 
-  bool have_miss = false;
+  // bool have_miss = false;
+  // for (auto kv : multi_graph.Self()->graphs) {
+  //   if ((best_functions.find(kv.first) == best_functions.end()) || (best_functions[kv.first].empty())) {
+  //     if (cache.find(kv.second->tag) != cache.end()) {
+  //       print(1) << "Can't find the function for subgraph " << kv.second->tag << "\n";
+  //       have_miss = true;
+  //     }
+  //     else
+  //       best_functions[kv.first].push(best_functions[cache[kv.second->tag]].front());
+  //   }
+  // }
+
+  // cached_all_functions[task_id] = !have_miss;
+
+  /* load the fuctions */
+  bool has_miss = false;
   for (auto kv : multi_graph.Self()->graphs) {
-    if ((best_functions.find(kv.first) == best_functions.end()) || (best_functions[kv.first].empty())) {
-      if (cache.find(kv.second->tag) != cache.end()) {
-        print(1) << "Can't find the function for subgraph " << kv.second->tag << "\n";
-        have_miss = true;
-      }
-      else
-        best_functions[kv.first].push(best_functions[cache[kv.second->tag]].front());
+    if (target_subgraph_functions.find(kv.second->tag) != target_subgraph_functions.end()) {
+      auto sch_mod_func_perf_time = target_subgraph_functions[kv.second->tag].get();
+      best_functions[kv.first].push(sch_mod_func_perf_time);
+    } else {
+      print(0) << "Can't find the function for subgraph with tag:\n" << kv.second->tag << "\n"
+               << "Only can tune from scratch for it...\n"; 
+      has_miss = true;
     }
   }
-
-  cached_all_functions[task_id] = !have_miss;
+  cached_all_functions[task_id] = !has_miss;
 }
 
 
@@ -1068,7 +1192,7 @@ void Session::begin_tuning(int task_id, int advance_number, std::string referenc
         auto sch_mod_func_perf_time = kv.second.front();
         auto schedule_result = std::get<0>(sch_mod_func_perf_time);
         auto gflops = std::get<3>(sch_mod_func_perf_time);
-        auto_scheduler->feedback_for(key, subgraph, schedule_result, gflops);
+        auto_scheduler->feedback_for(key, subgraph, target, schedule_result, gflops);
       }
     }
   }
@@ -1438,13 +1562,27 @@ TVM_REGISTER_GLOBAL("tg.print_subgraphs")
   auto sess = get_session(session_id);
   ASSERT(sess->task_cache.find(task_id) != sess->task_cache.end());
   TIRMultiGraph multi_graph = sess->task_cache[task_id];
-  std::unordered_map<std::string, TIRGraph> tag_to_graph;
+  std::map<std::string, TIRGraph> tag_to_graph;
   for (auto kv : multi_graph.Self()->graphs) {
     tag_to_graph[kv.second->tag] = kv.second;
   }
-  for (auto kv : tag_to_graph) {
-    print(0) << "=======================================================\n";
-    print(0) << "Tag:\n" << kv.first << "\n" << "Subgraph:\n";
+  // for (auto kv : tag_to_graph) {
+  //   print(0) << "=======================================================\n";
+  //   print(0) << "Tag:\n" << kv.first << "\n" << "Subgraph:\n";
+  //   for (auto op : kv.second->operation_list) {
+  //     print(0) << "-------------------------------------------------------\n";
+  //     print(0) << op << "\n";
+  //     if (op.as<ComputeOpNode>()) {
+  //       print(0) << op.as<ComputeOpNode>()->body << "\n";
+  //     }
+  //   }
+  // }
+  std::map<std::string, TIRGraph> graphs;
+  for (auto kv : multi_graph.Self()->graphs) {
+    graphs[kv.second->tag] = kv.second;
+  }
+  for (auto kv : graphs) {
+    print(0) << "Tag: " << kv.first << "\n";
     for (auto op : kv.second->operation_list) {
       print(0) << "-------------------------------------------------------\n";
       print(0) << op << "\n";

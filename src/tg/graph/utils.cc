@@ -374,9 +374,9 @@ Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& op) {
 std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
   serialize_compute_dag(Array<Operation> root_ops, bool output_first) {
   
-  std::unordered_set<Operation> visited;
+  std::set<Operation> visited;
   std::vector<Operation> ret;
-  std::unordered_map<Operation, std::unordered_set<Operation> > down_graph_set;
+  std::map<Operation, std::unordered_set<Operation> > down_graph_set;
   std::unordered_map<Operation, Array<Operation> > down_graph;
   // std::deque<Operation> q;
 

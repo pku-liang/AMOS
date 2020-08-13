@@ -10,7 +10,10 @@
 #include <tvm/te/operation.h>
 #include <tvm/tg/graph.h>
 
+#include <sstream>
 #include <unordered_map>
+#include <set>
+#include <map>
 #include <unordered_set>
 #include <vector>
 #include <deque>
@@ -21,6 +24,30 @@
 namespace tvm {
 using namespace te;
 namespace tg {
+
+
+class IntAndTensor {
+ public:
+  int key;
+  Tensor t;
+
+  bool operator== (const IntAndTensor& another) const {
+    return (key == another.key) && (t == another.t);
+  }
+
+  bool operator!= (const IntAndTensor& another) const {
+    return !((*this) == another);
+  }
+
+  bool operator< (const IntAndTensor& another) const {
+    return (key < another.key);
+  }
+
+  bool operator> (const IntAndTensor& another) const {
+    return (key > another.key);
+  }
+};
+
 
 class FindBatchLikeDim : public ExprVisitor {
  private:

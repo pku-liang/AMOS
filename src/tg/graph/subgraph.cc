@@ -27,11 +27,11 @@ PrimExpr RewriteSubgraphInput::VisitExpr_(const CallNode* op) {
 }
 
 
-bool PartitionPolicy::operator()(TIRGraph graph, Operation pre, Operation post) {
+bool PartitionPolicy::operator()(TIRGraph graph, Operation pre, Operation post, int number) {
   const auto* f = runtime::Registry::Get("tg.graph.partition_policy");
   CHECK(f) << "Can't find tg.graph.partition_policy.";
 
-  return (*f)(graph, pre, post);
+  return (*f)(graph, pre, post, number);
 }
 
 
@@ -143,7 +143,7 @@ std::unordered_map<Operation, Operation> subgraph_partition(
 }
 
 
-std::tuple<std::unordered_map<IntKey, TIRGraph>, std::unordered_map<Operation, Operation>,
+std::tuple<std::map<IntKey, TIRGraph>, std::unordered_map<Operation, Operation>,
            std::unordered_map<Tensor, Tensor>, std::unordered_map<IntKey, GraphAttr> >
   SubGraphPartitionEngine::operator()(TIRGraph graph) {
   
@@ -295,7 +295,7 @@ std::tuple<std::unordered_map<IntKey, TIRGraph>, std::unordered_map<Operation, O
   }
 
   // assemble all the subgraphs
-  std::unordered_map<IntKey, TIRGraph> graphs;
+  std::map<IntKey, TIRGraph> graphs;
   for (auto mark : marks) {
     graphs[IntKey(mark->value)] = TIRGraph(
       graphs_inputs[mark],
@@ -331,6 +331,7 @@ std::unordered_map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGra
 
   static SingleThreadMarkGenerator gen_mark;
   int current_mark = -1;
+  std::unordered_map<int, int> counts_mark;
 
   while (!stack.empty()) {
     auto cur = stack.back();
@@ -346,14 +347,19 @@ std::unordered_map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGra
     }
 
     graph_mark[cur] = IntImm(DataType::Int(32), current_mark);
+    if (counts_mark.find(current_mark) == counts_mark.end()) {
+      counts_mark[current_mark] = 0;
+    }
+    counts_mark[current_mark] += 1;
 
     for (int i = 0; i < (int)cur->num_outputs(); ++i) {
       auto tensor = cur.output(i);
       if (graph->down_graph.find(tensor->op) != graph->down_graph.end()) {
         for (auto op : graph->down_graph[tensor->op]) {
-          if (!policy(graph, cur, op)) {
+          if (!policy(graph, cur, op, counts_mark[current_mark])) {
             // in the same subgraph
             graph_mark[op] = IntImm(DataType::Int(32), current_mark);
+            counts_mark[current_mark] += 1;
             stack.push_back(op);
           }
         }
@@ -362,8 +368,9 @@ std::unordered_map<Operation, IntImm> SubGraphPartitionEngine::mark_graph(TIRGra
 
     for (auto tensor : cur->InputTensors()) {
       const ComputeOpNode *as_compute = tensor->op.as<ComputeOpNode>();
-      if (as_compute != nullptr && !policy(graph, tensor->op, cur)) {
+      if (as_compute != nullptr && !policy(graph, tensor->op, cur, counts_mark[current_mark])) {
         graph_mark[tensor->op] = IntImm(DataType::Int(32), current_mark);
+        counts_mark[current_mark] += 1;
         stack.push_back(tensor->op);
       }
     }

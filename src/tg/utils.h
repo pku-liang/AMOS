@@ -91,6 +91,14 @@ class IntKey : public ObjectRef {
     return !((*this) == other);
   }
 
+  inline bool operator< (const IntKey &other) const {
+    return (*this)->value < other->value;
+  }
+
+  inline bool operator> (const IntKey &other) const {
+    return (*this)->value > other->value;
+  }
+
   TVM_DEFINE_OBJECT_REF_METHODS(IntKey, ObjectRef, IntKeyNode);
 };
 

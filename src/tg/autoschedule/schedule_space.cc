@@ -147,7 +147,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_merge (
   ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   if (!is_output) {
-    for (int merge = 2; merge < 3; ++merge) {
+    for (int merge = 1; merge < 3; ++merge) {
       auto next = current.copy();
       next->merge = merge;
       if (merge == 1 && can_compute_at) {  // compute_at
@@ -183,7 +183,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_output (
   te::Operation op, Target target, bool is_output, bool can_compute_at,
   ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
-  for (int use = 1; use < 2; ++use) {
+  for (int use = 0; use < 2; ++use) {
     auto next = current.copy();
     next->buffer_output = (bool)use;
     if (use == 0)
@@ -242,7 +242,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_input (
           return;
         }
 
-        for (int i = 1; i < 2; ++i) {
+        for (int i = 0; i < 2; ++i) {
           Array<IntImm> tmp2;
           for (auto v : tmp) {
             tmp2.push_back(v);
@@ -1052,18 +1052,21 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
     binder(axis_id_to_split[2], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
   } else { // count_split_axis > 3
     TilingAndBindingSubSpaceNode::BindPosition for_block_z;
-    for (int iv : axis_id_to_split) {
-      if (iv != top2[0].first && iv != top2[1].first) {
-        node->need_tile[iv] = false;
-        for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), iv), IntImm(DataType::Int(32), -1)}));
-      }
+    // for (int iv : axis_id_to_split) {
+    //   if (iv != top2[0].first && iv != top2[1].first) {
+    //     node->need_tile[iv] = false;
+    //     for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), iv), IntImm(DataType::Int(32), -1)}));
+    //   }
+    // }
+    // node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[0].first));
+    // node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[1].first));
+    for (int i = 0; i < count_split_axis - 2; ++i) {
+      for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), i), IntImm(DataType::Int(32), -1)}));
+      node->need_tile[i] = false;
     }
-    node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[0].first));
-    node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[1].first));
-    
     node->binding->bind_bz.push_back(for_block_z);
-    binder(top2[0].first, node->binding->bind_by, node->binding->bind_vy, node->binding->bind_ty);
-    binder(top2[1].first, node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
+    binder(axis_id_to_split[count_split_axis-2], node->binding->bind_by, node->binding->bind_vy, node->binding->bind_ty);
+    binder(axis_id_to_split[count_split_axis-1], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
   } // end if count_split_axis
 
 

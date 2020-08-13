@@ -182,9 +182,9 @@ class AutoScheduler {
     }
     // if (measurer != nullptr) {delete measurer; measurer = new Measurer(profile_parallel, profile_timeout);}
   }
-  ScheduleResult schedule_with_entity(IntKey key, TIRGraph subgraph, Target target, MultiScheduleEntity entity);
+  ScheduleResult schedule_with_entity(TIRGraph subgraph, Target target, MultiScheduleEntity entity);
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
-  void feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation);
+  void feedback_for(IntKey key, TIRGraph subgraph, Target target, ScheduleResult schedule_result, double evaluation);
   std::vector<double> judge_schedule(
     Array<te::Schedule> schedules, Array<te::Tensor> tensors, Target target, std::string policy, double gflop);
   void auto_schedule(TIRGraph subgraph, AutoScheduleContext &context, ScheduleResult &results);

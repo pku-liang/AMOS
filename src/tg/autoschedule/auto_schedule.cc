@@ -249,10 +249,10 @@ ScheduleResult AutoScheduler::schedule_func(IntKey key, TIRGraph subgraph, Targe
 
 
 ScheduleResult AutoScheduler::schedule_with_entity(
-  IntKey key, TIRGraph subgraph, Target target, MultiScheduleEntity entity) {
-  if (contexts.find(key) == contexts.end()) {
-    contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
-  }
+  TIRGraph subgraph, Target target, MultiScheduleEntity entity) {
+  // if (contexts.find(key) == contexts.end()) {
+  //   contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
+  // }
 
   te::Schedule sch;
   Array<te::Tensor> tensors;
@@ -282,9 +282,12 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 }
 
 
-void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, ScheduleResult schedule_result, double evaluation) {
+void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, Target target, ScheduleResult schedule_result, double evaluation) {
   const auto* f = runtime::Registry::Get("tg.autoschedule.store_feedback");
   ASSERT(f != nullptr) << "Can't find tg.autoschedule.store_feedback";
+  if (contexts.find(key) == contexts.end()) {
+    contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
+  }
   contexts[key].add_feedback(schedule_result, evaluation);
   Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
   std::ostringstream oss;

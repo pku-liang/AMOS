@@ -41,7 +41,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
 
 // parallel axis, virtual thread
 void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
-  std::cout << "Found AttrStmtNode: " << op->attr_key << std::endl;
+  // std::cout << "Found AttrStmtNode: " << op->attr_key << std::endl;
   if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread ||
       op->attr_key.find(attr::pragma_scope_prefix) == 0) {
     Var var = op->node.as<tir::IterVarNode>()->var;

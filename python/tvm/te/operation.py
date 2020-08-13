@@ -113,6 +113,11 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=T
         raise ValueError("fcompute do not match dimension, ndim=%d" % ndim)
 
     dim_var = [tvm.tir.IterVar((0, s), x, 0) for x, s in zip(arg_names, shape[:out_ndim])]
+    # org_dim_var = [x for x in dim_var]
+    # if reorder is not None:
+    #     assert isinstance(reorder, (list, tuple)) and len(reorder) == out_ndim
+    #     for v, org_pos in zip(dim_var, reorder):
+    #         org_dim_var[org_pos] = v
     body = fcompute(*[v.var for v in dim_var])
 
     reorder_dim_var = [x for x in dim_var]

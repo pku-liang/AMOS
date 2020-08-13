@@ -50,7 +50,7 @@ class SingleThreadMarkGenerator {
 class PartitionPolicy {
  public:
   // return true if should partition
-  bool operator()(TIRGraph graph, Operation pre, Operation post);
+  bool operator()(TIRGraph graph, Operation pre, Operation post, int number);
 };
 
 
@@ -81,7 +81,7 @@ class SubGraphPartitionEngine {
  public:
 
   std::tuple<
-    std::unordered_map<IntKey, TIRGraph>,
+    std::map<IntKey, TIRGraph>,
     std::unordered_map<Operation, Operation>,
     std::unordered_map<Tensor, Tensor>,
     std::unordered_map<IntKey, GraphAttr> >
@@ -100,7 +100,7 @@ class SubGraphPartitionEngine {
 
 class TIRMultiGraphNode : public Object {
  public:
-  std::unordered_map<IntKey, TIRGraph> graphs;
+  std::map<IntKey, TIRGraph> graphs;
   std::unordered_map<Operation, Operation> operation_index;
   std::unordered_map<Tensor, Tensor> tensor_index;
   std::unordered_map<IntKey, GraphAttr> graph_attrs;
