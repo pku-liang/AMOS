@@ -168,11 +168,11 @@ TIRGraph::TIRGraph(
   // get the operation key for each operation
   node->tag = "";
   node->gflop = 0;
-  Array<te::Tensor> tensors;
+  std::unordered_set<te::Tensor> initial_tensors;
   // node->tag += "inputs: ";
   // std::set<std::string> inputs_strings;
   for (auto t : inputs) {
-    tensors.push_back(t);
+    initial_tensors.insert(t);
     // inputs_strings.insert(get_const_shape_string(t->shape));
   }
   // for (auto str : inputs_strings) {
@@ -182,7 +182,7 @@ TIRGraph::TIRGraph(
   // node->tag += "labels: ";
   // std::set<std::string> labels_strings;
   for (auto t : labels) {
-    tensors.push_back(t);
+    initial_tensors.insert(t);
     // labels_strings.insert(get_const_shape_string(t->shape));
   }
   // for (auto str : labels_strings) {
@@ -192,7 +192,7 @@ TIRGraph::TIRGraph(
   // node->tag += "outputs: ";
   // std::set<std::string> outputs_strings;
   for (auto t : outputs) {
-    tensors.push_back(t);
+    initial_tensors.insert(t);
     // outputs_strings.insert(get_const_shape_string(t->shape));
   }
   // for (auto str : outputs_strings) {
@@ -202,7 +202,7 @@ TIRGraph::TIRGraph(
   // node->tag += "weights: ";
   // std::set<std::string> weights_strings;
   for (auto t : weights) {
-    tensors.push_back(t);
+    initial_tensors.insert(t);
     // weights_strings.insert(get_const_shape_string(t->shape));
   }
   // for (auto str : weights_strings) {
@@ -211,14 +211,14 @@ TIRGraph::TIRGraph(
 
   // node->tag += "loss: ";
   if (loss.defined()) {
-    tensors.push_back(loss);
+    initial_tensors.insert(loss);
     // node->tag +=  get_const_shape_string(loss->shape) + " ";
   }
 
   // node->tag += "gradients: ";
   // std::set<std::string> gradients_strings;
   for (auto t : gradients) {
-    tensors.push_back(t);
+    initial_tensors.insert(t);
     // gradients_strings.insert(get_const_shape_string(t->shape));
   }
   // for (auto str : gradients_strings) {
@@ -227,21 +227,22 @@ TIRGraph::TIRGraph(
 
   // node->tag += "lr: ";
   if (lr.defined()) {
-    tensors.push_back(lr);
+    initial_tensors.insert(lr);
     // node->tag +=  get_const_shape_string(lr->shape) + " ";
   }
 
   // node->tag += "updates: ";
   // std::set<std::string> updates_strings;
   for (auto t : updates) {
-    tensors.push_back(t);
+    initial_tensors.insert(t);
     // updates_strings.insert(get_const_shape_string(t->shape));
   }
   // for (auto str : updates_strings) {
   //   node->tag += str + " ";
   // }
 
-  node->tensors = tensors;
+  std::vector<te::Tensor> ordered_tensors;
+  std::unordered_set<te::Tensor> added_tensors;
   node->tag += "operations: ";
   std::unordered_map<Operation, int> op_to_id;
   int count_id = 0;
@@ -252,12 +253,31 @@ TIRGraph::TIRGraph(
     node->tag += "inputs: ";
     std::ostringstream oss;
     for (auto inp : op->InputTensors()) {
+      if (added_tensors.find(inp) == added_tensors.end()) {
+        ordered_tensors.push_back(inp);
+        added_tensors.insert(inp);
+      }
       oss << inp->shape << " ";
+    }
+    for (int i = 0; i < op->num_outputs(); ++i) {
+      auto out = op.output(i);
+      if (added_tensors.find(out) == added_tensors.end()) {
+        ordered_tensors.push_back(out);
+        added_tensors.insert(out);
+      }
     }
     node->tag += oss.str();
     node->tag += "body: " + op->tag + "$";
     node->gflop += get_gflop(op);
   }
+
+  // set tensors
+  for (auto t : ordered_tensors) {
+    if (initial_tensors.find(t) != initial_tensors.end()) {
+      node->tensors.push_back(t);
+    }
+  }
+
   node->tag += "graph: ";
   for (int i = 0; i < count_id; ++i) {
     Operation op = node->operation_list[i];

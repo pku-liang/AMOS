@@ -726,80 +726,92 @@ void Session::run_functions(
           * independent logic
           */
         std::vector<tvm::runtime::NDArray> arrays;
-        // get the inputs
-        for (auto tt : subgraph->inputs) {
+        for (auto tt : subgraph->tensors) {
           te::Tensor t = multi_graph.Self()->tensor_index[tt];
           if (bindings[ad].find(t) != bindings[ad].end()) {
             arrays.push_back(bindings[ad][t]);
           } else if (this->volatile_tensors.find(t) != this->volatile_tensors.end()) {
             arrays.push_back(this->volatile_tensors[t]);
+          } else if (this->persistent_tensors.find(t) != this->persistent_tensors.end()) {
+            arrays.push_back(this->persistent_tensors[t]);
           } else {
-            ERROR << "Can't find input " << t;
+            ERROR << "Can't find array for tensor " << t;
           }
         }
+        // // get the inputs
+        // for (auto tt : subgraph->inputs) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[tt];
+        //   if (bindings[ad].find(t) != bindings[ad].end()) {
+        //     arrays.push_back(bindings[ad][t]);
+        //   } else if (this->volatile_tensors.find(t) != this->volatile_tensors.end()) {
+        //     arrays.push_back(this->volatile_tensors[t]);
+        //   } else {
+        //     ERROR << "Can't find input " << t;
+        //   }
+        // }
 
-        // get the labels
-        for (auto tt : subgraph->labels) {
-          te::Tensor t = multi_graph.Self()->tensor_index[tt];
-          if (bindings[ad].find(t) == bindings[ad].end()) {
-            ERROR << "Can't find label " << t;
-          }
-          arrays.push_back(bindings[ad][t]);
-        }
+        // // get the labels
+        // for (auto tt : subgraph->labels) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[tt];
+        //   if (bindings[ad].find(t) == bindings[ad].end()) {
+        //     ERROR << "Can't find label " << t;
+        //   }
+        //   arrays.push_back(bindings[ad][t]);
+        // }
 
-        // get the outputs
-        for (auto tt : subgraph->outputs) {
-          te::Tensor t = multi_graph.Self()->tensor_index[tt];
-          if (volatile_tensors.find(t) == volatile_tensors.end()) {
-            ERROR << "Can't find output " << t;
-          }
-          arrays.push_back(this->volatile_tensors[t]);
-        }
+        // // get the outputs
+        // for (auto tt : subgraph->outputs) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[tt];
+        //   if (volatile_tensors.find(t) == volatile_tensors.end()) {
+        //     ERROR << "Can't find output " << t;
+        //   }
+        //   arrays.push_back(this->volatile_tensors[t]);
+        // }
 
-        // get the weights
-        for (auto tt : subgraph->weights) {
-          te::Tensor t = multi_graph.Self()->tensor_index[tt];
-          if (persistent_tensors.find(t) == persistent_tensors.end()) {
-            ERROR << "Can't find weight " << t;
-          }
-          arrays.push_back(this->persistent_tensors[t]);
-        }
+        // // get the weights
+        // for (auto tt : subgraph->weights) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[tt];
+        //   if (persistent_tensors.find(t) == persistent_tensors.end()) {
+        //     ERROR << "Can't find weight " << t;
+        //   }
+        //   arrays.push_back(this->persistent_tensors[t]);
+        // }
 
-        // get the loss
-        if (subgraph->loss.defined()) {
-          te::Tensor t = multi_graph.Self()->tensor_index[subgraph->loss];
-          if (persistent_tensors.find(t) == persistent_tensors.end()) {
-            ERROR << "Can't find loss " << t;
-          }
-          arrays.push_back(this->persistent_tensors[t]);
-        }
+        // // get the loss
+        // if (subgraph->loss.defined()) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[subgraph->loss];
+        //   if (persistent_tensors.find(t) == persistent_tensors.end()) {
+        //     ERROR << "Can't find loss " << t;
+        //   }
+        //   arrays.push_back(this->persistent_tensors[t]);
+        // }
         
-        // get the gradients
-        for (auto tt : subgraph->gradients) {
-          te::Tensor t = multi_graph.Self()->tensor_index[tt];
-          if (persistent_tensors.find(t) == persistent_tensors.end()) {
-            ERROR << "Can't find gradient " << t;
-          }
-          arrays.push_back(this->persistent_tensors[t]);
-        }
+        // // get the gradients
+        // for (auto tt : subgraph->gradients) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[tt];
+        //   if (persistent_tensors.find(t) == persistent_tensors.end()) {
+        //     ERROR << "Can't find gradient " << t;
+        //   }
+        //   arrays.push_back(this->persistent_tensors[t]);
+        // }
         
-        // get the lr
-        if (subgraph->lr.defined()) {
-          te::Tensor t = multi_graph.Self()->tensor_index[subgraph->lr];
-          if (bindings[ad].find(t) == bindings[ad].end()) {
-            ERROR << "Can't find lr " << t;
-          }
-          arrays.push_back(bindings[ad][t]);
-        }
+        // // get the lr
+        // if (subgraph->lr.defined()) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[subgraph->lr];
+        //   if (bindings[ad].find(t) == bindings[ad].end()) {
+        //     ERROR << "Can't find lr " << t;
+        //   }
+        //   arrays.push_back(bindings[ad][t]);
+        // }
         
-        // get the updates
-        for (auto tt : subgraph->updates) {
-          te::Tensor t = multi_graph.Self()->tensor_index[tt];
-          if (persistent_tensors.find(t) == persistent_tensors.end()) {
-            ERROR << "Can't find update " << t;
-          }
-          arrays.push_back(this->persistent_tensors[t]);
-        }
+        // // get the updates
+        // for (auto tt : subgraph->updates) {
+        //   te::Tensor t = multi_graph.Self()->tensor_index[tt];
+        //   if (persistent_tensors.find(t) == persistent_tensors.end()) {
+        //     ERROR << "Can't find update " << t;
+        //   }
+        //   arrays.push_back(this->persistent_tensors[t]);
+        // }
 
         array_map[key] = arrays;
       }
@@ -841,7 +853,7 @@ void Session::run_functions(
           auto func = std::get<2>(mod_func);
           ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
 
-          if (profile_level >= 2) {
+          if (profile_level >= 0) {
             TIRGraph subgraph = multi_graph.Self()->graphs[key];
             print(4, exe_log) << sch->schedule_entities.to_string() << "\n";
             for (auto op : subgraph->operation_list) {
