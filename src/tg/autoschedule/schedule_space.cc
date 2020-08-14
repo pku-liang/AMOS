@@ -1052,21 +1052,21 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
     binder(axis_id_to_split[2], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
   } else { // count_split_axis > 3
     TilingAndBindingSubSpaceNode::BindPosition for_block_z;
-    // for (int iv : axis_id_to_split) {
-    //   if (iv != top2[0].first && iv != top2[1].first) {
-    //     node->need_tile[iv] = false;
-    //     for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), iv), IntImm(DataType::Int(32), -1)}));
-    //   }
-    // }
-    // node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[0].first));
-    // node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[1].first));
-    for (int i = 0; i < count_split_axis - 2; ++i) {
-      for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), i), IntImm(DataType::Int(32), -1)}));
-      node->need_tile[i] = false;
+    for (int iv : axis_id_to_split) {
+      if (iv != top2[0].first && iv != top2[1].first) {
+        node->need_tile[iv] = false;
+        for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), iv), IntImm(DataType::Int(32), -1)}));
+      }
     }
+    node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[1].first));
+    node->binding->move_to_inner.push_back(IntImm(DataType::Int(32), top2[0].first));
+    // for (int i = 0; i < count_split_axis - 2; ++i) {
+    //   for_block_z.push_back(Array<IntImm>({IntImm(DataType::Int(32), i), IntImm(DataType::Int(32), -1)}));
+    //   node->need_tile[i] = false;
+    // }
     node->binding->bind_bz.push_back(for_block_z);
-    binder(axis_id_to_split[count_split_axis-2], node->binding->bind_by, node->binding->bind_vy, node->binding->bind_ty);
-    binder(axis_id_to_split[count_split_axis-1], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
+    binder(axis_id_to_split[top2[1].first], node->binding->bind_by, node->binding->bind_vy, node->binding->bind_ty);
+    binder(axis_id_to_split[top2[0].first], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
   } // end if count_split_axis
 
 
