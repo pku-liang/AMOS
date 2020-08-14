@@ -954,30 +954,45 @@ void Session::run_functions(
   }
   // save the functions
   if (save_to != "") {
-    std::unordered_set<std::string> stored;
+    std::unordered_map<std::string, std::tuple<std::string, double, double> > stored;
     std::fstream fs(save_to, std::ios::in);
     std::string line;
     if (fs) {
       while (std::getline(fs, line)) {
         std::vector<std::string> parts = string_split("|", line);
-        stored.insert(parts[0]);
+        double perf = std::stod(parts[2]);
+        double time = std::stod(parts[3]);
+        stored[parts[0]] = std::make_tuple(parts[1], perf, time);
       }
       fs.close();
     }
 
-    std::fstream fout(save_to, std::ios::out | std::ios::app);
     for (auto& kv : best_functions) {
       if (!kv.second.empty()) {
         auto sch_mod_func_perf = kv.second.front();
         std::string tag = multi_graph.Self()->graphs[kv.first]->tag;
+        std::string entity_string = std::get<0>(sch_mod_func_perf)->schedule_entities.to_string();
+        double perf = std::get<3>(sch_mod_func_perf);
+        double time = std::get<4>(sch_mod_func_perf);
         if (stored.find(tag) == stored.end()) {
-          std::string out_line = \
-            tag + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() \
-            + "|" + std::to_string(std::get<3>(sch_mod_func_perf)) + "|" + std::to_string(std::get<4>(sch_mod_func_perf));
-          fout << out_line << "\n" << std::flush;
-          stored.insert(tag);
+          // std::string out_line = 
+          //   tag + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() 
+          //   + "|" + std::to_string(std::get<3>(sch_mod_func_perf)) + "|" + std::to_string(std::get<4>(sch_mod_func_perf));
+          stored[tag] = std::make_tuple(entity_string, perf, time);
+        } else {
+          if (perf > std::get<1>(stored[tag])) {
+            stored[tag] = std::make_tuple(entity_string, perf, time);
+          }
         }
       }
+    }
+    std::fstream fout(save_to, std::ios::out);
+    for (auto kv : stored) {
+      fout << string_join("|",
+        {kv.first,
+         std::get<0>(kv.second),
+         std::to_string(std::get<1>(kv.second)),
+         std::to_string(std::get<2>(kv.second))}) << "\n" << std::flush;
     }
     fout.close();
   }
