@@ -853,13 +853,13 @@ void Session::run_functions(
           auto func = std::get<2>(mod_func);
           ASSERT(func != nullptr) << "Get null function, don't know how to deal with it.";
 
-          if (profile_level >= 0) {
+          if (profile_level >= 2) {
             TIRGraph subgraph = multi_graph.Self()->graphs[key];
             print(4, exe_log) << sch->schedule_entities.to_string() << "\n";
             for (auto op : subgraph->operation_list) {
               print(4, exe_log) << op.as<ComputeOpNode>()->axis << " " <<  op.as<ComputeOpNode>()->body << "\n";
             }
-            auto beg = std::chrono::steady_clock::now();
+            
             for (auto t : subgraph->tensors) {
               print(4, exe_log) << t << " ";
             }
@@ -895,7 +895,7 @@ void Session::run_functions(
               print(4, exe_log) << "Check another source:\n" << another_sub_mod->GetSource() << "\n";
             }
 
- 
+            auto beg = std::chrono::steady_clock::now();
             (*call_unpack)(func, arrays);
             runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
             auto end = std::chrono::steady_clock::now();
