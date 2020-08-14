@@ -955,24 +955,26 @@ void Session::run_functions(
   // save the functions
   if (save_to != "") {
     std::unordered_set<std::string> stored;
-    std::fstream fs(save_to, std::ios::in | std::ios::app);
+    std::fstream fs(save_to, std::ios::in);
     std::string line;
-    while (std::getline(fs, line)) {
-      std::vector<std::string> parts = string_split("|", line);
-      stored.insert(parts[0]);
+    if (fs) {
+      while (std::getline(fs, line)) {
+        std::vector<std::string> parts = string_split("|", line);
+        stored.insert(parts[0]);
+      }
+      fs.close();
     }
-    fs.close();
 
-    std::fstream fout(save_to, std::ios::app);
+    std::fstream fout(save_to, std::ios::out | std::ios::app);
     for (auto& kv : best_functions) {
       if (!kv.second.empty()) {
         auto sch_mod_func_perf = kv.second.front();
         std::string tag = multi_graph.Self()->graphs[kv.first]->tag;
         if (stored.find(tag) == stored.end()) {
-          std::string line = \
+          std::string out_line = \
             tag + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() \
             + "|" + std::to_string(std::get<3>(sch_mod_func_perf)) + "|" + std::to_string(std::get<4>(sch_mod_func_perf));
-          fout << line << "\n";
+          fout << out_line << "\n" << std::flush;
           stored.insert(tag);
         }
       }
