@@ -961,6 +961,7 @@ void Session::run_functions(
             tag + "|" + std::get<0>(sch_mod_func_perf)->schedule_entities.to_string() \
             + "|" + std::to_string(std::get<3>(sch_mod_func_perf)) + "|" + std::to_string(std::get<4>(sch_mod_func_perf));
           fout << line << "\n";
+          stored.insert(tag);
         }
       }
     }

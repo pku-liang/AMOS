@@ -147,7 +147,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_merge (
   ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
   if (!is_output) {
-    for (int merge = 1; merge < 3; ++merge) {
+    for (int merge = 2; merge < 3; ++merge) {
       auto next = current.copy();
       next->merge = merge;
       if (merge == 1 && can_compute_at) {  // compute_at
