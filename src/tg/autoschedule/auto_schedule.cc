@@ -103,15 +103,15 @@ void AutoScheduler::auto_schedule(
         e->evaluation, reverse_sort[num_candidates - 1]->evaluation, 1.0));
   }
 
-  std::cout << "Moniter schedule context\n" << std::flush;
+  print(4, log_out) << "Moniter schedule context\n";
   if (num_candidates > 0)
-    std::cout << "Best: [" << reverse_sort[num_candidates-1]->evaluation << "]\n" << std::flush;
+    print(4, log_out) << "Best: [" << reverse_sort[num_candidates-1]->evaluation << "]\n";
   else
-    std::cout << "Best: [inf]\n" << std::flush;
+    print(4, log_out) << "Best: [inf]\n";
   for (int i = 0; i < num_candidates; ++i) {
-    std::cout << "(" << i << ")" << reverse_sort[i]->evaluation << "[" << p[i] << "] " << std::flush;
+    print(4, log_out) << "(" << i << ")" << reverse_sort[i]->evaluation << "[" << p[i] << "] ";
   }
-  std::cout << "\n" << std::flush;
+  print(4, log_out) << "\n";
 
   // prepare new candidates
   std::vector<MultiScheduleEntity> new_candidates;
@@ -127,7 +127,7 @@ void AutoScheduler::auto_schedule(
         if (randdouble() <= p[j]) {
           use_seed = true;
           seed = reverse_sort[j];
-          std::cout << "choose " << j << "\n" << std::flush;
+          print(4, log_out) << "choose " << j << "\n";
           break;
         }
       }
@@ -135,12 +135,12 @@ void AutoScheduler::auto_schedule(
     // choose new one
     MultiScheduleEntity new_one;
     if (use_seed) {
-      std::cout << "Seed:\n" << std::flush;
+      print(4, log_out) << "Seed:\n";
       new_one = context->spaces.choose_one(seed->schedule_result->schedule_entities);
     } else {
       // pure random
       new_one = context->spaces.choose_one();
-      std::cout << "Random:\n" << std::flush;
+      print(4, log_out) << "Random:\n";
     }
     // if must_new, then must be new candidate never met before
     if (must_new > 0) {
@@ -148,7 +148,7 @@ void AutoScheduler::auto_schedule(
           && (context->knowing_schedules.find(new_one) == context->knowing_schedules.end())) {
         new_candidates.push_back(new_one);
       } else {
-        std::cout << "Repeat!\n" << std::flush;
+        print(4, log_out) << "Repeat!\n";
       }
     } else {
       new_candidates.push_back(new_one);
