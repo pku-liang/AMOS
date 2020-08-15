@@ -914,6 +914,7 @@ void Session::run_functions(
           succ = true;
         }  // end try new function
 
+        print(4, exe_log) << "end " << key->value << "\n";
         return succ;
 
       };  // end run helper
@@ -929,7 +930,9 @@ void Session::run_functions(
         runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
         auto end = std::chrono::steady_clock::now();
         double execution_time = std::chrono::duration_cast<std::chrono::microseconds>(end - beg).count() / 1e3;
-        time_queue.push(execution_time);
+        if ((advance_number > 1 && ad > 0) || (advance_number == 1))
+          time_queue.push(execution_time);
+
         print(1, exe_log) << "time cost: " << execution_time << " ms.\n";
       }
     }  // for ad
@@ -938,18 +941,22 @@ void Session::run_functions(
       double max_time = time_queue.top();
       double median_time, min_time;
       size_t total_num = time_queue.size();
+      double total_time = 0.0;
       for (size_t i = 0; i <= total_num / 2; ++i) {
         median_time = time_queue.top();
+        total_time += median_time;
         min_time = median_time;
         time_queue.pop();
       }
-      while (time_queue.size() > 1) {
+      while (time_queue.size() >= 1) {
         min_time = time_queue.top();
+        total_time += min_time;
         time_queue.pop();
       }
       print(1, exe_log) << "Time report: min=[" << min_time
                         << " ms], med=[" << median_time
-                        << " ms], max=[" << max_time << " ms]\n\n\n";
+                        << " ms], max=[" << max_time
+                        << " ms], avg=[" << total_time / total_num << " ms]\n\n\n";
     }
   }
   // save the functions
