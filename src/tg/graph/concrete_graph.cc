@@ -270,13 +270,17 @@ TIRGraph::TIRGraph(
     node->tag += "body: " + op->tag + "$";
     node->gflop += get_gflop(op);
   }
-
+  
+  node->tag += "tensors: ";
+  std::ostringstream tensors_oss;
   // set tensors
   for (auto t : ordered_tensors) {
     if (initial_tensors.find(t) != initial_tensors.end()) {
       node->tensors.push_back(t);
+      tensors_oss << t->shape << " ";
     }
   }
+  node->tag += tensors_oss.str();
 
   node->tag += "graph: ";
   for (int i = 0; i < count_id; ++i) {
