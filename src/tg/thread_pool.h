@@ -237,51 +237,55 @@ template<typename T>
 class Queue {
  private:
   std::queue<T> q;
-  std::queue<T> write;
+  // std::queue<T> write;
   std::mutex mutex;
 
  public:
   void push(T& value, int num=1) {
     std::unique_lock<std::mutex> lock(mutex);
     for (int i = 0; i < num; ++i)
-      write.push(value);
+      q.push(value); // write.push(value);
   }
 
   void push(T&& value, int num=1) {
     std::unique_lock<std::mutex> lock(mutex);
     for (int i = 0; i < num; ++i)
-      write.push(std::move(value));
+      q.push(std::move(value)); // write.push(std::move(value));
   }
   
   T& front() {
-    prepare();
+    // prepare();
+    std::unique_lock<std::mutex> lock(mutex);
     return q.front();
   }
 
   void pop() {
-    prepare();
+    // prepare();
+    std::unique_lock<std::mutex> lock(mutex);
     q.pop();
   }
 
   bool empty() {
-    prepare();
+    // prepare();
+    std::unique_lock<std::mutex> lock(mutex);
     return q.empty();
   }
 
   size_t size() {
-    prepare();
+    // prepare();
+    std::unique_lock<std::mutex> lock(mutex);
     return q.size();
   }
 
   void prepare() {
-    if (q.empty()) {
-      std::unique_lock<std::mutex> lock(mutex);
-      while (!write.empty()) {
-        q.push(write.front());
-        write.pop();
-      }
-      lock.unlock();
-    }
+    // if (q.empty()) {
+    //   std::unique_lock<std::mutex> lock(mutex);
+    //   while (!write.empty()) {
+    //     q.push(write.front());
+    //     write.pop();
+    //   }
+    //   lock.unlock();
+    // }
   }
 };
 
