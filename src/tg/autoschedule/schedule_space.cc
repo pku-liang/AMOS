@@ -45,7 +45,7 @@ static bool array_equal(const Array<T>& a, const Array<T>& b, FCmp equal=std::eq
 }  // namespace schedule_space
 
 
-size_t ScheduleSubSpace::size() {
+unsigned long long ScheduleSubSpace::size() {
   return 1U;
 }
 
@@ -366,7 +366,7 @@ MergeEntity MergeSubSpace::choose_one(MergeEntity hint) {
 }
 
 
-size_t MergeSubSpace::size() {
+unsigned long long MergeSubSpace::size() {
   return (*this)->compute_at_positions.size();
 }
 
@@ -641,9 +641,9 @@ AllreduceEntity AllreduceSubSpace::choose_one(AllreduceEntity hint) {
 }
 
 
-size_t AllreduceSubSpace::size() {
+unsigned long long AllreduceSubSpace::size() {
   auto self = (*this);
-  size_t ret = 1U;
+  unsigned long long ret = 1U;
   for (auto s : self->split_factor_spaces) {
     ret *= s.size();
   }
@@ -1065,8 +1065,8 @@ TilingAndBindingSubSpace::TilingAndBindingSubSpace(
     //   node->need_tile[i] = false;
     // }
     node->binding->bind_bz.push_back(for_block_z);
-    binder(axis_id_to_split[top2[1].first], node->binding->bind_by, node->binding->bind_vy, node->binding->bind_ty);
-    binder(axis_id_to_split[top2[0].first], node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
+    binder(top2[1].first, node->binding->bind_by, node->binding->bind_vy, node->binding->bind_ty);
+    binder(top2[0].first, node->binding->bind_bx, node->binding->bind_vx, node->binding->bind_tx);
   } // end if count_split_axis
 
 
@@ -1145,8 +1145,8 @@ TilingAndBindingEntity TilingAndBindingSubSpace::choose_one(TilingAndBindingEnti
 }
 
 
-size_t TilingAndBindingSubSpace::size() {
-  size_t ret = 1U;
+unsigned long long TilingAndBindingSubSpace::size() {
+  unsigned long long ret = 1U;
   for (auto s : (*this)->split_factor_spaces) {
     ret *= s.size();
   }
@@ -1295,8 +1295,8 @@ BufferInputEntity BufferInputSubSpace::choose_one(BufferInputEntity hint) {
 }
 
 
-size_t BufferInputSubSpace::size() {
-  size_t ret = 1U;
+unsigned long long BufferInputSubSpace::size() {
+  unsigned long long ret = 1U;
   for (auto s : (*this)->compute_at_position) {
     ret *= s.size();
   }
@@ -1387,7 +1387,7 @@ UnrollEntity UnrollSubSpace::choose_one(UnrollEntity hint) {
 }
 
 
-size_t UnrollSubSpace::size() {
+unsigned long long UnrollSubSpace::size() {
   return (*this)->choices_.size();
 }
 
@@ -1633,7 +1633,7 @@ ScheduleEntity ScheduleSpace::choose_one(ScheduleEntity hint) {
 }
 
 
-size_t ScheduleSpace::size() {
+unsigned long long ScheduleSpace::size() {
   auto self = (*this);
   return self->merge.size()
          * self->allreduce.size()
@@ -1743,7 +1743,7 @@ MultiScheduleEntity MultiScheduleSpace::choose_one(MultiScheduleEntity hint) {
 }
 
 
-size_t MultiScheduleSpace::size() {
+unsigned long long MultiScheduleSpace::size() {
   size_t ret = 1U;
   for (auto s : (*this)->spaces) {
     ret *= s.size();

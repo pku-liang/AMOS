@@ -40,7 +40,7 @@ static bool array_equal(const Array<T>& a, const Array<T>& b, FCmp equal=std::eq
 }  // namespace parameter
 
 
-size_t ParameterSubSpace::size() {
+unsigned long long ParameterSubSpace::size() {
   return 1U;
 }
 
@@ -138,7 +138,7 @@ SplitFactorEntity SplitFactorSubSpace::choose_one(SplitFactorEntity hint, int in
 }
 
 
-size_t SplitFactorSubSpace::size() {
+unsigned long long SplitFactorSubSpace::size() {
   return (*this)->split_factors.size();
 }
 
@@ -232,7 +232,7 @@ ChoiceEntity ChoiceSubSpace::choose_one(ChoiceEntity hint, int delta) {
 }
 
 
-size_t ChoiceSubSpace::size() {
+unsigned long long ChoiceSubSpace::size() {
   return (*this)->num_choices;
 }
 
@@ -338,7 +338,7 @@ MultiChoiceEntity MultiChoiceSubSpace::choose_one(MultiChoiceEntity hint, int de
 }
 
 
-size_t MultiChoiceSubSpace::size() {
+unsigned long long MultiChoiceSubSpace::size() {
   return (*this)->multi_choices.size();
 }
 

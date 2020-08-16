@@ -23,7 +23,7 @@ class ScheduleSubSpaceNode : public Object {
 
 class ScheduleSubSpace : public ObjectRef {
  public:
-  virtual size_t size();
+  virtual unsigned long long size();
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ScheduleSubSpace, ObjectRef, ScheduleSubSpaceNode);
 };
@@ -171,7 +171,7 @@ class MergeSubSpace : public ScheduleSubSpace {
   MergeSubSpace(int levels);
   MergeEntity choose_one();
   MergeEntity choose_one(MergeEntity hint);
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MergeSubSpace, ScheduleSubSpace, MergeSubSpaceNode);
 };
@@ -257,7 +257,7 @@ class AllreduceSubSpace : public ScheduleSubSpace {
   AllreduceSubSpace(Array<IterVar> axis, Array<IterVar> reduce_axis, int parts, int reduce_parts);
   AllreduceEntity choose_one();
   AllreduceEntity choose_one(AllreduceEntity hint);
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(AllreduceSubSpace, ScheduleSubSpace, AllreduceSubSpaceNode);
 };
@@ -404,7 +404,7 @@ class TilingAndBindingSubSpace : public ScheduleSubSpace {
   TilingAndBindingEntity choose_one();
   TilingAndBindingEntity choose_one(TilingAndBindingEntity hint);
 
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(TilingAndBindingSubSpace, ScheduleSubSpace, TilingAndBindingSubSpaceNode);
 };
@@ -457,7 +457,7 @@ class BufferInputSubSpace : public ScheduleSubSpace {
   BufferInputSubSpace(Array<te::Tensor> tensors, int total, int want);
   BufferInputEntity choose_one();
   BufferInputEntity choose_one(BufferInputEntity hint);
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(BufferInputSubSpace, ScheduleSubSpace, BufferInputSubSpaceNode);
 };
@@ -512,7 +512,7 @@ class UnrollSubSpace : public ScheduleSubSpace {
   UnrollSubSpace(int max_depth);
   UnrollEntity choose_one();
   UnrollEntity choose_one(UnrollEntity hint);
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(UnrollSubSpace, ScheduleSubSpace, UnrollSubSpaceNode);
 };
@@ -587,7 +587,7 @@ class ScheduleSpace : public ObjectRef {
   ScheduleSkeleton choose_one_skeleton(ScheduleSkeleton hint);
   ScheduleEntity choose_one(ScheduleEntity hint);
 
-  size_t size();
+  unsigned long long size();
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ScheduleSpace, ObjectRef, ScheduleSpaceNode);
 };
@@ -639,7 +639,7 @@ class MultiScheduleSpace : public ObjectRef {
   MultiScheduleEntity choose_one(std::vector<ScheduleSkeleton> skeletons);
   MultiScheduleEntity choose_one(MultiScheduleEntity hint);
 
-  size_t size();
+  unsigned long long size();
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MultiScheduleSpace, ObjectRef, MultiScheduleSpaceNode);
 };

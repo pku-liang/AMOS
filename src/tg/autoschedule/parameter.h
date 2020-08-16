@@ -34,7 +34,7 @@ class ParameterSubSpaceNode : public Object {
 
 class ParameterSubSpace : public ObjectRef {
  public:
-  virtual size_t size();
+  virtual unsigned long long size();
   virtual ~ParameterSubSpace() {}
   
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ParameterSubSpace, ObjectRef, ParameterSubSpaceNode);
@@ -90,7 +90,7 @@ class SplitFactorSubSpace : public ParameterSubSpace {
   /* appointed direction */
   SplitFactorEntity choose_one(SplitFactorEntity hint, int inc, int dec);
 
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SplitFactorSubSpace, ParameterSubSpace, SplitFactorSubSpaceNode);
 };
@@ -146,7 +146,7 @@ class ChoiceSubSpace : public ParameterSubSpace {
   /* appointed direction */
   ChoiceEntity choose_one(ChoiceEntity hint, int delta);
 
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(ChoiceSubSpace, ParameterSubSpace, ChoiceSubSpaceNode);
 };
@@ -202,7 +202,7 @@ class MultiChoiceSubSpace : public ParameterSubSpace {
   /* appointed direction */
   MultiChoiceEntity choose_one(MultiChoiceEntity hint, int delta);
 
-  size_t size() final;
+  unsigned long long size() final;
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MultiChoiceSubSpace, ParameterSubSpace, MultiChoiceSubSpaceNode);
 };
