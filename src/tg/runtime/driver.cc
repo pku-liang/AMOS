@@ -449,7 +449,7 @@ void Session::run_evaluate(
   const auto* evaluate_performance = runtime::Registry::Get("tg.runtime.evaluate_performance");
   ASSERT(evaluate_performance != nullptr) << "Should prepare tg.runtime.evaluate_performance function.";
   std::unordered_map<IntKey, unsigned long long> counts;
-  std::unordered_map<IntKey, double> performance;
+  // std::unordered_map<IntKey, double> performance;
 
   // first of all, push some tokens
   // and keep scheduler busy
@@ -490,8 +490,13 @@ void Session::run_evaluate(
     if (!in_first_stage) {
       std::priority_queue<KeyAndTime> max_heap;
       free_set.clear();
-      for (auto kv : performance) {
-        max_heap.push(KeyAndTime(kv.first, kv.second));
+      for (auto& kv : this->best_functions) {
+        if (kv.second.empty()) {
+          continue;
+        }
+        auto front = kv.second.front();
+        auto time = std::get<4>(front);
+        max_heap.push(KeyAndTime(kv.first, time));
       }
       for (int i = 0; i < second_stage_topk; ++i) {
         if (max_heap.empty()) {
@@ -636,13 +641,13 @@ void Session::run_evaluate(
           // success
           succ = true;
           evaluate_cache[subgraph->tag] = key;
-          if (performance.find(key) == performance.end()) {
-            performance[key] = best_time;
-          } else {
-            if (best_time < performance[key]) {
-              performance[key] = best_time;
-            }
-          }
+          // if (performance.find(key) == performance.end()) {
+          //   performance[key] = best_time;
+          // } else {
+          //   if (best_time < performance[key]) {
+          //     performance[key] = best_time;
+          //   }
+          // }
         }
       }// end try new function
 
