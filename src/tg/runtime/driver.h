@@ -169,7 +169,7 @@ class Session {
 
   void run_evaluate(
     int task_id, TIRMultiGraph multi_graph, int advance_number,
-    int first_stage_number=100000, double second_stage_topk_ratio=0.1);
+    int first_stage_number=100, double second_stage_topk_ratio=0.1);
 
   void run_functions(
     int task_id,
@@ -181,7 +181,7 @@ class Session {
   
   int add_task(TIRGraph graph);
   void begin_tuning(int task_id, int advance_number, std::string reference="",
-    int first_stage_number=100000, double second_stage_topk_ratio=0.1);
+    int first_stage_number=100, double second_stage_topk_ratio=0.1);
   void end_tuning(int task_id);
   void prepare_for_test(int task_id, std::string reference);
   // int run(TIRGraph graph, std::vector<std::unordered_map<te::Tensor, tvm::runtime::NDArray> > bindings);

@@ -502,6 +502,11 @@ void Session::run_evaluate(
         free_set.insert(top.key);
         max_heap.pop();
       }
+      print(4, evaluate_log) << "importance tuning:\n";
+      for (auto k : free_set) {
+        print(4, evaluate_log) << k->value << " ";
+      }
+      print(4, evaluate_log) << "\n";
     }
 
     /* the evaluate helper
@@ -600,11 +605,11 @@ void Session::run_evaluate(
           } else {
             // can't run the function
             print(2, evaluate_log) << "Can't evaluate function: " << "\n";
-            auto sub_mods = mod->imports();
-            if (sub_mods.size() > 0U) {
-              runtime::Module sub_mod = (mod->imports().at(0));
-              print(4, evaluate_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
-            }
+            // auto sub_mods = mod->imports();
+            // if (sub_mods.size() > 0U) {
+            //   runtime::Module sub_mod = (mod->imports().at(0));
+            //   print(4, evaluate_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
+            // }
             // feedback
             auto_scheduler->feedback_for(key, subgraph, target, schedule_result, 0.0);
           }
