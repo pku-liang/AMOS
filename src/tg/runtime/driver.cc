@@ -444,7 +444,7 @@ void Session::run_build(int task_id, TIRMultiGraph multi_graph) {
 
 void Session::run_evaluate(
   int task_id, TIRMultiGraph multi_graph, int advance_number, int first_stage_number, double second_stage_topk_ratio) {
-  int second_stage_topk = std::ceil((int)(multi_graph->graphs.size()) * second_stage_topk_ratio);
+  // int second_stage_topk = std::ceil((int)(multi_graph->graphs.size()) * second_stage_topk_ratio);
   // prepare the evaluate_performance
   const auto* evaluate_performance = runtime::Registry::Get("tg.runtime.evaluate_performance");
   ASSERT(evaluate_performance != nullptr) << "Should prepare tg.runtime.evaluate_performance function.";
@@ -453,18 +453,24 @@ void Session::run_evaluate(
 
   // first of all, push some tokens
   // and keep scheduler busy
-  for (auto key : static_call_order[task_id]) {
-    normal_build_queue.push(key, sess_option->execution_parallel);
+  // for (auto key : static_call_order[task_id]) {
+  //   normal_build_queue.push(key, sess_option->execution_parallel);
+  // }
+  print(1, evaluate_log) << "To evaluate " << advance_number << " iterations.\n";
+  std::unordered_map<std::string, int> next_round_tokens;
+  for (auto k : static_call_order[task_id]) {
+    auto subgraph = multi_graph.Self()->graphs[k];
+    next_round_tokens[subgraph->tag] = sess_option->autoschedule_parallel;
   }
-  
+
   for (int ad = 0; ad < advance_number; ++ad) {
     print(1, evaluate_log) << "Iteration " << ad << "\n";
     // decide if evaluate the whole graph
     // if in first stage, then evaluate the whole graph
-    bool in_first_stage = (ad < first_stage_number)
-        || (cached_all_functions.find(task_id) == cached_all_functions.end())
-        || (!cached_all_functions[task_id])
-        || (randdouble() < 0.1);
+    // bool in_first_stage = (ad < first_stage_number)
+    //     || (cached_all_functions.find(task_id) == cached_all_functions.end())
+    //     || (!cached_all_functions[task_id])
+    //     || (randdouble() < 0.1);
     // check if finish
     bool finish = false;
     std::unique_lock<std::mutex> lock(this->finish_mutex);
@@ -487,32 +493,32 @@ void Session::run_evaluate(
       }
     }
     // not in first stage, only concentrate on the slow subgraphs
-    if (!in_first_stage) {
-      std::priority_queue<KeyAndTime> max_heap;
-      free_set.clear();
-      for (auto& kv : this->best_functions) {
-        if (kv.second.empty()) {
-          continue;
-        }
-        auto front = kv.second.front();
-        auto time = std::get<4>(front);
-        max_heap.push(KeyAndTime(kv.first, time));
-      }
-      for (int i = 0; i < second_stage_topk; ++i) {
-        if (max_heap.empty()) {
-          break;
-        }
-        auto top = max_heap.top();
-        topk_list[top.key] = top.time;
-        free_set.insert(top.key);
-        max_heap.pop();
-      }
-      print(4, evaluate_log) << "importance tuning:\n";
-      for (auto k : free_set) {
-        print(4, evaluate_log) << k->value << " ";
-      }
-      print(4, evaluate_log) << "\n";
-    }
+    // if (!in_first_stage) {
+    //   std::priority_queue<KeyAndTime> max_heap;
+    //   free_set.clear();
+    //   for (auto& kv : this->best_functions) {
+    //     if (kv.second.empty()) {
+    //       continue;
+    //     }
+    //     auto front = kv.second.front();
+    //     auto time = std::get<4>(front);
+    //     max_heap.push(KeyAndTime(kv.first, time));
+    //   }
+    //   for (int i = 0; i < second_stage_topk; ++i) {
+    //     if (max_heap.empty()) {
+    //       break;
+    //     }
+    //     auto top = max_heap.top();
+    //     topk_list[top.key] = top.time;
+    //     free_set.insert(top.key);
+    //     max_heap.pop();
+    //   }
+    //   print(4, evaluate_log) << "importance tuning:\n";
+    //   for (auto k : free_set) {
+    //     print(4, evaluate_log) << k->value << " ";
+    //   }
+    //   print(4, evaluate_log) << "\n";
+    // }
 
     /* the evaluate helper
      * handles one subgraph at a time
@@ -585,7 +591,7 @@ void Session::run_evaluate(
           counts[key] = 0;
         }
         counts[key] += taken;
-        print(4, evaluate_log) << "Evaluate for key: " << key->value << " " << counts[key] << "times\n";
+        print(4, evaluate_log) << "Evaluate for key: " << key->value << " " << counts[key] << " times\n";
 
         int best_id = 0;
         double best_perf = 0.0;
@@ -622,25 +628,32 @@ void Session::run_evaluate(
 
         if (best_perf > 0) {
           // store function
+          int to_put = 1;
           if (best_functions[key].empty()) {
             print(4, evaluate_log) << "set best function for " << key->value << ": " << best_perf << " GFLOPS.\n";
             best_functions[key].push(std::make_tuple(
               schedules[best_id], modules[best_id], functions[best_id], best_perf, best_time));
           } else {
             auto best = best_functions[key].front();
-            if (best_perf > std::get<3>(best)) {
+            double previous_perf = std::get<3>(best);
+            if (best_perf > previous_perf) {
               print(4, evaluate_log) << "replace best function for "
                                     << key->value << ": " << best_perf << " GFLOPS."
-                                    << "(original " << std::get<3>(best) << " GFLOPS)\n";
+                                    << "(original " << previous_perf << " GFLOPS)\n";
               best_functions[key].push(
                 std::make_tuple(schedules[best_id], modules[best_id], functions[best_id], best_perf, best_time));
               best_functions[key].pop();
+              double ratio = std::min((best_perf - previous_perf) / previous_perf, 1.0);
+              int additional_tokens = std::ceil(ratio * sess_option->autoschedule_parallel);
+              to_put += additional_tokens;
+              // normal_build_queue.push(key, additional_tokens);
             }
           }
 
           // success
           succ = true;
           evaluate_cache[subgraph->tag] = key;
+          normal_build_queue.push(key, to_put);
           // if (performance.find(key) == performance.end()) {
           //   performance[key] = best_time;
           // } else {
@@ -668,7 +681,24 @@ void Session::run_evaluate(
       }
     };  // end evaluate helper
     
-    std::unordered_set<IntKey> sent_token;
+    std::unordered_set<std::string> sent_token;
+    for (auto k : static_call_order[task_id]) {
+      TIRGraph subgraph = multi_graph.Self()->graphs[k];
+      if (sent_token.find(subgraph->tag) == sent_token.end()) {
+        // send a token to build thread
+        // so that build thread will produce one function
+        // for this key
+        // if (ad < first_stage_number) {
+        //   normal_build_queue.push(k, sess_option->execution_parallel);
+        // } else {
+        //   normal_build_queue.push(k, 1);
+        // }
+        int to_put = next_round_tokens[subgraph->tag];
+        normal_build_queue.push(k, to_put);
+        sent_token.insert(subgraph->tag);
+      }
+    }
+
     while (!free_set.empty()) {
       // check if finish
       bool finish = false;
@@ -680,16 +710,6 @@ void Session::run_evaluate(
       }
       std::unordered_set<IntKey> update_set, delete_set;
       for (auto k : free_set) {
-        TIRGraph subgraph = multi_graph.Self()->graphs[k];
-        if (evaluate_cache.find(subgraph->tag) == evaluate_cache.end()) {
-          // send a token to build thread
-          // so that build thread will produce one function
-          // for this key
-          if (sent_token.find(k) == sent_token.end()) {
-            normal_build_queue.push(k, sess_option->execution_parallel);
-            sent_token.insert(k);
-          }
-        }
         evaluate_helper(k, delete_set, update_set);
       }
       for (auto k : delete_set) {
@@ -699,12 +719,13 @@ void Session::run_evaluate(
         free_set.insert(k);
       }
 
-      if (!in_first_stage) {
-        free_set.clear();
-      }
+      // if (!in_first_stage) {
+      //   free_set.clear();
+      // }
     }  // while (!free_set.empty())
     cached_all_functions[task_id] = true;
   }  // for ad
+  print(1, evaluate_log) << "Stop evaluation.\n";
 }
 
 
@@ -845,7 +866,7 @@ void Session::run_functions(
       */
       std::function<bool(IntKey key)> run_helper;
       run_helper = [&] (IntKey key) {
-        print(4, exe_log) << "do " << key->value << "\n";
+        // print(4, exe_log) << "do " << key->value << "\n";
 
         // the mark that indicates this subgraph is done
         bool succ = false;
@@ -865,45 +886,45 @@ void Session::run_functions(
 
           if (profile_level >= 2) {
             TIRGraph subgraph = multi_graph.Self()->graphs[key];
-            print(4, exe_log) << sch->schedule_entities.to_string() << "\n";
-            for (auto op : subgraph->operation_list) {
-              print(4, exe_log) << op.as<ComputeOpNode>()->axis << " " <<  op.as<ComputeOpNode>()->body << "\n";
-            }
+            // print(4, exe_log) << sch->schedule_entities.to_string() << "\n";
+            // for (auto op : subgraph->operation_list) {
+            //   print(4, exe_log) << op.as<ComputeOpNode>()->axis << " " <<  op.as<ComputeOpNode>()->body << "\n";
+            // }
             
-            for (auto t : subgraph->tensors) {
-              print(4, exe_log) << t << " ";
-            }
-            print(4, exe_log) << "\n";
-            for (auto t : arrays) {
-              Array<PrimExpr> t_shape;
-              for (auto s : t.Shape()) {
-                t_shape.push_back((int)s);
-              }
-              print(4, exe_log) << t_shape << " ";
-            }
-            print(4, exe_log) << "\n";
-            print(4, exe_log) << subgraph->tag << "\n";
-            auto lowered = tvm::lower(sch->schedule, sch->tensors, get_func_name(key),
-              std::unordered_map<te::Tensor, tir::Buffer>(),
-              tvm::BuildConfig::Create());
-            print(4, exe_log) << lowered << "\n";
-            auto sub_mods = mod->imports();
-            if (sub_mods.size() > 0U) {
-              runtime::Module sub_mod = (mod->imports().at(0));
-              print(4, exe_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
-            }
+            // for (auto t : subgraph->tensors) {
+            //   print(4, exe_log) << t << " ";
+            // }
+            // print(4, exe_log) << "\n";
+            // for (auto t : arrays) {
+            //   Array<PrimExpr> t_shape;
+            //   for (auto s : t.Shape()) {
+            //     t_shape.push_back((int)s);
+            //   }
+            //   print(4, exe_log) << t_shape << " ";
+            // }
+            // print(4, exe_log) << "\n";
+            // print(4, exe_log) << subgraph->tag << "\n";
+            // auto lowered = tvm::lower(sch->schedule, sch->tensors, get_func_name(key),
+            //   std::unordered_map<te::Tensor, tir::Buffer>(),
+            //   tvm::BuildConfig::Create());
+            // print(4, exe_log) << lowered << "\n";
+            // auto sub_mods = mod->imports();
+            // if (sub_mods.size() > 0U) {
+            //   runtime::Module sub_mod = (mod->imports().at(0));
+            //   print(4, exe_log) << "Check source:\n" << sub_mod->GetSource() << "\n";
+            // }
 
-            tvm::runtime::Module another_mod = tvm::build(
-              lowered,
-              target,
-              Target::Create("llvm"),
-              tvm::BuildConfig::Create()
-            );
-            auto another_sub_mods = another_mod->imports();
-            if (another_sub_mods.size() > 0U) {
-              runtime::Module another_sub_mod = (another_mod->imports().at(0));
-              print(4, exe_log) << "Check another source:\n" << another_sub_mod->GetSource() << "\n";
-            }
+            // tvm::runtime::Module another_mod = tvm::build(
+            //   lowered,
+            //   target,
+            //   Target::Create("llvm"),
+            //   tvm::BuildConfig::Create()
+            // );
+            // auto another_sub_mods = another_mod->imports();
+            // if (another_sub_mods.size() > 0U) {
+            //   runtime::Module another_sub_mod = (another_mod->imports().at(0));
+            //   print(4, exe_log) << "Check another source:\n" << another_sub_mod->GetSource() << "\n";
+            // }
 
             auto beg = std::chrono::steady_clock::now();
             (*call_unpack)(func, arrays);
@@ -924,7 +945,7 @@ void Session::run_functions(
           succ = true;
         }  // end try new function
 
-        print(4, exe_log) << "end " << key->value << "\n";
+        // print(4, exe_log) << "end " << key->value << "\n";
         return succ;
 
       };  // end run helper
