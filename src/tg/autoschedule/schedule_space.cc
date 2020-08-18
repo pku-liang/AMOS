@@ -183,7 +183,7 @@ void ScheduleSkeletonGenerator::generate_schedule_skeletons_buffer_output (
   te::Operation op, Target target, bool is_output, bool can_compute_at,
   ScheduleSkeleton current, std::vector<ScheduleSkeleton>& to_store
 ) {
-  for (int use = 0; use < 2; ++use) {
+  for (int use = 1; use < 2; ++use) {
     auto next = current.copy();
     next->buffer_output = (bool)use;
     if (use == 0)
