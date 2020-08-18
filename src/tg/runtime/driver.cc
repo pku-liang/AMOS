@@ -653,7 +653,7 @@ void Session::run_evaluate(
           // success
           succ = true;
           evaluate_cache[subgraph->tag] = key;
-          normal_build_queue.push(key, to_put);
+          // normal_build_queue.push(key, to_put);
           // if (performance.find(key) == performance.end()) {
           //   performance[key] = best_time;
           // } else {
@@ -693,7 +693,7 @@ void Session::run_evaluate(
         // } else {
         //   normal_build_queue.push(k, 1);
         // }
-        int to_put = next_round_tokens[subgraph->tag];
+        int to_put = sess_option->autoschedule_parallel;
         normal_build_queue.push(k, to_put);
         sent_token.insert(subgraph->tag);
       }
