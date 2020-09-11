@@ -78,6 +78,32 @@ def inline_graph(graph):
 
     Returns
     -------
-    tage: TIRGraph
+    TIRGraph
   """
   return _ffi_api.inline_graph(graph)
+
+
+def substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_axis, reduce_axis):
+  """Substitute the inputs, axis, reduce axis in one expression
+
+  Parameters
+  ----------
+  body : PrimExpr
+
+  org_inputs : Array<Tensor>
+
+  inputs : Array<Tensor>
+
+  org_axis : Array<IterVar>
+
+  axis : Array<IterVar>
+
+  org_reduce_axis : Array<IterVar>
+
+  reduce_axis : Array<IterVar>
+
+  Returns
+  -------
+  PrimExpr
+  """
+  return _ffi_api.substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_axis, reduce_axis)
