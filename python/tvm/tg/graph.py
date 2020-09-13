@@ -94,16 +94,22 @@ def substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_a
 
   inputs : Array<Tensor>
 
-  org_axis : Array<IterVar>
+  org_axis : Array<Var>
 
-  axis : Array<IterVar>
+  axis : Array<Var>
 
-  org_reduce_axis : Array<IterVar>
+  org_reduce_axis : Array<Var>
 
-  reduce_axis : Array<IterVar>
+  reduce_axis : Array<Var>
 
   Returns
   -------
   PrimExpr
   """
+  assert len(org_inputs) == len(inputs)
+  assert len(org_axis) == len(axis)
+  assert len(org_reduce_axis) == len(reduce_axis)
+  assert len(org_axis) > 0, "Empty spatial dimensions?"
+  if len(org_reduce_axis) == 0:
+    return _ffi_api.substitute_expression_no_reduce(body, org_inputs, inputs, org_axis, axis)
   return _ffi_api.substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_axis, reduce_axis)
