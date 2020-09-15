@@ -98,9 +98,9 @@ def substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_a
 
   axis : Array<Var>
 
-  org_reduce_axis : Array<Var>
+  org_reduce_axis : Array<IterVar>
 
-  reduce_axis : Array<Var>
+  reduce_axis : Array<IterVar>
 
   Returns
   -------
