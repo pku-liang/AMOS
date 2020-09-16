@@ -57,6 +57,7 @@ PrimExpr substitute_expression(
 class MiniGraphNode : public runtime::Object {
  public:
    Array<te::Operation> ops;
+   // this feed_graph is subgraph scope
    Map<te::Operation, Array<te::Operation>> feed_graph;
 
    void VisitAttrs(tvm::AttrVisitor* v) {
@@ -90,7 +91,7 @@ class SubGraphNode : public runtime::Object {
    Array<te::Tensor> state_inputs;
    Array<te::Tensor> state_outputs;
 
-   std::vector<MiniGraph> minigraphs;
+   Array<MiniGraph> minigraphs;
    
    void VisitAttrs(tvm::AttrVisitor* v) {
       v->Visit("inputs", &inputs);
@@ -103,6 +104,7 @@ class SubGraphNode : public runtime::Object {
       v->Visit("updates", &updates);
       v->Visit("state_inputs", &state_inputs);
       v->Visit("state_outputs", &state_outputs);
+      v->Visit("minigraphs", &minigraphs);
   }
 
   static constexpr const char* _type_key = "tg.SubGraph";
@@ -141,7 +143,7 @@ class GraphNode : public runtime::Object {
    Array<te::Tensor> state_inputs;
    Array<te::Tensor> state_outputs;
 
-   std::vector<SubGraph> subgraphs;
+   Array<SubGraph> subgraphs;
 
    void VisitAttrs(tvm::AttrVisitor* v) {
       v->Visit("inputs", &inputs);
@@ -154,6 +156,7 @@ class GraphNode : public runtime::Object {
       v->Visit("updates", &updates);
       v->Visit("state_inputs", &state_inputs);
       v->Visit("state_outputs", &state_outputs);
+      v->Visit("subgraphs", &subgraphs);
   }
 
   static constexpr const char* _type_key = "tg.Graph";

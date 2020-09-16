@@ -1,6 +1,7 @@
 #include <tvm/runtime/registry.h>
 
 #include "graph.h"
+#include "../graph/utils.h"
 
 namespace tvm {
 
@@ -102,6 +103,28 @@ SubGraph::SubGraph(
     node->updates = updates;
     node->state_inputs = state_inputs;
     node->state_outputs = state_outputs;
+
+    // initial minigraph, the whole subgraph
+    Array<te::Operation> root_ops;
+    for (auto t : outputs) {
+        root_ops.push_back(t->op);
+    }
+    for (auto t : loss) {
+        root_ops.push_back(t->op);
+    }
+    for (auto t : gradients) {
+        root_ops.push_back(t->op);
+    }
+    for (auto t : updates) {
+        root_ops.push_back(t->op);
+    }
+    for (auto t : state_outputs) {
+        root_ops.push_back(t->op);
+    }
+    Array<te::Operation> ops;
+    Map<te::Operation, Array<te::Operation>> feed_graph;
+    std::tie(ops, feed_graph) = serialize_compute_dag(root_ops);
+    node->minigraphs.push_back(MiniGraph(ops, feed_graph));
     data_ = std::move(node);
 }
 
@@ -129,6 +152,20 @@ Graph::Graph(
     node->updates = updates;
     node->state_inputs = state_inputs;
     node->state_outputs = state_outputs;
+
+    // initial subgraph, the whole graph
+    node->subgraphs.push_back(
+        SubGraph(
+            inputs,
+            label,
+            outputs,
+            weights,
+            loss,
+            gradients,
+            optim_inputs,
+            updates,
+            state_inputs,
+            state_outputs));
     data_ = std::move(node);
 }
 
