@@ -137,6 +137,7 @@ class TIRGraph : public ObjectRef {
 };
 
 
+double get_gflop(Operation op);
 double get_gflop(TIRGraph subgraph);
 
 

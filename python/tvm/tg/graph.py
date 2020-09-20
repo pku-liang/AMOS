@@ -83,6 +83,20 @@ def inline_graph(graph):
   return _ffi_api.inline_graph(graph)
 
 
+def get_gflop(op):
+  """Get GFLOP of one operation.
+
+    Parameters
+    ----------
+    op: Operation
+
+    Returns
+    -------
+    double
+  """
+  return _ffi_api.get_gflop(op)
+
+
 def substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_axis, reduce_axis):
   """Substitute the inputs, axis, reduce axis in one expression
 
@@ -113,3 +127,32 @@ def substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_a
   if len(org_reduce_axis) == 0:
     return _ffi_api.substitute_expression_no_reduce(body, org_inputs, inputs, org_axis, axis)
   return _ffi_api.substitute_expression(body, org_inputs, inputs, org_axis, axis, org_reduce_axis, reduce_axis)
+
+
+def get_op_type(op):
+  """Get the type of one operation.
+
+    Parameters
+    ----------
+    op: Operation
+
+    Returns
+    -------
+    double
+  """
+  return _ffi_api.get_op_type(op)
+
+
+def get_graph_mark(graph):
+  """Get the marks of a graph.
+
+    Parameters
+    ----------
+    graph: Graph
+
+    Returns
+    -------
+    map from operation to mark
+  """
+  ret = _ffi_api.get_graph_mark(graph)
+  return {x:y.value for x, y in ret.items()}

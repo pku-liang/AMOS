@@ -223,7 +223,7 @@ void PrepareAxisMapping(Stage orig_stage,
       IterVar new_iv = IterVarNode::make(
           dom, iv->var.copy_with_suffix(".c"), iv->iter_type);
       new_axis.push_back(new_iv);
-      if (is_one(dom->min)) {
+      if (is_one(dom->min)) {  // SIZE: should be dom->extent
         value_map[iv] = dom->min;
       } else {
         value_map[iv] = iv->var;
@@ -264,7 +264,7 @@ Array<Tensor> ReplaceOriginalOp(Schedule sch,
   vmap[orig_stage->op.output(0)] = orig_new_op.output(0);
   rvmap[orig_new_op.output(0)] = orig_stage->op.output(0);
   for (size_t i = 0; i < tensor_size; i++) {
-    vmap[orig_stage->op.output(0)] = orig_new_op.output(0);
+    vmap[orig_stage->op.output(0)] = orig_new_op.output(0);  // SIZE: should be output(i)
     rvmap[orig_new_op.output(0)] = orig_stage->op.output(0);
   }
   ReplaceDataFlow(sch->stages, &vmap, &rvmap);
@@ -589,7 +589,7 @@ void InjectInline(ScheduleNode* sch) {
               changed[j] = true;
               const tir::ReduceNode* r = new_value.as<tir::ReduceNode>();
               CHECK(r != nullptr);
-              CHECK_EQ(new_body[j].size(), r->source.size());
+              CHECK_EQ(new_body[j].size(), r->source.size());  // SIZE: strange compare
               for (size_t k = 0; k < new_body[j].size(); ++k) {
                 auto n = make_object<tir::ReduceNode>(*r);
                 n->value_index = static_cast<int>(k);
@@ -878,7 +878,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor,
   reduce_stage->op = repl_tensors[0]->op;
   reduce_stage->all_iter_vars = repl_tensors[0]->op->root_iter_vars();
   reduce_stage->leaf_iter_vars = reduce_stage->all_iter_vars;
-  reduce_stage->relations = Array<IterVarRelation>();
+  reduce_stage->relations = Array<IterVarRelation>();  // SIZE: this means many relations about spatial axis are missing
   return factor_tensors;
 }
 }  // namespace te

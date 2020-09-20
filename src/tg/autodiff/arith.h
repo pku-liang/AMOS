@@ -15,6 +15,7 @@ namespace tg {
 template<typename T>
 class Matrix {
  public:
+  Matrix()=default;
   Matrix(int height, int width) : width_(width), height_(height) {
     ptr = new T[width * height];
   }

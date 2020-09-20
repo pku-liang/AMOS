@@ -494,6 +494,14 @@ TVM_REGISTER_GLOBAL("tg.inline_graph")
 });
 
 
+TVM_REGISTER_GLOBAL("tg.get_gflop")
+.set_body_typed([](
+  Operation op
+){
+  return get_gflop(op);
+});
+
+
 }  // namespace tg
 
 
