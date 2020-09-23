@@ -148,7 +148,7 @@ def get_graph_mark(graph):
 
     Parameters
     ----------
-    graph: Graph
+    graph : Graph
 
     Returns
     -------
@@ -156,3 +156,22 @@ def get_graph_mark(graph):
   """
   ret = _ffi_api.get_graph_mark(graph)
   return {x:y.value for x, y in ret.items()}
+
+
+def get_graph_partition_mark(graph, max_subgraph_size=100, max_minigraph_size=100):
+  """Get the partition marks of a graph.
+
+    Parameters
+    ----------
+    graph : Graph
+
+    max_subgraph_size : int
+
+    max_minigraph_size : int
+
+    Returns
+    -------
+    map from operation to mark (minigraph, subgraph)
+  """
+  ret = _ffi_api.get_graph_partition_mark(graph, max_subgraph_size, max_minigraph_size)
+  return {x:[y.value for y in z] for x, z in ret.items()}

@@ -7,6 +7,9 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <cmath>
+#include <algorithm>
+#include <functional>
 
 #include "../autodiff/arg_util.h"
 #include "../autodiff/arith.h"
@@ -150,19 +153,32 @@ class OpTypeGetter : public tir::ExprVisitor {
 
   bool check_if_elementwise(std::shared_ptr<Matrix<int>> m, std::vector<int>& c) {
     int rows = (*m).height(), cols = (*m).width();
-    if (rows != cols) {
-      return false;
+    // relax for broader cases, such as batch norm
+    // if (rows != cols) {
+    //   return false;
+    // }
+    int step_forward = 0;
+    for (int j = 0; j < cols; ++j) {
+        if ((*m)[0][j] != 0) {
+            step_forward = j;
+            break;
+        }
     }
     for (int i = 0; i < rows; ++i) {
       for (int j = 0; j < cols; ++j) {
-        if (i == j) {
-          if ((*m)[i][j] != 1) {
-            return false;
-          }
-        } else {
-          if ((*m)[i][j] != 0) {
-            return false;
-          }
+        // if (i == j) {
+        //   if ((*m)[i][j] != 1) {
+        //     return false;
+        //   }
+        // } else {
+        //   if ((*m)[i][j] != 0) {
+        //     return false;
+        //   }
+        // }
+        if (j != step_forward + i) {
+            if ((*m)[i][j] != 0) {
+                return false;
+            }
         }
       }
     }
@@ -190,11 +206,11 @@ class OpTypeGetter : public tir::ExprVisitor {
 enum class GroupRole : int8_t { tPrologue = 0, tDevelopment = 1, tMainbody = 2, tEpilogue = 3 };
 
 using GraphMark = std::unordered_map<te::Operation, GroupRole>;
+using SubGraphMark = std::unordered_map<int, int>;
+using MiniGraphMark = std::unordered_map<te::Operation, int>;
 
 class GraphMarker {
  public:
-  const GraphMark& get_graph_mark() { return graph_mark_; }
-
   Map<te::Operation, IntKey> get_graph_mark(const Graph& graph) {
     clear_mark();
     mark(graph);
@@ -202,6 +218,13 @@ class GraphMarker {
     for (auto kv : graph_mark_) {
       ret.Set(kv.first, IntKey(static_cast<int>(kv.second)));
     }
+    return ret;
+  }
+
+  GraphMark get_graph_mark(const Graph& graph, int flag) {
+    clear_mark();
+    mark(graph);
+    GraphMark ret(graph_mark_.begin(), graph_mark_.end());
     return ret;
   }
 
@@ -257,6 +280,231 @@ class GraphMarker {
   void clear_mark() { graph_mark_.clear(); }
 
   GraphMark graph_mark_;
+};
+
+
+class GraphPartitionMarker {
+ public:
+    GraphPartitionMarker(int max_subgraph_size=100, int max_minigraph_size=100) : max_subgraph_size_(max_subgraph_size), max_minigraph_size_(max_minigraph_size) {
+        ASSERT(max_minigraph_size >= 1) << "At least one operation in one MiniGraph!\n";
+        ASSERT(max_subgraph_size >= max_minigraph_size) << "SubGraph can't contain even one MiniGraph!\n";
+    }
+
+    std::pair<Map<IntKey, IntKey>, Map<te::Operation, IntKey>> get_partition_mark(const Graph& graph, const GraphMark& graph_mark_) {
+        clear_mark();
+        mark(graph, graph_mark_);
+        Map<IntKey, IntKey> subgraph_ret;
+        Map<te::Operation, IntKey> minigraph_ret;
+        for (auto kv : minigraph_mark_) {
+            auto key = IntKey(kv.second);
+            minigraph_ret.Set(kv.first, key);
+            ASSERT(subgraph_mark_.count(kv.second));
+            subgraph_ret.Set(key, IntKey(subgraph_mark_.at(kv.second)));
+        }
+        return std::make_pair(subgraph_ret, minigraph_ret);
+    }
+ private:
+    bool fusible(const GroupRole& a, const GroupRole& b) {
+        int pre = static_cast<int>(a);
+        int post = static_cast<int>(b);
+        if (pre < 2) {
+            return true;
+        }
+        if (pre != 2) {
+            return pre <= post;
+        } else {
+            return pre < post;
+        }
+    }
+
+    int new_subgraph_mark() {
+        return subgraph_mark_counter_++;
+    }
+
+    int new_minigraph_mark() {
+        return minigraph_mark_counter_++;
+    }
+
+    void mark(const Graph& graph, const GraphMark& graph_mark_) {
+        mark_minigraph(graph, graph_mark_);
+        mark_subgraph(graph);
+    }
+
+    void mark_minigraph(const Graph& graph, const GraphMark& graph_mark_) {
+        Array<te::Tensor> root_tensors;
+        for (auto t : graph->outputs) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->loss) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->gradients) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->updates) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->state_outputs) {
+            root_tensors.push_back(t);
+        }
+
+        std::function<void(te::Operation)> helper;
+        helper = [&](te::Operation op) {
+            const te::ComputeOpNode* as_compute = op.as<te::ComputeOpNode>();
+            if (minigraph_mark_.count(op) || (!as_compute)) {
+                return;
+            }
+
+            int max_fusible_inputs_minigraph_mark = -1;
+            int max_inputs_minigraph_mark = -1;
+            std::vector<int> inputs_minigraph_marks;
+
+            for (auto inp : op->InputTensors()) {
+                helper(inp->op);
+                if (graph_mark_.count(inp->op) && graph_mark_.count(op)) {
+                    ASSERT(minigraph_mark_.count(inp->op));
+                    if (fusible(graph_mark_.at(inp->op), graph_mark_.at(op)))  {
+                        max_fusible_inputs_minigraph_mark = std::max(max_fusible_inputs_minigraph_mark, minigraph_mark_.at(inp->op));
+                    }
+                    max_inputs_minigraph_mark = std::max(max_inputs_minigraph_mark, minigraph_mark_.at(inp->op));
+                    inputs_minigraph_marks.push_back(minigraph_mark_.at(inp->op));
+                }
+            }
+
+            if (as_compute) {
+                if (max_fusible_inputs_minigraph_mark < 0) {
+                    int new_mark = new_minigraph_mark();
+                    minigraph_mark_[op] = new_mark;
+                    minigraph_size_[new_mark] = 1;
+                } else {
+                    if (max_fusible_inputs_minigraph_mark != max_inputs_minigraph_mark) {
+                        int new_mark = new_minigraph_mark();
+                        minigraph_mark_[op] = new_mark;
+                        minigraph_size_[new_mark] = 1;
+                    } else if (minigraph_size_[max_fusible_inputs_minigraph_mark] + 1 > max_minigraph_size_) {
+                        // this is the limit of TVM compiler
+                        print(4) << "Warning: too large minigraph (size > " << max_minigraph_size_ << ").\n";
+                        int new_mark = new_minigraph_mark();
+                        minigraph_mark_[op] = new_mark;
+                        minigraph_size_[new_mark] = 1;
+                    } else {
+                        minigraph_mark_[op] = max_fusible_inputs_minigraph_mark;
+                        ASSERT(minigraph_size_.count(max_fusible_inputs_minigraph_mark));
+                        minigraph_size_[max_fusible_inputs_minigraph_mark] += 1;
+                    }
+                }
+                
+                int cur_mark = minigraph_mark_.at(op);
+                for (auto inp_mark : inputs_minigraph_marks) {
+                    if (inp_mark != cur_mark) {
+                        minigraph_read_relations_[cur_mark].insert(inp_mark);
+                    }
+                }
+            }
+            return;
+        };
+
+        for (auto t : root_tensors) {
+            helper(t->op);
+        }
+    }
+
+    void mark_subgraph(const Graph& graph) {
+        Array<te::Tensor> root_tensors;
+        for (auto t : graph->outputs) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->loss) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->gradients) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->updates) {
+            root_tensors.push_back(t);
+        }
+        for (auto t : graph->state_outputs) {
+            root_tensors.push_back(t);
+        }
+
+        std::vector<int> root_minigraphs;
+        for (auto t : root_tensors) {
+            if (minigraph_mark_.count(t->op))
+                root_minigraphs.push_back(minigraph_mark_.at(t->op));
+        }
+        std::function<void(int)> helper;
+        helper = [&](int minigraph) {
+            if (subgraph_mark_.count(minigraph))
+                return;
+
+            ASSERT(minigraph_size_.count(minigraph));
+            if (!minigraph_read_relations_.count(minigraph)) {
+                // input minigraph
+                int new_mark = new_subgraph_mark();
+                subgraph_mark_[minigraph] = new_mark;
+                subgraph_size_[new_mark] = minigraph_size_[minigraph];
+            } else {
+                std::vector<int> ordered_input_minigraph_marks;
+                for (auto inp : minigraph_read_relations_.at(minigraph)) {
+                    // note: this is unordered
+                    helper(inp);
+                    ASSERT(subgraph_mark_.count(inp));
+                    ordered_input_minigraph_marks.push_back(subgraph_mark_.at(inp));
+                }
+                // sort for inputs, from bigger to smaller
+                std::sort(ordered_input_minigraph_marks.begin(), ordered_input_minigraph_marks.end(), std::greater<int>());
+                ASSERT(ordered_input_minigraph_marks.size() > 0U);  // must have inputs
+                int to_fuse_mark = ordered_input_minigraph_marks[0];
+                ASSERT(subgraph_size_.count(to_fuse_mark));
+                ASSERT(minigraph_size_.count(minigraph));
+                if (subgraph_size_.at(to_fuse_mark) + minigraph_size_.at(minigraph) > max_subgraph_size_) {
+                    // too large subgraph, begin a new subgraph
+                    int new_mark = new_subgraph_mark();
+                    subgraph_mark_[minigraph] = new_mark;
+                    subgraph_size_[new_mark] = minigraph_size_[minigraph];
+                } else {
+                    subgraph_mark_[minigraph] = to_fuse_mark;
+                    subgraph_size_[to_fuse_mark] += minigraph_size_[minigraph];
+                }
+                // set the read relations
+                ASSERT(subgraph_mark_.count(minigraph));
+                int cur_mark = subgraph_mark_.at(minigraph);
+                for (auto inp_minigraph_mark : ordered_input_minigraph_marks) {
+                    if (cur_mark != inp_minigraph_mark) {
+                        subgraph_read_relations_[cur_mark].insert(inp_minigraph_mark);
+                    }
+                }
+            }
+        };
+
+        for (auto minigraph : root_minigraphs) {
+            helper(minigraph);
+        }
+    }
+
+    void clear_mark() {
+        subgraph_mark_counter_ = 0;
+        minigraph_mark_counter_ = 0;
+        subgraph_mark_.clear();
+        minigraph_mark_.clear();
+        subgraph_size_.clear();
+        minigraph_size_.clear();
+
+        subgraph_read_relations_.clear();
+        minigraph_read_relations_.clear();
+    }
+
+    int max_subgraph_size_;
+    int max_minigraph_size_;
+    int subgraph_mark_counter_{0};
+    int minigraph_mark_counter_{0};
+    SubGraphMark subgraph_mark_;
+    MiniGraphMark minigraph_mark_;
+    std::unordered_map<int, int> subgraph_size_;
+    std::unordered_map<int, int> minigraph_size_;
+
+    std::unordered_map<int, std::unordered_set<int>> subgraph_read_relations_;
+    std::unordered_map<int, std::unordered_set<int>> minigraph_read_relations_;
 };
 
 }  // namespace tg

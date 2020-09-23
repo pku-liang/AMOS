@@ -55,6 +55,8 @@ Tensor grad_intra_op(const Tensor &input, const Tensor &output, const Tensor &do
 
 
 Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Array<Tensor> &grad_outputs) {
+  CHECK(outputs.size() > 0) << "No effective gradients from outputs, did you forget to set `requires_grad=True` for consumers of " << input << "?\n";
+  CHECK(outputs.size() == grad_outputs.size()) << "Length mismatch.\n";
   Array<Tensor> partial_grads;
   size_t num_outputs = outputs.size();
   for (size_t i = 0; i < num_outputs; ++i) {
@@ -86,7 +88,6 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
   for (size_t i = 1; i < num_outputs; ++i) {
     res = AddNode::make(res, partial_grads[i](indices));
   }
-
   std::string tag = generate_tag_from_body(axis, {res});
   return te::compute(shape, func, "collect_" + input->op->name, tag, {}, true);
 }

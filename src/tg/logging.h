@@ -70,6 +70,18 @@ public:
 };
 
 
+#define WARN(cond)                                                            \
+  (                                                                           \
+    [&]()-> LazyLogging {                                                     \
+      if (!(cond)) {                                                          \
+        return LazyLogging(LogLevel::tWARNING, true, __FILE__, __LINE__);     \
+      } else {                                                                \
+        return LazyLogging(LogLevel::tINFO, false, __FILE__, __LINE__);       \
+      }                                                                       \
+    }()                                                                       \
+  ) 
+
+
 #define ASSERT(cond)                                                          \
   (                                                                           \
     [&]()-> LazyLogging {                                                     \
