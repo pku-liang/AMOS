@@ -18,7 +18,7 @@ PrimExpr RewriteSubgraphInput::VisitExpr_(const CallNode* op) {
                   op->args,
                   op->call_type,
                   replace_[i]->op,
-                  0);
+                  replace_[i]->value_index);
       }
       i += 1;
     }
