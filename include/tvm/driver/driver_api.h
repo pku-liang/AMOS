@@ -83,7 +83,17 @@ TVM_DLL runtime::Module build(const Map<Target, IRModule>& input, const Target& 
  *        pass Target().
  * \return The built module that contains code for different processors.
  */
-TVM_DLL runtime::Module build(const Map<String, IRModule>& input, const Target& target_host);
+TVM_DLL runtime::Module build(const Map<std::string, IRModule>& input,
+                              const Target& target_host,
+                              const BuildConfig& config);
+
+void GetBinds(const Array<te::Tensor>& args,
+              bool compact,
+              const std::unordered_map<te::Tensor, tir::Buffer>& binds,
+              Map<te::Tensor, tir::Buffer>* out_binds,
+              Array<ObjectRef>* out_arg_list,
+              const BuildConfig& config);
+
 }  // namespace tvm
 
 #endif  // TVM_DRIVER_DRIVER_API_H_

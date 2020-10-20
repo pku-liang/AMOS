@@ -48,11 +48,24 @@ int ParallelLevel(AnnotationType ann) {
   }
 }
 
+class IndexMutator : public ExprMutator {
+public:
+  PrimExpr VisitExpr_(const FloorDivNode* op) {
+    PrimExpr a = this->VisitExpr(op->a);
+    PrimExpr b = this->VisitExpr(op->b);
+    return DivNode::make(a, b);
+  }
+};
+
 // get touch pattern from index expression
 class IndexParser : public ExprVisitor {
  public:
   void Parse(PrimExpr expr) {
     pattern_map.clear();
+
+    expr = IndexMutator()(expr);
+    expr = tvm::tir::CanonicalSimplify(expr);
+    
     this->VisitExpr(expr);
   }
 
@@ -61,13 +74,15 @@ class IndexParser : public ExprVisitor {
     if (pattern_map.count(op) == 0) {
       pattern_map[op] = TouchPattern();
       pattern_map[op].stride = next_stride_;
-      next_stride_ = 1;
+      next_stride_ = 1.;
     }
   }
 
   void VisitExpr_(const MulNode* op) final {
     if (op->a.as<VarNode>()) {
       if (const auto stride = op->b.as<IntImmNode>()) {
+        next_stride_ = stride->value;
+      } else if (const auto stride = op->b.as<FloatImmNode>()) {
         next_stride_ = stride->value;
       }
     }
@@ -77,7 +92,7 @@ class IndexParser : public ExprVisitor {
   std::unordered_map<const VarNode*, TouchPattern> pattern_map;
 
  private:
-  int64_t next_stride_ = 1;
+  float next_stride_ = 1.;
 };
 
 // extract iter vars and their touch pattern from ir
@@ -171,7 +186,7 @@ void TouchExtractor::ExitItervar_() {
   }
 }
 
-void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
+void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index, int access_ann, int64_t access_bytes) {
   std::string name = buffer_var.get()->name_hint;
   TouchedBuffer buf = name + "_" + std::to_string(buffer_counter_[name]++);
 
@@ -180,12 +195,30 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
   parser.Parse(index);
 
   // push up mem access info
+  bool loop_reuse_tag = false;
   for (auto var : itervar_stack_) {
     auto x = parser.pattern_map.find(var.get());
     if (x != parser.pattern_map.end()) {
       itervar_map[var].touch_feature[buf] = x->second;
     } else {
       itervar_map[var].touch_feature[buf] = TouchPattern();
+      loop_reuse_tag = true;
+    }
+    itervar_map[var].touch_feature[buf].access_type |= access_ann;
+    itervar_map[var].touch_feature[buf].bytes = access_bytes;
+    itervar_map[var].touch_feature[buf].loop_reuse = loop_reuse_tag;
+
+    bool &serial_reuse_flag = itervar_map[var].serial_reuse;
+    if (serial_reuse_flag == true)
+      continue;
+    StructuralEqual equal;
+    for (auto &expr : itervar_map[var].pattern_set[buffer_var])
+      if (equal(index, expr)) {
+        serial_reuse_flag = true;
+        break;
+      }
+    if (serial_reuse_flag == false) {
+      itervar_map[var].pattern_set[buffer_var].push_back(index);
     }
   }
 }
@@ -201,17 +234,17 @@ void TouchExtractor::ExitMem_() {}
  * \note The format of return value is
  * ((
  *   ('_itervar_',  var),
- *   ('_attr_',     length, nest_level, topdown, bottomup, one_hot_annotation),
+ *   ('_attr_',     length, nest_level, topdown, bottomup, one_hot_annotation, serial_reuse),
  *   ('_arith_',    add_ct, mul_ct, div_ct),
- *   ('data_vec_0', stride, mod, count, reuse, thread_count, thread_reuse),
- *   ('conv_0',     stride, mod, count, reuse, thread_count, thread_reuse),
+ *   ('data_vec_0', stride, mod, bytes, unique_bytes, reuse, thread_count, thread_reuse, loop_reuse, write, read),
+ *   ('conv_0',     stride, mod, bytes, unique_bytes, reuse, thread_count, thread_reuse, loop_reuse, write, read),
  * ),
  * (
  *   ('_itervar_',    var2),
  *   ('_attr_',       length, nest_level, one_hot_annotation),
  *   ('_arith_',      add_ct, mul_ct, div_ct),
- *   ('kernel_vec_0', stride, mod, count, reuse, thread_count, thread_reuse),
- *   ('conv_1',       stride, mod, count, reuse, thread_count, thread_reuse),
+ *   ('kernel_vec_0', stride, mod, bytes, reuse, thread_count, thread_reuse),
+ *   ('conv_1',       stride, mod, bytes, reuse, thread_count, thread_reuse),
  * ))
  *
  * Itervars are sorted according to their first occurrence position in IR.
@@ -263,6 +296,7 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
     for (int i = 0; i < kNum; i++) {
       attr.push_back(i == fea.ann);
     }
+    attr.push_back(fea.serial_reuse);
     feature_row.push_back(attr);
 
     // arithmetic
@@ -280,16 +314,20 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
     }
     std::sort(bufs.begin(), bufs.end());
     for (auto k : bufs) {
-      TouchPattern& v = fea.touch_feature[k];
-      feature_row.push_back(Array<PrimExpr>{
-          tvm::tir::StringImm(k),
-          FloatImm(DataType::Float(32), trans(v.stride)),
-          FloatImm(DataType::Float(32), trans(v.mod)),
-          FloatImm(DataType::Float(32), trans(v.count)),
-          FloatImm(DataType::Float(32), trans(v.reuse)),
-          FloatImm(DataType::Float(32), trans(v.thread_count)),
-          FloatImm(DataType::Float(32), trans(v.thread_reuse)),
-      });
+      TouchPattern &v = fea.touch_feature[k];
+      feature_row.push_back(
+          Array<PrimExpr>{k,
+                FloatImm(DataType::Float(32), trans(v.stride)),
+                FloatImm(DataType::Float(32), trans(v.mod)),
+                FloatImm(DataType::Float(32), trans(v.reuse * v.count * v.bytes)),
+                FloatImm(DataType::Float(32), trans(v.count * v.bytes)),
+                FloatImm(DataType::Float(32), trans(v.reuse)),
+                FloatImm(DataType::Float(32), trans(v.thread_count)),
+                FloatImm(DataType::Float(32), trans(v.thread_reuse)),
+                FloatImm(DataType::Float(32), v.loop_reuse),  // IntImm(DataType::Int(32), v.loop_reuse),
+                FloatImm(DataType::Float(32), (v.access_type & BUFFER_WRITE) != 0),
+                FloatImm(DataType::Float(32), (v.access_type & BUFFER_READ) != 0)
+                });
     }
 
     ret_feature->push_back(feature_row);
@@ -345,6 +383,8 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float>* ret_
       ret_feature->push_back(i == fea.ann);
     }
 
+    ret_feature->push_back(fea.serial_reuse);
+
     // arithmetic
     ret_feature->push_back(trans(fea.add_ct));
     ret_feature->push_back(trans(fea.mul_ct));
@@ -360,10 +400,14 @@ void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float>* ret_
       TouchPattern& v = fea.touch_feature[k];
       ret_feature->push_back(trans(v.stride));
       ret_feature->push_back(trans(v.mod));
-      ret_feature->push_back(trans(v.count));
+      ret_feature->push_back(trans(v.reuse * v.count * v.bytes));
+      ret_feature->push_back(trans(v.count * v.bytes));
       ret_feature->push_back(trans(v.reuse));
       ret_feature->push_back(trans(v.thread_count));
       ret_feature->push_back(trans(v.thread_reuse));
+      ret_feature->push_back(v.loop_reuse);
+      ret_feature->push_back((v.access_type & BUFFER_WRITE) != 0);
+      ret_feature->push_back((v.access_type & BUFFER_READ) != 0);
     }
   }
 }

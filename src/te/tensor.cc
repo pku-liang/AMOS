@@ -63,15 +63,17 @@ Tensor Operation::output(size_t i) const {
   node->value_index = i;
   node->dtype = (*this)->output_dtype(i);
   node->shape = (*this)->output_shape(i);
+  node->requires_grad = (*this)->requires_grad;
   return Tensor(node);
 }
 
-Tensor::Tensor(Array<PrimExpr> shape, DataType dtype, Operation op, int value_index) {
+Tensor::Tensor(Array<PrimExpr> shape, DataType dtype, Operation op, int value_index, bool requires_grad)) {
   auto n = make_object<TensorNode>();
   n->shape = std::move(shape);
   n->dtype = dtype;
   n->op = op;
   n->value_index = value_index;
+  n->requires_grad = requires_grad;
   data_ = std::move(n);
 }
 

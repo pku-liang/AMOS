@@ -55,6 +55,9 @@ enum AnnotationType {
   kNum,
 };
 
+#define BUFFER_READ  1
+#define BUFFER_WRITE 2
+
 /*!
  * \brief A base class for feature extractor, used for processing
  * for loop and memory access in the IR
@@ -88,7 +91,7 @@ class FeatureVisitor : public StmtExprVisitor {
    * \param buffer_var The buffer to access.
    * \param index Index expression
    */
-  virtual void EnterMem_(tir::Var buffer_var, tvm::PrimExpr index) = 0;
+  virtual void EnterMem_(tir::Var buffer_var, tvm::PrimExpr index, int access_ann, int64_t access_bytes) = 0;
   /*! \brief Exit a memory access node */
   virtual void ExitMem_() = 0;
 };

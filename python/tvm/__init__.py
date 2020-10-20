@@ -52,6 +52,9 @@ from . import target
 # tvm.te
 from . import te
 
+# tvm.tg
+from . import tg
+
 # tvm.driver
 from .driver import build, lower
 

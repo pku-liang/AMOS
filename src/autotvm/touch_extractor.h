@@ -28,6 +28,9 @@
 #include <tvm/runtime/registry.h>
 #include <tvm/tir/expr.h>
 #include <tvm/tir/expr_functor.h>
+#include <tvm/tir/ir_pass.h>
+#include <tvm/runtime/registry.h>
+#include <tvm/node/structural_equal.h>
 
 #include <deque>
 #include <map>
@@ -45,13 +48,17 @@ using TouchedBuffer = std::string;
 
 // touch pattern buf[(stride * var) % mod) + other]
 struct TouchPattern {
-  int64_t stride{0};
+  float stride{0.};
   int64_t mod{-1};  // -1 for +inf
 
+  int64_t bytes{0};
   int64_t count{1};
   int64_t reuse{1};
   int64_t thread_count{0};  // count when move thread axis into innermost
   int64_t thread_reuse{0};  // reuse ratio move thread axis into innermost
+
+  bool loop_reuse{false};
+  int access_type{0};
 };
 
 // all the feature of an iter var
@@ -78,6 +85,9 @@ struct ItervarFeature {
 
   // Memory Touch Feature
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
+
+  std::unordered_map<Var, Array<PrimExpr>, tvm::ObjectHash, tvm::ObjectEqual> pattern_set;
+  bool serial_reuse{false};
 };
 
 // extract iter vars and their touch pattern from ir
@@ -116,7 +126,7 @@ class TouchExtractor : public FeatureVisitor {
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
   void ExitItervar_();
-  void EnterMem_(Var buffer_var, PrimExpr index);
+  void EnterMem_(Var buffer_var, PrimExpr index, int access_ann, int64_t access_bytes);
   void ExitMem_();
 
   int64_t topdown_product_{1};
@@ -128,6 +138,18 @@ class TouchExtractor : public FeatureVisitor {
   using FeatureVisitor::VisitExpr_;
 };
 
+/*!
+ * \brief Get axis-based feature for all axes and flatten them into a one-dimensional vector.
+ * \param stmt The statement to be extracted
+ * \param bool Whether take log for numerical feature
+ * \param ret_feature The buffer where the return value is stored
+ *
+ * \note See GetItervarFeature for more details about the return value.
+ *       This is an optimized version of GetItervarFeature + Flatten. This runs much faster.
+ */
+void GetItervarFeatureFlatten(Stmt stmt, bool take_log, std::vector<float> *ret_feature);
+
+void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >* ret_feature);
 }  // namespace autotvm
 }  // namespace tvm
 

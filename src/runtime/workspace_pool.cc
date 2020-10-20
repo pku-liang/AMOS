@@ -115,7 +115,10 @@ class WorkspacePool::Pool {
   }
   // Release all resources
   void Release(TVMContext ctx, DeviceAPI* device) {
-    CHECK_EQ(allocated_.size(), 1);
+    // CHECK_EQ(allocated_.size(), 1);
+    if (allocated_.size() != 1U) {
+      std::cerr << "Find buffer not-freed!\n";
+    }
     for (size_t i = 1; i < free_list_.size(); ++i) {
       device->FreeDataSpace(ctx, free_list_[i].data);
     }
