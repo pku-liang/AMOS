@@ -5,7 +5,7 @@
 #include <tvm/node/container.h>
 #include <tvm/tir/expr.h>
 #include <tvm/tir/op.h>
-#include <tvm/tir/ir_pass.h>
+// #include <tvm/tir/ir_pass.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/te/operation.h>
 #include <tvm/tg/graph.h>
@@ -63,7 +63,7 @@ class FindBatchLikeDim : public ExprVisitor {
   }
  protected:
   using ExprVisitor::VisitExpr_;
-  void VisitExpr_(const CallNode* op) override;
+  void VisitExpr_(const ProducerLoadNode* op) override;
 };
 
 
@@ -86,7 +86,7 @@ public:
 protected:
     using ExprVisitor::VisitExpr_;
 
-    void VisitExpr_(const CallNode *op) override;
+    void VisitExpr_(const ProducerLoadNode *op) override;
 };
 
 
@@ -106,7 +106,7 @@ class FindAxisPosition : public ExprVisitor {
   }
  protected:
   using ExprVisitor::VisitExpr_;
-  void VisitExpr_(const CallNode* op) override;
+  void VisitExpr_(const ProducerLoadNode* op) override;
 };
 
 
@@ -165,7 +165,7 @@ class CountInputOccur : public ExprVisitor {
     }
   }
 
-  void VisitExpr_(const CallNode* op) override;
+  void VisitExpr_(const ProducerLoadNode* op) override;
 };
 
 

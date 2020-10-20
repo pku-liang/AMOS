@@ -63,8 +63,9 @@ void SubstituteContext::add(std::string &name, Var var, PrimExpr expr, ExtRange 
 
 
 PrimExpr EliminateFloorDivAndMod::VisitExpr_(const FloorDivNode* op) {
-  PrimExpr new_a = Simplify(VisitExpr(op->a));
-  PrimExpr new_b = Simplify(VisitExpr(op->b));
+  arith::Analyzer ana;
+  PrimExpr new_a = ana.Simplify(VisitExpr(op->a));
+  PrimExpr new_b = ana.Simplify(VisitExpr(op->b));
   const VarNode *a_as_var = new_a.as<VarNode>();
   const IntImmNode *b_as_int = new_b.as<IntImmNode>();
   CHECK(b_as_int != nullptr) << "Only support floor_div on type int, but find " << new_b.dtype() << "\n";
@@ -83,11 +84,11 @@ PrimExpr EliminateFloorDivAndMod::VisitExpr_(const FloorDivNode* op) {
       // TODO: infer range for expression
       context_.add(new_name, new_var, new_a, ExtRange());
     }
-    new_div = FloorDivNode::make(new_var, new_b);
+    new_div = FloorDiv(new_var, new_b);
   } else {
     // left expr is already a var
     new_name = a_as_var->name_hint;
-    new_div = FloorDivNode::make(new_a, new_b);
+    new_div = FloorDiv(new_a, new_b);
   }
   
   // check if this new div expr is bounded
@@ -109,8 +110,9 @@ PrimExpr EliminateFloorDivAndMod::VisitExpr_(const FloorDivNode* op) {
 
 
 PrimExpr EliminateFloorDivAndMod::VisitExpr_(const FloorModNode* op) {
-  PrimExpr new_a = Simplify(VisitExpr(op->a));
-  PrimExpr new_b = Simplify(VisitExpr(op->b));
+  arith::Analyzer ana;
+  PrimExpr new_a = ana.Simplify(VisitExpr(op->a));
+  PrimExpr new_b = ana.Simplify(VisitExpr(op->b));
   const VarNode *a_as_var = new_a.as<VarNode>();
   const IntImmNode *b_as_int = new_b.as<IntImmNode>();
   CHECK(b_as_int != nullptr) << "Only support floor_mod on type int, but find " << new_b.dtype() << "\n";
@@ -129,10 +131,10 @@ PrimExpr EliminateFloorDivAndMod::VisitExpr_(const FloorModNode* op) {
       // TODO: infer range for expression
       context_.add(new_name, new_var, new_a, ExtRange());
     }
-    new_mod = FloorModNode::make(new_var, new_b);
+    new_mod = FloorMod(new_var, new_b);
   } else {
     // left expr is already a var
-    new_mod = FloorModNode::make(new_a, new_b);
+    new_mod = FloorMod(new_a, new_b);
   }
   
   // check if this new mod expr is bounded
@@ -286,7 +288,8 @@ PrimExpr flatten_axes(Array<PrimExpr> args, Array<PrimExpr> shape) {
     product = product * shape[i + 1];
     ret = ret + args[i] * product;
   }
-  return Simplify(ret);
+  arith::Analyzer ana;
+  return ana.Simplify(ret);
 }
 
 
@@ -387,7 +390,7 @@ PrimExpr solve_multi_bindings(SubstituteContext &context, std::vector<PrimExpr> 
       } else {
         // [val1, val2)
         // this should be index
-        conditions.push_back(EQNode::make(res, bindings[i]));
+        conditions.push_back(EQ(res, bindings[i]));
       }
     }
   }
@@ -410,11 +413,12 @@ void solve_substitutions(SubstituteContext &context,
     Map<Var, PrimExpr> vmap;
     vmap.Set(context.var_map[sub_var_name], unique_binding);
     // std::cout << "check solve sub var: " << sub_var_name << "\n";
+    arith::Analyzer ana;
     for (int j = i - 1; j >= 0; --j) {
       std::vector<PrimExpr> new_bindings;
       for (auto expr : bindings[context.index_names[j]]) {
         // std::cout << "target expr: " << expr << "\n";
-        new_bindings.push_back(Simplify(Substitute(expr, vmap)));
+        new_bindings.push_back(ana.Simplify(Substitute(expr, vmap)));
       }
       // replace bindings
       bindings[context.index_names[j]] = new_bindings;

@@ -24,43 +24,18 @@ PrimExpr ExprReMapper::VisitExpr_(const SizeVarNode* op) {
 }
 
 
-PrimExpr ExprReMapper::VisitExpr_(const CallNode* op) {
+PrimExpr ExprReMapper::VisitExpr_(const ProducerLoadNode* op) {
   Array<PrimExpr> new_args;
-  for (auto v : op->args) {
+  for (auto v : op->indices) {
     new_args.push_back(VisitExpr(v));
   }
   
-  if (op->call_type == CallNode::CallType::Halide) {
-    if (call_map.find(op->func) != call_map.end()) {
-      return CallNode::make(
-        op->dtype,
-        call_map[op->func],
-        new_args,
-        op->call_type,
-        op->func,
-        op->value_index
-      );
-    } else {
-      std::string new_name = get_new_tensor_name();
-      call_map[op->func] = new_name;
-      return CallNode::make(
-        op->dtype,
-        new_name,
-        new_args,
-        op->call_type,
-        op->func,
-        op->value_index
-      );
-    }
+  if (call_map.find(op->producer) != call_map.end()) {
+    return ProducerLoad(call_map[op->producer], op->indices);
   } else {
-    return CallNode::make(
-      op->dtype,
-      op->name,
-      new_args,
-      op->call_type,
-      op->func,
-      op->value_index
-    );
+    te::Tensor new_tensor = get_new_tensor(Downcast<te::Tensor>(op->producer));
+    call_map[op->producer] = new_tensor;
+    return ProducerLoad(new_tensor, op->indices);
   }
 }
 
@@ -93,7 +68,7 @@ PrimExpr ExprReMapper::VisitExpr_(const ReduceNode* op) {
   for (auto i : op->combiner->identity_element) {
     identities.push_back(VisitExpr(i));
   }
-  reducer = CommReducerNode::make(lhs, rhs, results, identities);
+  reducer = CommReducer(lhs, rhs, results, identities);
 
   
   Array<PrimExpr> source;
@@ -105,13 +80,13 @@ PrimExpr ExprReMapper::VisitExpr_(const ReduceNode* op) {
   for (auto iv : op->axis) {
     VisitExpr(iv->var);
     axis.push_back(
-      IterVarNode::make(iv->dom, var_map[iv->var.get()], iv->iter_type, iv->thread_tag));
+      IterVar(iv->dom, var_map[iv->var.get()], iv->iter_type, iv->thread_tag));
   }
 
   PrimExpr condition = this->VisitExpr(op->condition);
 
-  return ReduceNode::make(
-    reducer, source, axis, condition, op->value_index);
+  return Reduce(
+    reducer, source, axis, condition, op->value_index, op->init);
 }
 
 

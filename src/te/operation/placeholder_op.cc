@@ -50,7 +50,7 @@ Array<PrimExpr> PlaceholderOpNode::output_shape(size_t i) const {
   return shape;
 }
 
-PlaceholderOp::PlaceholderOp(std::string name, Array<PrimExpr> shape, DataType dtype, bool requires_grad)) {
+PlaceholderOp::PlaceholderOp(std::string name, Array<PrimExpr> shape, DataType dtype, bool requires_grad) {
   auto n = make_object<PlaceholderOpNode>();
   n->name = name;
   n->shape = shape;

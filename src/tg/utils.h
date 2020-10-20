@@ -21,7 +21,8 @@
 #include <tvm/target/target.h>
 #include <tvm/runtime/module.h>
 #include <tvm/runtime/registry.h>
-#include <tvm/tir/ir_pass.h>
+// #include <tvm/tir/ir_pass.h>
+#include <tvm/arith/analyzer.h>
 
 #include "logging.h"
 

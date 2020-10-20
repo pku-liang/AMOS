@@ -28,25 +28,22 @@ PrimExpr SubstituteExpression::VisitExpr_(const tir::VarNode* op) {
   return tir::Var(op->name_hint, op->type_annotation);
 }
 
-PrimExpr SubstituteExpression::VisitExpr_(const tir::CallNode* op) {
+PrimExpr SubstituteExpression::VisitExpr_(const tir::ProducerLoadNode* op) {
   Array<PrimExpr> new_args;
-  for (auto arg : op->args) {
+  for (auto arg : op->indices) {
     new_args.push_back(VisitExpr(arg));
   }
 
-  if (op->call_type == tir::CallNode::CallType::Halide) {
-    int i = 0;
-    for (auto t : org_inputs_) {
-      if (op->func.same_as(t->op)) {
-        auto ret = inputs_[i](new_args);
-        return ret;
-      }
-      i += 1;
+  int i = 0;
+  for (auto t : org_inputs_) {
+    if (Downcast<te::Tensor>(op->producer) == t) {
+      auto ret = inputs_[i](new_args);
+      return ret;
     }
+    i += 1;
   }
 
-  return tir::CallNode::make(op->dtype, op->name, new_args, op->call_type, op->func,
-                             op->value_index);
+  return tir::ProducerLoad(op->producer, new_args);
 }
 
 PrimExpr SubstituteExpression::VisitExpr_(const tir::ReduceNode* op) {
@@ -55,7 +52,7 @@ PrimExpr SubstituteExpression::VisitExpr_(const tir::ReduceNode* op) {
     new_source.push_back(VisitExpr(src));
   }
   PrimExpr new_cond = VisitExpr(op->condition);
-  return tir::ReduceNode::make(op->combiner, new_source, reduce_axis_, new_cond, op->value_index);
+  return tir::Reduce(op->combiner, new_source, reduce_axis_, new_cond, op->value_index, op->init);
 }
 
 PrimExpr substitute_expression(PrimExpr body, Array<te::Tensor> org_inputs,
@@ -332,7 +329,7 @@ te::Operation GraphPass::make_new_operation(const te::ComputeOpNode* as_compute,
   Map<Var, PrimExpr> vmap;
   for (auto iv : as_compute->axis) {
     Var new_var = iv->var.copy_with_suffix("");
-    new_indices.push_back(IterVarNode::make(iv->dom, new_var, iv->iter_type, iv->thread_tag));
+    new_indices.push_back(IterVar(iv->dom, new_var, iv->iter_type, iv->thread_tag));
 
     vmap.Set(iv->var, new_var);
   }
@@ -342,7 +339,7 @@ te::Operation GraphPass::make_new_operation(const te::ComputeOpNode* as_compute,
     PrimExpr tmp = Substitute(body, vmap);
     new_body_.push_back(tmp);
   }
-  return ComputeOpNode::make(as_compute->name + suffix, as_compute->tag, as_compute->attrs,
+  return ComputeOp(as_compute->name + suffix, as_compute->tag, as_compute->attrs,
                              new_indices, new_body_, as_compute->requires_grad);
 }
 

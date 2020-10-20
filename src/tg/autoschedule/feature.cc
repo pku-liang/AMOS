@@ -1,6 +1,8 @@
 #include "feature.h"
 #include "touch_extractor.h"
 #include <tvm/runtime/registry.h>
+#include <tvm/tir/transform.h>
+#include <tvm/ir/transform.h>
 #include <tvm/relay/transform.h>
 
 namespace tvm {
@@ -26,24 +28,34 @@ te::Stmt ana_lower(te::Schedule sch,
                     const Array<te::Tensor>& args,
                     const std::unordered_map<te::Tensor, tir::Buffer>& binds,
                     Map<te::Tensor, tir::Buffer> &out_binds,
-                    Array<ObjectRef> *out_arg_list,
-                    const BuildConfig& config) {
-  
+                    Array<ObjectRef> *out_arg_list) {
+  auto pass_ctx = tir::transform::PassContext::Current();
   sch = sch.normalize();
-  
-  // Phase 0
+
+  // Before TIR transformation.
   auto bounds = te::InferBound(sch);
   auto stmt = te::ScheduleOps(sch, bounds, false);
-  stmt = tir::InjectPrefetch(stmt);
+  bool compact = te::VerifyCompactBuffer(stmt);
 
-  bool compact = tir::VerifyCompactBuffer(stmt);
-  tvm::GetBinds(args, compact, binds, &out_binds, out_arg_list, config);
+  GetBinds(args, compact, binds, &out_binds, out_arg_list);
 
-  // Phase1
-  stmt = tir::StorageFlatten(stmt, out_binds, 64, config->instrument_bound_checkers);
-  stmt = tir::CanonicalSimplify(stmt);
+  // build the function
+  tir::PrimFunc f = te::SchedulePostProcToPrimFunc(*out_arg_list, std::move(stmt), out_binds);
+  f = WithAttr(std::move(f), "global_symbol", String("main"));
 
-  return stmt;
+  auto mod = IRModule(Map<GlobalVar, BaseFunc>({{GlobalVar("main"), f}}));
+  auto pass_list = Array<tvm::transform::Pass>();
+
+  // Phase 0
+  pass_list.push_back(tir::transform::InjectPrefetch());
+  pass_list.push_back(tir::transform::StorageFlatten(64, false));
+
+  pass_list.push_back(tir::transform::Simplify());
+
+  // run
+  auto optimize = tir::transform::Sequential(pass_list);
+  mod = optimize(std::move(mod));
+  return Downcast<PrimFunc>(mod->Lookup("main"))->body;
 }
 
 Array<Feature> get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, Target target) {
@@ -51,10 +63,9 @@ Array<Feature> get_feature(te::Schedule sch, const Array<te::Tensor>& tensors, T
   
   std::unordered_map<te::Tensor, tir::Buffer> binds;
   Map<te::Tensor, tir::Buffer> out_binds;
-  BuildConfig config = BuildConfig::Create();
   Array<ObjectRef> out_arg_list;
 
-  auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list, config);
+  auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list);
   GetInnerStatementFeatureFlatten(stmt, true, &features, out_binds);
 
   Array<Feature> ret_features;
@@ -67,10 +78,9 @@ StructuredFeature get_structured_feature(te::Schedule sch, const Array<te::Tenso
 
   std::unordered_map<te::Tensor, tir::Buffer> binds;
   Map<te::Tensor, tir::Buffer> out_binds;
-  BuildConfig config = BuildConfig::Create();
   Array<ObjectRef> out_arg_list;
 
-  auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list, config);
+  auto stmt = ana_lower(sch, tensors, binds, out_binds, &out_arg_list);
 
   GetInnerStatementFeature(stmt, true, &features, out_binds);
 

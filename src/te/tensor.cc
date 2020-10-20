@@ -67,7 +67,7 @@ Tensor Operation::output(size_t i) const {
   return Tensor(node);
 }
 
-Tensor::Tensor(Array<PrimExpr> shape, DataType dtype, Operation op, int value_index, bool requires_grad)) {
+Tensor::Tensor(Array<PrimExpr> shape, DataType dtype, Operation op, int value_index, bool requires_grad) {
   auto n = make_object<TensorNode>();
   n->shape = std::move(shape);
   n->dtype = dtype;

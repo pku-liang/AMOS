@@ -74,45 +74,44 @@ OpType OpTypeGetter::get(te::Operation op) {
   }
 }
 
-void OpTypeGetter::VisitExpr_(const tir::CallNode* op) {
+void OpTypeGetter::VisitExpr_(const tir::ProducerLoadNode* op) {
   tir::ExprVisitor::VisitExpr_(op);
-  if (op->call_type == tir::CallNode::CallType::Halide) {
-    te::Operation te_op = Downcast<te::Operation>(op->func);
-    const te::ComputeOpNode* as_compute = te_op.as<te::ComputeOpNode>();
-    if (as_compute == nullptr) return;  // only consider tensors from compute op
-    std::vector<std::unordered_map<std::string, int>> coeffs;
-    std::string sub = "_s";
-    EliminateFloorDivAndMod eliminator(generator_, sub, context_);
-    for (auto arg : op->args) {
-      PrimExpr new_arg = eliminator.eliminate(arg);
-      ExtractCoefficient extractor("const_");
-      extractor.do_extract(new_arg);
-      coeffs.push_back(extractor.coefficient_);
-    }
-
-    int cols = (int)context_.index_names.size();
-    int rows = (int)coeffs.size();
-    std::shared_ptr<Matrix<int>> trans = std::make_shared<Matrix<int>>(rows, cols);
-    std::vector<int> consts(rows, 0);
-    for (int i = 0; i < rows; ++i) {
-      for (int j = 0; j < cols; ++j) {
-        if (coeffs[i].count(context_.index_names[j]) != 0) {
-          // has the coefficent for this index
-          (*trans)[i][j] = coeffs[i][context_.index_names[j]];
-        } else {
-          (*trans)[i][j] = 0;
-        }
-      }
-      // has constants
-      if (coeffs[i].count("const_")) {
-        consts[i] = coeffs[i]["const_"];
-      }
-    }
-
-    te::Tensor t = te_op.output(op->value_index);
-    matrices_[t] = trans;
-    consts_[t] = consts;
+  te::Tensor tensor = Downcast<te::Tensor>(op->producer);
+  te::Operation te_op = tensor->op;
+  const te::ComputeOpNode* as_compute = te_op.as<te::ComputeOpNode>();
+  if (as_compute == nullptr) return;  // only consider tensors from compute op
+  std::vector<std::unordered_map<std::string, int>> coeffs;
+  std::string sub = "_s";
+  EliminateFloorDivAndMod eliminator(generator_, sub, context_);
+  for (auto arg : op->indices) {
+    PrimExpr new_arg = eliminator.eliminate(arg);
+    ExtractCoefficient extractor("const_");
+    extractor.do_extract(new_arg);
+    coeffs.push_back(extractor.coefficient_);
   }
+
+  int cols = (int)context_.index_names.size();
+  int rows = (int)coeffs.size();
+  std::shared_ptr<Matrix<int>> trans = std::make_shared<Matrix<int>>(rows, cols);
+  std::vector<int> consts(rows, 0);
+  for (int i = 0; i < rows; ++i) {
+    for (int j = 0; j < cols; ++j) {
+      if (coeffs[i].count(context_.index_names[j]) != 0) {
+        // has the coefficent for this index
+        (*trans)[i][j] = coeffs[i][context_.index_names[j]];
+      } else {
+        (*trans)[i][j] = 0;
+      }
+    }
+    // has constants
+    if (coeffs[i].count("const_")) {
+      consts[i] = coeffs[i]["const_"];
+    }
+  }
+
+  te::Tensor t = te_op.output(tensor->value_index);
+  matrices_[t] = trans;
+  consts_[t] = consts;
 }
 
 void OpTypeGetter::clear() {

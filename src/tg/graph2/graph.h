@@ -33,7 +33,7 @@ class SubstituteExpression : public tir::ExprMutator {
 
   using tir::ExprMutator::VisitExpr;
   PrimExpr VisitExpr_(const tir::VarNode* op) final;
-  PrimExpr VisitExpr_(const tir::CallNode* op) final;
+  PrimExpr VisitExpr_(const tir::ProducerLoadNode* op) final;
   PrimExpr VisitExpr_(const tir::ReduceNode* op) final;
 
  private:

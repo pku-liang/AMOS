@@ -43,7 +43,7 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
 void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
   // std::cout << "Found AttrStmtNode: " << op->attr_key << std::endl;
   if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread ||
-      op->attr_key.find(attr::pragma_scope_prefix) == 0) {
+      std::string(op->attr_key).find(attr::pragma_scope_prefix) == 0) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto *extent = op->value.as<IntImmNode>();
 
@@ -70,7 +70,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
         ann = kThreadZ;
       else
         LOG(FATAL) << "invalid thread itervar " + name;
-    } else if (op->attr_key.find(attr::pragma_scope_prefix) == 0) {
+    } else if (std::string(op->attr_key).find(attr::pragma_scope_prefix) == 0) {
       ann = kPragma;
     } else {
       ann = kVirtualThread;

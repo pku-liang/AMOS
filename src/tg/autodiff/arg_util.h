@@ -1,4 +1,3 @@
-
 #ifndef TVM_TG_AUTODIFF_ARG_UTIL_H_
 #define TVM_TG_AUTODIFF_ARG_UTIL_H_
 
@@ -10,7 +9,9 @@
 #include <tvm/tg/autodiff.h>
 #include <tvm/tir/expr.h>
 #include <tvm/tir/expr_functor.h>
-#include <tvm/tir/ir_pass.h>
+#include <tvm/tir/stmt_functor.h>
+// #include <tvm/tir/ir_pass.h>
+#include <tvm/arith/analyzer.h>
 
 #include <sstream>
 #include <unordered_map>
@@ -74,8 +75,23 @@ class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)
                                 VisitExpr(op->body, other_op->body));
   }
 
+  bool VisitExpr_(const ProducerLoadNode* op, const PrimExpr& target) override {
+    type_check(ProducerLoadNode)
+    if (op->producer != other_op->producer) { return false; }
+    if (op->indices.size() != other_op->indices.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < op->indices.size(); ++i) {
+      if (!VisitExpr(op->indices[i], other_op->indices[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool VisitExpr_(const CallNode* op, const PrimExpr& target) override {
-    type_check(CallNode) if (op->name != other_op->name) { return false; }
+    type_check(CallNode)
+    if (op->op != other_op->op) { return false; }
     if (op->args.size() != other_op->args.size()) {
       return false;
     }
@@ -84,8 +100,7 @@ class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)
         return false;
       }
     }
-    return (op->call_type == other_op->call_type && op->func == other_op->func &&
-            op->value_index == other_op->value_index);
+    return true;
   }
 
   bool VisitExpr_(const AddNode* op, const PrimExpr& target) override {
@@ -331,7 +346,10 @@ class EliminateFloorDivAndMod : public ExprMutator {
                           SubstituteContext& context)
       : name_generator_(name_generator), substitute_name_hint_(subname_hint), context_(context) {}
 
-  PrimExpr eliminate(const PrimExpr& expr) { return Simplify(VisitExpr(expr)); }
+  PrimExpr eliminate(const PrimExpr& expr) {
+    arith::Analyzer ana;
+    return ana.Simplify(VisitExpr(expr)); 
+  }
 
  protected:
   using ExprFunctor::VisitExpr;

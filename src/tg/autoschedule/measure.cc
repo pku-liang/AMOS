@@ -22,12 +22,10 @@ std::vector<double> Measurer::measure(
   // build
   std::string name = "measure_func";
   auto build_func = [&] (te::Schedule sch, const tvm::Array<te::Tensor>& args, const Target& target) {
-    auto config = tvm::BuildConfig::Create();
     return tvm::build(
-      tvm::lower(sch, args, name, std::unordered_map<te::Tensor, tir::Buffer>(), config),
+      tvm::lower(sch, args, name, std::unordered_map<te::Tensor, tir::Buffer>()),
       target,
-      Target::Create("llvm"),
-      config
+      Target("llvm")
     );
   };
 

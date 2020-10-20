@@ -24,6 +24,8 @@
 
 #include "touch_extractor.h"
 
+#include <tvm/arith/analyzer.h>
+
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -53,7 +55,7 @@ public:
   PrimExpr VisitExpr_(const FloorDivNode* op) {
     PrimExpr a = this->VisitExpr(op->a);
     PrimExpr b = this->VisitExpr(op->b);
-    return DivNode::make(a, b);
+    return Div(a, b);
   }
 };
 
@@ -62,9 +64,9 @@ class IndexParser : public ExprVisitor {
  public:
   void Parse(PrimExpr expr) {
     pattern_map.clear();
-
+    arith::Analyzer ana;
     expr = IndexMutator()(expr);
-    expr = tvm::tir::CanonicalSimplify(expr);
+    expr = ana.canonical_simplify(expr);
     
     this->VisitExpr(expr);
   }
@@ -316,7 +318,8 @@ void GetItervarFeature(Stmt stmt, bool take_log, Array<Array<Array<PrimExpr> > >
     for (auto k : bufs) {
       TouchPattern &v = fea.touch_feature[k];
       feature_row.push_back(
-          Array<PrimExpr>{k,
+          Array<PrimExpr>{
+                StringImm(k),
                 FloatImm(DataType::Float(32), trans(v.stride)),
                 FloatImm(DataType::Float(32), trans(v.mod)),
                 FloatImm(DataType::Float(32), trans(v.reuse * v.count * v.bytes)),

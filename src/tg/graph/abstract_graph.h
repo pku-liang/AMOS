@@ -22,7 +22,7 @@ class ExprReMapper : public tir::ExprMutator {
 
   PrimExpr VisitExpr_(const SizeVarNode* op) final;
 
-  PrimExpr VisitExpr_(const CallNode* op) final;
+  PrimExpr VisitExpr_(const ProducerLoadNode* op) final;
 
   PrimExpr VisitExpr_(const ReduceNode* op) final;
 
@@ -43,9 +43,13 @@ class ExprReMapper : public tir::ExprMutator {
     return "T" + std::to_string(current);
   }
 
+  te::Tensor get_new_tensor(const te::Tensor& t) {
+    return te::placeholder(t->shape, t->dtype, get_new_tensor_name(), t->requires_grad);
+  }
+
   std::unordered_map<const VarNode*, Var> var_map;
   std::unordered_map<const SizeVarNode*, SizeVar> size_var_map;
-  std::unordered_map<FunctionRef, std::string, ObjectHash, ObjectEqual> call_map;
+  std::unordered_map<DataProducer, te::Tensor, ObjectHash, ObjectEqual> call_map;
   int count_var;
   int count_call;
 };

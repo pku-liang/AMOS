@@ -8,7 +8,8 @@
 
 #include <tvm/tir/expr.h>
 #include <tvm/tir/expr_functor.h>
-#include <tvm/tir/ir_pass.h>
+// #include <tvm/tir/ir_pass.h>
+#include <tvm/te/tensor.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/node/structural_equal.h>
 
@@ -221,12 +222,53 @@ class TouchExtractor : public FeatureVisitor {
   }
 
   void VisitExpr_(const CallNode* op) {
-    if (op->call_type == CallNode::PureIntrinsic) {
-      if (current_stmt) {
-        if (op->dtype.is_float()) {
-          innermost_stmt_map[current_stmt].flt_intrin_ct[op->name.c_str()]++;
-        } else {
-          innermost_stmt_map[current_stmt].int_intrin_ct[op->name.c_str()]++;
+
+    const Op& op_exp_ = Op::Get("tir.exp");
+  const Op& op_log_ = Op::Get("tir.log");
+  const Op& op_sigmoid_ = Op::Get("tir.sigmoid");
+  const Op& op_sqrt_ = Op::Get("tir.sqrt");
+  const Op& op_tanh_ = Op::Get("tir.tanh");
+  const Op& op_pow_ = Op::Get("tir.pow");
+  const Op& op_fabs_ = Op::Get("tir.fabs");
+  std::unordered_set<RelayExpr, ObjectPtrHash, ObjectPtrEqual> piecewise_const = {
+      Op::Get("tir.floor"), Op::Get("tir.ceil"), Op::Get("tir.trunc"), Op::Get("tir.round")};
+
+    if (current_stmt) {
+      if (op->dtype.is_float()) {
+        if (op->op.same_as(op_exp_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["exp"]++;
+        } else if (op->op.same_as(op_log_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["log"]++;
+        } else if (op->op.same_as(op_sigmoid_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["sigmoid"]++;
+        } else if (op->op.same_as(op_sqrt_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["sqrt"]++;
+        } else if (op->op.same_as(op_tanh_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["tanh"]++;
+        } else if (op->op.same_as(op_pow_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["pow"]++;
+        } else if (op->op.same_as(op_fabs_)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["fabs"]++;
+        } else if (piecewise_const.count(op->op)) {
+          innermost_stmt_map[current_stmt].flt_intrin_ct["piecewise"]++;
+        }
+      } else {
+        if (op->op.same_as(op_exp_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["exp"]++;
+        } else if (op->op.same_as(op_log_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["log"]++;
+        } else if (op->op.same_as(op_sigmoid_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["sigmoid"]++;
+        } else if (op->op.same_as(op_sqrt_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["sqrt"]++;
+        } else if (op->op.same_as(op_tanh_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["tanh"]++;
+        } else if (op->op.same_as(op_pow_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["pow"]++;
+        } else if (op->op.same_as(op_fabs_)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["fabs"]++;
+        } else if (piecewise_const.count(op->op)) {
+          innermost_stmt_map[current_stmt].int_intrin_ct["piecewise"]++;
         }
       }
     }
@@ -262,6 +304,17 @@ class TouchExtractor : public FeatureVisitor {
   std::string next_allocation_scope_;
 
   TvmMap<tir::Var, BufferInfo> buffer_info_;
+
+  const Op& op_exp_ = Op::Get("tir.exp");
+  const Op& op_log_ = Op::Get("tir.log");
+  const Op& op_sigmoid_ = Op::Get("tir.sigmoid");
+  const Op& op_sqrt_ = Op::Get("tir.sqrt");
+  const Op& op_tanh_ = Op::Get("tir.tanh");
+  const Op& op_pow_ = Op::Get("tir.pow");
+  const Op& op_fabs_ = Op::Get("tir.fabs");
+  const Op& op_if_then_else_ = Op::Get("tir.if_then_else");
+  std::unordered_set<RelayExpr, ObjectPtrHash, ObjectPtrEqual> piecewise_const = {
+      Op::Get("tir.floor"), Op::Get("tir.ceil"), Op::Get("tir.trunc"), Op::Get("tir.round")};
 
   using FeatureVisitor::VisitExpr_;
 };

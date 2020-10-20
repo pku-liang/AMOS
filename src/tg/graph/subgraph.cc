@@ -8,20 +8,13 @@ namespace tvm {
 
 namespace tg {
 
-PrimExpr RewriteSubgraphInput::VisitExpr_(const CallNode* op) {
-  if (op->call_type == CallNode::CallType::Halide) {
-    int i = 0;
-    for (auto t : org_) {
-      if (t->op.same_as(op->func)) {
-        return CallNode::make(op->dtype,
-                  replace_[i]->op->name,
-                  op->args,
-                  op->call_type,
-                  replace_[i]->op,
-                  replace_[i]->value_index);
-      }
-      i += 1;
+PrimExpr RewriteSubgraphInput::VisitExpr_(const ProducerLoadNode* op) {
+  int i = 0;
+  for (auto t : org_) {
+    if (t == Downcast<te::Tensor>(op->producer)) {
+      return ProducerLoad(replace_[i], op->indices);
     }
+    i += 1;
   }
   return ExprMutator::VisitExpr_(op);
 }
@@ -101,7 +94,7 @@ std::unordered_map<Operation, Operation> subgraph_partition(
         for (auto iv : as_compute->axis) {
           Var new_var = iv->var.copy_with_suffix("");
           new_indices.push_back(
-            IterVarNode::make(
+            IterVar(
               iv->dom, new_var, iv->iter_type, iv->thread_tag));
           
           vmap.Set(iv->var, new_var);
@@ -116,7 +109,7 @@ std::unordered_map<Operation, Operation> subgraph_partition(
           new_body.push_back(tmp);
         }
 
-        Operation new_op = ComputeOpNode::make(
+        Operation new_op = ComputeOp(
           "sub_"+as_compute->name, as_compute->tag, as_compute->attrs, new_indices, new_body, as_compute->requires_grad);
         // update self
         cache[op] = new_op;

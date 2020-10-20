@@ -14,17 +14,17 @@ tvm::runtime::Module FunctionBuilder::build_func(
   const tvm::Target& target,
   const tvm::Target& target_host,
   const std::string& name,
-  const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-  const tvm::BuildConfig& config) {
+  const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds
+  // const tvm::BuildConfig& config
+  ) {
   
-  auto lowered = tvm::lower(sch, args, name, binds, config);
+  auto lowered = tvm::lower(sch, args, name, binds);
   print(4, log_out) << "Check lowered function:\n" << lowered << "\n";
 
   tvm::runtime::Module ret = tvm::build(
     lowered,
     target,
-    target_host,
-    config
+    target_host
   );
   return ret;
 }
@@ -73,7 +73,7 @@ std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBui
   const tvm::Target& target_host,
   const std::string& name,
   const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-  const tvm::BuildConfig& config,
+  // const tvm::BuildConfig& config,
   int priority) {
   auto sch = sch_res->schedule;
   auto args = sch_res->tensors;
@@ -85,10 +85,10 @@ std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBui
         const tvm::Target& c,
         const tvm::Target& d,
         const std::string& e,
-        const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& f,
-        const tvm::BuildConfig& g
-      ) {return this->build_func(a, b, c, d, e, f, g); },
-      sch, args, target, target_host, name, binds, config);
+        const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& f
+        // const tvm::BuildConfig& g
+      ) {return this->build_func(a, b, c, d, e, f); },
+      sch, args, target, target_host, name, binds);
     return std::make_pair(sch_res, std::move(module));
   } else if (priority == 1) {
     // high priority
@@ -99,10 +99,10 @@ std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBui
         const tvm::Target& c,
         const tvm::Target& d,
         const std::string& e,
-        const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& f,
-        const tvm::BuildConfig& g
-      ) {return this->build_func(a, b, c, d, e, f, g); },
-      sch, args, target, target_host, name, binds, config);
+        const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& f
+        // const tvm::BuildConfig& g
+      ) {return this->build_func(a, b, c, d, e, f); },
+      sch, args, target, target_host, name, binds);
     return std::make_pair(sch_res, std::move(module));
   } else {
     LOG(FATAL) << "Unsupported schedule priority: " << priority << "\n";

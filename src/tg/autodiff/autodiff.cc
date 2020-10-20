@@ -2,8 +2,8 @@
 #include <tvm/runtime/registry.h>
 #include <tvm/tg/autodiff.h>
 #include <tvm/tir/stmt_functor.h>
-#include <topi/transform.h>
-#include <topi/elemwise.h>
+#include <tvm/topi/transform.h>
+#include <tvm/topi/elemwise.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -23,7 +23,7 @@ Tensor ones_like(const Tensor &tensor) {
   };
   Array<IterVar> axis;
   for (auto s : shape) {
-    axis.push_back(IterVarNode::make(Range(0, s), Var(""), IterVarType::kDataPar));
+    axis.push_back(IterVar(Range(0, s), Var(""), IterVarType::kDataPar));
   }
   std::string tag = generate_tag_from_body(axis, {make_const(tensor->dtype, 1)});
   return te::compute(shape, func, "ones_" + tensor->op->name, tag, {}, false);
@@ -42,7 +42,7 @@ Tensor zeros_like(const Tensor &tensor) {
   for (auto s : shape) {
     auto var = Var("");
     vars.push_back(var);
-    axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
   }
   std::string tag = generate_tag_from_body(axis, {func(vars)});
   return te::compute(shape, func, "zeros_" + tensor->op->name, tag, {}, false);
@@ -71,7 +71,7 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
     // num_outputs should > 0, because otherwise, this function won't be used
     PrimExpr res = partial_grads[0](input_indices);
     for (size_t i = 1; i < num_outputs; ++i) {
-      res = AddNode::make(res, partial_grads[i](input_indices));
+      res = Add(res, partial_grads[i](input_indices));
     }
     return res;
   };
@@ -82,11 +82,11 @@ Tensor collect_rule(const Tensor &input, const Array<Tensor> &outputs, const Arr
   for (auto s : shape) {
     auto var = Var("");
     indices.push_back(var);
-    axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+    axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
   }
   PrimExpr res = partial_grads[0](indices);
   for (size_t i = 1; i < num_outputs; ++i) {
-    res = AddNode::make(res, partial_grads[i](indices));
+    res = Add(res, partial_grads[i](indices));
   }
   std::string tag = generate_tag_from_body(axis, {res});
   return te::compute(shape, func, "collect_" + input->op->name, tag, {}, true);

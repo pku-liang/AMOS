@@ -6,7 +6,7 @@
 #include <tvm/node/container.h>
 #include <tvm/tir/expr.h>
 #include <tvm/tir/op.h>
-#include <tvm/tir/ir_pass.h>
+// #include <tvm/tir/ir_pass.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/te/operation.h>
 #include <tvm/tg/graph.h>
@@ -29,7 +29,7 @@ class RewriteSubgraphInput : public ExprMutator {
  protected:
  using ExprMutator::VisitExpr_;
   // list of functions to override.
-  PrimExpr VisitExpr_(const CallNode* op) override;
+  PrimExpr VisitExpr_(const ProducerLoadNode* op) override;
 };
 
 

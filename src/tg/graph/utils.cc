@@ -8,67 +8,62 @@ namespace tvm {
 
 namespace tg {
 
-void FindBatchLikeDim::VisitExpr_(const CallNode* op) {
+void FindBatchLikeDim::VisitExpr_(const ProducerLoadNode* op) {
   ExprVisitor::VisitExpr_(op);
-  if (op->call_type == CallNode::CallType::Halide) {
-    int pos = 0;
-    for (auto e : op->args) {
-      const VarNode* e_as_var = e.as<VarNode>();
-      if (e_as_var != nullptr) {
-        int spatial_id = 0;
-        for (auto v : this->spatial_indices_) {
-          if (e_as_var == v.get()) {
-            records[spatial_id].push_back(pos);
-          }
-          spatial_id += 1;
+  int pos = 0;
+  for (auto e : op->indices) {
+    const VarNode* e_as_var = e.as<VarNode>();
+    if (e_as_var != nullptr) {
+      int spatial_id = 0;
+      for (auto v : this->spatial_indices_) {
+        if (e_as_var == v.get()) {
+          records[spatial_id].push_back(pos);
         }
+        spatial_id += 1;
       }
-
-      pos += 1;
     }
+
+    pos += 1;
   }
 }
 
 
-void FindFusibleDim::VisitExpr_(const CallNode *op) {
+void FindFusibleDim::VisitExpr_(const ProducerLoadNode *op) {
     ExprVisitor::VisitExpr_(op);
     bool is_weight = false;
-    if (op->call_type == CallNode::CallType::Halide) {
-        for (auto &w: weights_) {
-            if (op->func.same_as(w->op)) {
-                is_weight = true;
-                break;
-            }
+    for (auto &w: weights_) {
+        if (Downcast<te::Tensor>(op->producer) == w) {
+            is_weight = true;
+            break;
         }
-        int pos = 0;
-        for (auto e : op->args) {
-            const VarNode* e_as_var = e.as<VarNode>();
-            if (e_as_var != nullptr) {
-                int spatial_id = 0;
-                for (auto v : this->spatial_indices_) {
-                    if (e_as_var == v.get()) {
-                        if (is_weight) {
-                            spatial_indices_in_weight[spatial_id] = std::make_pair(true, pos);
-                        }
-                        else {
-                            spatial_indices_in_input[spatial_id] = true;
-                        }
+    }
+    int pos = 0;
+    for (auto e : op->indices) {
+        const VarNode* e_as_var = e.as<VarNode>();
+        if (e_as_var != nullptr) {
+            int spatial_id = 0;
+            for (auto v : this->spatial_indices_) {
+                if (e_as_var == v.get()) {
+                    if (is_weight) {
+                        spatial_indices_in_weight[spatial_id] = std::make_pair(true, pos);
                     }
-                    spatial_id += 1;
+                    else {
+                        spatial_indices_in_input[spatial_id] = true;
+                    }
                 }
+                spatial_id += 1;
             }
-            pos += 1;
         }
+        pos += 1;
     }
 }
 
 
-void FindAxisPosition::VisitExpr_(const CallNode* op) {
+void FindAxisPosition::VisitExpr_(const ProducerLoadNode* op) {
   ExprVisitor::VisitExpr_(op);
-  if (op->call_type == CallNode::CallType::Halide &&
-        tensor_->op.same_as(op->func)) {
+  if (tensor_ == Downcast<te::Tensor>(op->producer)) {
     int pos = 0;
-    for (auto e : op->args) {
+    for (auto e : op->indices) {
       const VarNode* e_as_var = e.as<VarNode>();
       if (e_as_var != nullptr) {
         int spatial_id = 0;
@@ -88,30 +83,29 @@ void FindAxisPosition::VisitExpr_(const CallNode* op) {
 
 void CountOperationNum::VisitExpr_(const CallNode *op) {
   ExprVisitor::VisitExpr_(op);
-  if (op->call_type == CallNode::CallType::PureIntrinsic) {
-    static std::unordered_set<std::string> piecewise_const = {"floor", "ceil", "trunc", "round"};
-    if (op->name == "exp") {
+    static std::unordered_set<RelayExpr, ObjectPtrHash, ObjectPtrEqual> piecewise_const = {
+        Op::Get("tir.floor"), Op::Get("tir.ceil"), Op::Get("tir.trunc"), Op::Get("tir.round")};
+    if (op->op.same_as(Op::Get("tir.exp"))) {
       this->num_special += 1;
-    } else if (op->name == "log") {
+    } else if (op->op.same_as(Op::Get("tir.log"))) {
       this->num_special += 1;
-    } else if (op->name == "sigmoid") {
+    } else if (op->op.same_as(Op::Get("tir.sigmoid"))) {
       this->num_special += 1;
-    } else if (op->name == "sqrt") {
+    } else if (op->op.same_as(Op::Get("tir.sqrt"))) {
       this->num_special += 1;
-    } else if (op->name == "tanh") {
+    } else if (op->op.same_as(Op::Get("tir.tanh"))) {
       this->num_special += 1;
-    } else if (op->name == "pow") {
+    } else if (op->op.same_as(Op::Get("tir.pow"))) {
       this->num_special += 1;
-    } else if (op->name == "fabs") {
+    } else if (op->op.same_as(Op::Get("tir.fabs"))) {
       this->num_special += 1;
-    } else if (op->name == intrinsic::tvm_if_then_else) {
+    } else if (op->op.same_as(Op::Get("tir.if_then_else"))) {
       this->num_branch += 1;
-    } else if (piecewise_const.count(op->name)) {
+    } else if (piecewise_const.count(op->op)) {
       this->num_special += 1;
     } else {
-      throw dmlc::Error("Derivative of this intrinsic is not implemented: " + op->name);
+      LOG(FATAL) << "Count opteration number of this intrinsic is not implemented: " << op->op;
     }
-  }
 }
 
 
@@ -214,16 +208,14 @@ void CountOperationNum::VisitExpr_(const ReduceNode *op) {
 }
 
 
-void CountInputOccur::VisitExpr_(const CallNode *op) {
+void CountInputOccur::VisitExpr_(const ProducerLoadNode *op) {
   ExprVisitor::VisitExpr_(op);
-  if (op->call_type == CallNode::CallType::Halide) {
-    int i = 0;
-    for (auto t : inputs_) {
-      if (t->op.same_as(op->func)) {
-        count_occur[i] += 1;
-      }
-      i += 1;
+  int i = 0;
+  for (auto t : inputs_) {
+    if (t == Downcast<te::Tensor>(op->producer)) {
+      count_occur[i] += 1;
     }
+    i += 1;
   }
 }
 
@@ -343,12 +335,12 @@ Map<PrimExpr, IntImm> count_operation(const Operation& op) {
     con.VisitExpr(body);
   }
 
-  ret.Set(StringImmNode::make("num_add"), IntImm(DataType::Int(32), con.num_add));
-  ret.Set(StringImmNode::make("num_div"), IntImm(DataType::Int(32), con.num_div));
-  ret.Set(StringImmNode::make("num_mul"), IntImm(DataType::Int(32), con.num_mul));
-  ret.Set(StringImmNode::make("num_branch"), IntImm(DataType::Int(32), con.num_branch));
-  ret.Set(StringImmNode::make("num_special"), IntImm(DataType::Int(32), con.num_special));
-  ret.Set(StringImmNode::make("num_logic"), IntImm(DataType::Int(32), con.num_logic));
+  ret.Set(StringImm("num_add"), IntImm(DataType::Int(32), con.num_add));
+  ret.Set(StringImm("num_div"), IntImm(DataType::Int(32), con.num_div));
+  ret.Set(StringImm("num_mul"), IntImm(DataType::Int(32), con.num_mul));
+  ret.Set(StringImm("num_branch"), IntImm(DataType::Int(32), con.num_branch));
+  ret.Set(StringImm("num_special"), IntImm(DataType::Int(32), con.num_special));
+  ret.Set(StringImm("num_logic"), IntImm(DataType::Int(32), con.num_logic));
 
   return ret;
 }

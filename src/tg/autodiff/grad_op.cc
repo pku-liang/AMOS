@@ -1,4 +1,4 @@
-#include <topi/transform.h>
+#include <tvm/topi/transform.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/tg/autodiff.h>
 #include <tvm/tir/stmt_functor.h>
@@ -72,527 +72,500 @@ class GradOp : public ExprMutator {
   PrimExpr VisitExpr_(const LoadNode* op) NOT_IMPLEMENTED PrimExpr
       VisitExpr_(const LetNode* op) NOT_IMPLEMENTED
 
-      PrimExpr VisitExpr_(const CallNode* op) {
+  PrimExpr VisitExpr_(const ProducerLoadNode* op) {
     PrimExpr expr = GetRef<PrimExpr>(op);
-    if (op->call_type == CallNode::CallType::Halide) {
-      if (input_.get() && op->func.same_as(input_->op) && op->value_index == input_->value_index) {
-        // if (!first_met_) {
-        //   // this is a quite difficult case
-        //   // TVM doesn't allow ReduceNode + ReduceNode
-        //   // so handling this case can be very hard
-        //   LOG(FATAL) << "The input " << GetRef<ComputeOpNode>(input_->op) << " occurs more than
-        //   one time"
-        //              << " in " << GetRef<PrimExpr>(op) << ", this is not supported.\n";
-        //   throw;
-        // }
-        // mark met
-        // first_met_ = false;
-        std::vector<std::unordered_map<std::string, int>> coeffs;
-        // handle args
-        for (const PrimExpr& arg : op->args) {
-          // eliminate possible mod & div
+    auto tensor = Downcast<te::Tensor>(op->producer);
+    if (input_.get() && tensor == input_) {
+      std::vector<std::unordered_map<std::string, int>> coeffs;
+      // handle args
+      for (const PrimExpr& arg : op->indices) {
+        // eliminate possible mod & div
 #ifdef DEBUG_AUTODIFF
-          std::cout << "check arg:" << arg << "\n";
+        std::cout << "check arg:" << arg << "\n";
 #endif
-          PrimExpr new_arg = eliminator_->eliminate(arg);
-          // extract coefficients
-          ExtractCoefficient extractor(const_tag_);
-          extractor.do_extract(new_arg);
-          coeffs.push_back(extractor.coefficient_);
-        }
+        PrimExpr new_arg = eliminator_->eliminate(arg);
+        // extract coefficients
+        ExtractCoefficient extractor(const_tag_);
+        extractor.do_extract(new_arg);
+        coeffs.push_back(extractor.coefficient_);
+      }
 #ifdef DEBUG_AUTODIFF
-        std::cout << "check context after elimination:\n";
-        std::cout << context_ << "\n";
+      std::cout << "check context after elimination:\n";
+      std::cout << context_ << "\n";
 #endif
-        // assemble coefficents to Matrix
-        int cols = (int)context_.index_names.size();
-        int rows = (int)coeffs.size();
-        Matrix<int> trans(rows, cols);
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            if (coeffs[i].count(context_.index_names[j]) != 0) {
-              // has the coefficent for this index
-              trans[i][j] = coeffs[i][context_.index_names[j]];
-            } else {
-              trans[i][j] = 0;
-            }
-          }
-          // has constants
-          if (coeffs[i].count(const_tag_)) {
-            compute_args_.Set(i, SubNode::make(compute_args_[i], coeffs[i][const_tag_]));
+      // assemble coefficents to Matrix
+      int cols = (int)context_.index_names.size();
+      int rows = (int)coeffs.size();
+      Matrix<int> trans(rows, cols);
+      for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+          if (coeffs[i].count(context_.index_names[j]) != 0) {
+            // has the coefficent for this index
+            trans[i][j] = coeffs[i][context_.index_names[j]];
+          } else {
+            trans[i][j] = 0;
           }
         }
+        // has constants
+        if (coeffs[i].count(const_tag_)) {
+          compute_args_.Set(i, Sub(compute_args_[i], coeffs[i][const_tag_]));
+        }
+      }
 #ifdef DEBUG_AUTODIFF
-        std::cout << "check trans before:\n";
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << trans[i][j] << " ";
-          }
-          std::cout << "\n";
+      std::cout << "check trans before:\n";
+      for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+          std::cout << trans[i][j] << " ";
         }
         std::cout << "\n";
+      }
+      std::cout << "\n";
 #endif
-        // compute simith normal form
-        Matrix<int> U(rows, rows);
-        Matrix<int> V(cols, cols);
-        int dims = smith_normalize(trans, U, V);
+      // compute simith normal form
+      Matrix<int> U(rows, rows);
+      Matrix<int> V(cols, cols);
+      int dims = smith_normalize(trans, U, V);
 #ifdef DEBUG_AUTODIFF
-        std::cout << "check dim=" << dims << "\n";
+      std::cout << "check dim=" << dims << "\n";
 
-        std::cout << "check trans after:\n";
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << trans[i][j] << " ";
-          }
-          std::cout << "\n";
+      std::cout << "check trans after:\n";
+      for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+          std::cout << trans[i][j] << " ";
         }
         std::cout << "\n";
+      }
+      std::cout << "\n";
 
-        std::cout << "check U:\n";
-        for (int i = 0; i < rows; ++i) {
-          for (int j = 0; j < rows; ++j) {
-            std::cout << U[i][j] << " ";
-          }
-          std::cout << "\n";
+      std::cout << "check U:\n";
+      for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < rows; ++j) {
+          std::cout << U[i][j] << " ";
         }
         std::cout << "\n";
+      }
+      std::cout << "\n";
 
-        std::cout << "check V:\n";
-        for (int i = 0; i < cols; ++i) {
-          for (int j = 0; j < cols; ++j) {
-            std::cout << V[i][j] << " ";
-          }
-          std::cout << "\n";
+      std::cout << "check V:\n";
+      for (int i = 0; i < cols; ++i) {
+        for (int j = 0; j < cols; ++j) {
+          std::cout << V[i][j] << " ";
         }
         std::cout << "\n";
+      }
+      std::cout << "\n";
 
-        // check if is identity
-        if (!check_identity(trans, dims)) {
-          LOG(FATAL)
-              << "Don't know how to handle non-identity matrix, waiting for more discussion...\n";
-          throw;
-        }
+      // check if is identity
+      if (!check_identity(trans, dims)) {
+        LOG(FATAL)
+            << "Don't know how to handle non-identity matrix, waiting for more discussion...\n";
+        throw;
+      }
 #endif
-        // explain the results:
-        Array<PrimExpr> Ub = relax_matrix_array_product(U, compute_args_);
-        // unbounded bindings
-        std::unordered_set<std::string> relaxes;
-        // if cols > dims
-        for (int i = 0; i < cols - dims; ++i) {
+      // explain the results:
+      Array<PrimExpr> Ub = relax_matrix_array_product(U, compute_args_);
+      // unbounded bindings
+      std::unordered_set<std::string> relaxes;
+      // if cols > dims
+      for (int i = 0; i < cols - dims; ++i) {
+        std::string new_name = generator_.unique_name(dummy_tag_);
+        relaxes.insert(new_name);
+        Var v(new_name);
+        Ub.push_back(v);
+        context_.var_map[new_name] = v;
+        // these vars are unbounded
+        context_.range_map[new_name] = ExtRange();
+      }
+#ifdef DEBUG_AUTODIFF
+      std::cout << "check relaxes:\n";
+      for (auto it : relaxes) {
+        std::cout << it << " ";
+      }
+      std::cout << "\n\n";
+#endif
+      // bindings, transformation from original index to new index
+      // one var may have many bindings
+      // for example, i = r0, i = r1 * 4 + s0
+      std::unordered_map<std::string, std::vector<PrimExpr>> bindings;
+      Array<PrimExpr> VUb = relax_matrix_array_product(V, Ub);
+#ifdef DEBUG_AUTODIFF
+      std::cout << "check VUb:\n";
+      for (auto val : VUb) {
+        std::cout << Simplify(val) << " ";
+      }
+      std::cout << "\n\n";
+#endif
+      arith::Analyzer ana;
+      for (int i = 0; i < cols; ++i) {
+        PrimExpr bind_val = VUb[i];
+        if (i < dims) {
+          bind_val = FloorDiv(bind_val, trans[i][i]);
+        }
+        if (bindings.count(context_.index_names[i]) > 0) {
+          bindings[context_.index_names[i]].push_back(ana.Simplify(bind_val));
+        } else {
+          bindings[context_.index_names[i]] = std::vector<PrimExpr>({ana.Simplify(bind_val)});
+        }
+      }
+
+      Array<PrimExpr> conditions;
+      // if rows > dims
+      for (int i = dims; i < rows; ++i) {
+        // must be zeros
+        conditions.push_back(EQ(Ub[i], 0));
+      }
+
+      // solve the floor_div/mod substitution
+      // e.g. s = i // 8 -> i = s * 8 + r0, r0: [0, 8)
+      std::unordered_set<FloorDivModEntry, FloorDivModEntryHash> sub_set;
+      solve_floor_div_mod(context_, sub_set);
+
+      for (auto it : sub_set) {
+        PrimExpr rhs;
+        if (it.first == "") {
           std::string new_name = generator_.unique_name(dummy_tag_);
-          relaxes.insert(new_name);
           Var v(new_name);
-          Ub.push_back(v);
+          rhs = v;
           context_.var_map[new_name] = v;
-          // these vars are unbounded
-          context_.range_map[new_name] = ExtRange();
+          relaxes.insert(new_name);
+          CHECK(context_.range_map.count(it.var_name) != 0)
+              << "We should know var: " << it.var_name << ".\n";
+          context_.range_map[new_name] = context_.range_map[it.var_name].floor_div(it.factor);
+        } else {
+          rhs = context_.var_map[it.first];
         }
-#ifdef DEBUG_AUTODIFF
-        std::cout << "check relaxes:\n";
-        for (auto it : relaxes) {
-          std::cout << it << " ";
+        rhs = Mul(rhs, it.factor);
+        if (it.second == "") {
+          std::string new_name = generator_.unique_name(dummy_tag_);
+          Var v(new_name);
+          rhs = Add(rhs, v);
+          relaxes.insert(new_name);
+          context_.var_map[new_name] = v;
+          CHECK(context_.range_map.count(it.var_name) != 0)
+              << "We should know var: " << it.var_name << ".\n";
+          context_.range_map[new_name] = context_.range_map[it.var_name].floor_mod(it.factor);
+        } else {
+          rhs = Add(rhs, context_.var_map[it.second]);
         }
-        std::cout << "\n\n";
-#endif
-        // bindings, transformation from original index to new index
-        // one var may have many bindings
-        // for example, i = r0, i = r1 * 4 + s0
-        std::unordered_map<std::string, std::vector<PrimExpr>> bindings;
-        Array<PrimExpr> VUb = relax_matrix_array_product(V, Ub);
-#ifdef DEBUG_AUTODIFF
-        std::cout << "check VUb:\n";
-        for (auto val : VUb) {
-          std::cout << Simplify(val) << " ";
+        if (bindings.count(it.var_name) != 0) {
+          bindings[it.var_name].push_back(rhs);
+        } else {
+          bindings[it.var_name] = std::vector<PrimExpr>({rhs});
         }
-        std::cout << "\n\n";
-#endif
-        for (int i = 0; i < cols; ++i) {
-          PrimExpr bind_val = VUb[i];
-          if (i < dims) {
-            bind_val = FloorDivNode::make(bind_val, trans[i][i]);
-          }
-          if (bindings.count(context_.index_names[i]) > 0) {
-            bindings[context_.index_names[i]].push_back(Simplify(bind_val));
-          } else {
-            bindings[context_.index_names[i]] = std::vector<PrimExpr>({Simplify(bind_val)});
-          }
-        }
-
-        Array<PrimExpr> conditions;
-        // if rows > dims
-        for (int i = dims; i < rows; ++i) {
-          // must be zeros
-          conditions.push_back(EQNode::make(Ub[i], 0));
-        }
-
-        // solve the floor_div/mod substitution
-        // e.g. s = i // 8 -> i = s * 8 + r0, r0: [0, 8)
-        std::unordered_set<FloorDivModEntry, FloorDivModEntryHash> sub_set;
-        solve_floor_div_mod(context_, sub_set);
-
-        for (auto it : sub_set) {
-          PrimExpr rhs;
-          if (it.first == "") {
-            std::string new_name = generator_.unique_name(dummy_tag_);
-            Var v(new_name);
-            rhs = v;
-            context_.var_map[new_name] = v;
-            relaxes.insert(new_name);
-            CHECK(context_.range_map.count(it.var_name) != 0)
-                << "We should know var: " << it.var_name << ".\n";
-            context_.range_map[new_name] = context_.range_map[it.var_name].floor_div(it.factor);
-          } else {
-            rhs = context_.var_map[it.first];
-          }
-          rhs = MulNode::make(rhs, it.factor);
-          if (it.second == "") {
-            std::string new_name = generator_.unique_name(dummy_tag_);
-            Var v(new_name);
-            rhs = AddNode::make(rhs, v);
-            relaxes.insert(new_name);
-            context_.var_map[new_name] = v;
-            CHECK(context_.range_map.count(it.var_name) != 0)
-                << "We should know var: " << it.var_name << ".\n";
-            context_.range_map[new_name] = context_.range_map[it.var_name].floor_mod(it.factor);
-          } else {
-            rhs = AddNode::make(rhs, context_.var_map[it.second]);
-          }
-          if (bindings.count(it.var_name) != 0) {
-            bindings[it.var_name].push_back(rhs);
-          } else {
-            bindings[it.var_name] = std::vector<PrimExpr>({rhs});
-          }
-        }
-#ifdef DEBUG_AUTODIFF
-        std::cout << "check original bindings:\n";
-        for (auto kv : bindings) {
-          std::cout << kv.first << " : [ ";
-          for (auto val : kv.second) {
-            std::cout << val << " ";
-          }
-          std::cout << "]\n";
-        }
-        std::cout << "\n";
-#endif
-        // resolve the bindings
-        std::unordered_map<std::string, PrimExpr> results;
-        std::unordered_set<std::string> unused;
-        solve_substitutions(context_, bindings, unused, conditions, results);
-        // eliminate unused vars
-        for (auto it : unused) {
-          relaxes.erase(it);
-        }
-        // for the remaining vars, get the bounds
-        for (auto kv : results) {
-          // do not get bounds for const placeholder
-          // if (kv.first == const_tag_) {
-          //   continue;
-          // }
-          const VarNode* as_var = kv.second.as<VarNode>();
-          if (as_var != nullptr && relaxes.count(as_var->name_hint) != 0) {
-            // we should know the lhs
-            CHECK(context_.range_map.count(kv.first) != 0)
-                << "Internal error: unknown var: " << kv.first << ".\n";
-            context_.range_map[as_var->name_hint] = context_.range_map[kv.first];
-          }
-        }
-        for (auto kv : results) {
-          // const VarNode *as_var = kv.second.as<VarNode>();
-          // if (as_var != nullptr && relaxes.count(as_var->name_hint) != 0) {
-          //   // we should know the lhs
-          //   CHECK(context_.range_map.count(kv.first) != 0) << "Internal error: unknown var: "
-          //                                                  << kv.first << ".\n";
-          //   context_.range_map[as_var->name_hint] = context_.range_map[kv.first];
-          // }
-          RangeInference infer(context_.range_map[kv.first]);
-          infer.do_infer(kv.second);
-#ifdef DEBUG_AUTODIFF
-          std::cout << "check range inference:\n";
-#endif
-          for (auto kkv : infer.range_map) {
-#ifdef DEBUG_AUTODIFF
-            std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
-#endif
-            if (context_.range_map.count(kkv.first) == 0 ||
-                context_.range_map[kkv.first].range_type() != ExtRangeType::LCRC) {
-              if (kkv.second.range_type() == ExtRangeType::LCRC)
-                context_.range_map[kkv.first] = kkv.second;
-            }
-          }
-
-          // Put bound checkers
-          // TODO: do not put unnecessary checkers
-          if (kv.second.as<VarNode>() == nullptr) {
-            CHECK(context_.range_map[kv.first].range_type() == ExtRangeType::LCRC);
-            conditions.push_back(
-                AndNode::make(GENode::make(kv.second, context_.range_map[kv.first].left),
-                              LTNode::make(kv.second, context_.range_map[kv.first].right)));
-          }
-        }
-#ifdef DEBUG_AUTODIFF
-        std::cout << "check conditions:\n";
-        for (auto it : conditions) {
-          std::cout << it << " ";
-        }
-        std::cout << "\n";
-
-        std::cout << "check bindings:\n";
-        for (auto kv : results) {
-          std::cout << kv.first << " = " << kv.second << "\n";
-        }
-        std::cout << "\n";
-
-        // check if any var his no concrete range
-        // std::cout << "\ncheck relax ranges:\n";
-#endif
-        for (auto it : relaxes) {
-          CHECK(context_.range_map.count(it) != 0)
-              << "Internal error: fail to infer range for: " << it << ".\n";
-          CHECK(context_.range_map[it].range_type() == ExtRangeType::LCRC)
-              << "Internel error"
-              << ": only infer unbounded range for: " << it << ".\n";
-        }
-
-        // form final expr
-        PrimExpr result_expr;
-        // prepare source
-        result_expr = CallNode::make(op->dtype, doutput_->op->name, call_args_, CallNode::Halide,
-                                     doutput_->op, doutput_->value_index);
-
-        // prepare axis
-        Array<IterVar> new_axis;
-        Map<Var, PrimExpr> pos_vmap;
-        for (std::string it : relaxes) {
-          ExtRange range = context_.range_map[it];
-          // use positive range
-          PrimExpr pos_ext = SubNode::make(range.right, range.left);
-          pos_vmap.Set(context_.var_map[it], AddNode::make(context_.var_map[it], range.left));
-          IterVar iv = IterVarNode::make(Range(0, pos_ext), context_.var_map[it], kCommReduce);
-          new_axis.push_back(iv);
-          context_.range_map[it] = ExtRange(0, pos_ext, false, false);
-        }
-        // prepare condition
-        PrimExpr result_condition = const_true();
-        for (auto val : conditions) {
-          result_condition = AndNode::make(result_condition, val);
-        }
-        result_condition = Substitute(result_condition, pos_vmap);
-
-        Map<Var, PrimExpr> vmap;
-        for (auto kv : results) {
-          vmap.Set(context_.var_map[kv.first], Substitute(kv.second, pos_vmap));
-        }
-        // add new vmap
-        vmap_scope_.push_back(vmap);
-
-        result_expr = Substitute(result_expr, vmap);
-        // eliminate unnecessary reduction axis
-        //         Map<Var, PrimExpr> eliminate_map;
-        //         PrimExpr simplified_result_expr_args =
-        //         flatten_axes(result_expr.as<CallNode>()->args, doutput_->shape);
-        // #ifdef DEBUG_AUTODIFF
-        //         std::cout << "result condition:\n" << Simplify(result_condition) << "\n";
-        //         std::cout << "simplified result expr:\n" << simplified_result_expr_args << "\n";
-        // #endif
-        //         for (std::string it : relaxes) {
-        //           IterVar iv = IterVarNode::make(
-        //               Range(0, context_.range_map[it].right), context_.var_map[it], kCommReduce);
-        //           CheckVarExist cve(it);
-        //           cve.VisitExpr(simplified_result_expr_args);
-        //           if (!cve.exist) {
-        //             eliminate_map.Set(context_.var_map[it], make_const(iv->var.dtype(), 0));
-        //           } else {
-        //             new_axis.push_back(iv);
-        //           }
-        //         }
-        //         result_expr = Substitute(result_expr, eliminate_map);
-        //         result_condition = Substitute(result_condition, eliminate_map);
-
-        // no need to produce a reduce
-        if ((int)new_axis.size() == 0) {
-          result_expr = Simplify(
-              SelectNode::make(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
-          return result_expr;
-        }
-        // form reduce
-        Var x("x", result_expr.dtype()), y("y", result_expr.dtype());
-        PrimExpr result = tir::AddNode::make(x, y);
-        PrimExpr identity_element = make_zero(result_expr.dtype());
-        tir::CommReducer combiner =
-            tir::CommReducerNode::make({x}, {y}, {result}, {identity_element});
-        return tir::ReduceNode::make(combiner, {result_expr}, new_axis, result_condition, 0);
-        // result_expr = sum(result_expr, new_axis);
-        // return result_expr;
-      } else {
-        Map<Var, PrimExpr> vmap;
-        vmap_scope_.push_back(vmap);
-        return make_zero(op->dtype);
       }
-    } else if (op->call_type == CallNode::CallType::PureIntrinsic) {
-      static std::unordered_set<std::string> piecewise_const = {"floor", "ceil", "trunc", "round"};
-      if (op->name == "exp") {
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg0 = grad(op->args[0]);
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
+#ifdef DEBUG_AUTODIFF
+      std::cout << "check original bindings:\n";
+      for (auto kv : bindings) {
+        std::cout << kv.first << " : [ ";
+        for (auto val : kv.second) {
+          std::cout << val << " ";
         }
-        PrimExpr new_expr = expr;
-        if (!vmap.empty()) {
-          new_expr = Substitute(new_expr, vmap);
-        }
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return MulNode::make(new_arg0, new_expr);
-      } else if (op->name == "log") {
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg0 = grad(op->args[0]);
-        PrimExpr new_expr = op->args[0];
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-        if (!vmap.empty()) {
-          new_expr = Substitute(new_expr, vmap);
-        }
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return DivNode::make(new_arg0, new_expr);
-      } else if (op->name == "sigmoid") {
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg0 = grad(op->args[0]);
-        PrimExpr new_expr = expr;
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-        if (!vmap.empty()) {
-          new_expr = Substitute(new_expr, vmap);
-        }
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return MulNode::make(
-            new_arg0,
-            MulNode::make(new_expr, SubNode::make(FloatImm(new_expr.dtype(), 1.0), new_expr)));
-      } else if (op->name == "sqrt") {
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg0 = grad(op->args[0]);
-        PrimExpr new_expr = expr;
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-        if (!vmap.empty()) {
-          new_expr = Substitute(new_expr, vmap);
-        }
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return DivNode::make(new_arg0, MulNode::make(new_expr, FloatImm(new_expr.dtype(), 2.0)));
-      } else if (op->name == "tanh") {
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg0 = grad(op->args[0]);
-        PrimExpr new_expr = expr;
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-        if (!vmap.empty()) {
-          new_expr = Substitute(new_expr, vmap);
-        }
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return MulNode::make(new_arg0, SubNode::make(FloatImm(new_expr.dtype(), 1.0),
-                                                     MulNode::make(new_expr, new_expr)));
-      } else if (op->name == "pow") {
-        auto x = op->args[0], y = op->args[1];
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_x = grad(x);
-        PrimExpr new_expr = expr;
-        PrimExpr sub_x = x;
-        PrimExpr sub_y = y;
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-
-        if (!vmap.empty()) {
-          new_expr = Substitute(new_expr, vmap);
-          sub_x = Substitute(sub_x, vmap);
-          sub_y = Substitute(sub_y, vmap);
-        }
-
-        vmap_scope_.pop_back();
-
-        PrimExpr new_y = grad(y);
-        for (auto kv : vmap_scope_.back()) {
-          if (vmap.count(kv.first) != 0) {
-            LOG(WARNING) << "find repeated bindings, but still going ahead\n"
-                         << "old: " << vmap[kv.first] << "\n"
-                         << "new: " << kv.second << "\n";
-          } else {
-            vmap.Set(kv.first, kv.second);
-          }
-        }
-
-        if (!vmap_scope_.back().empty()) {
-          new_expr = Substitute(new_expr, vmap_scope_.back());
-          sub_x = Substitute(sub_x, vmap_scope_.back());
-          sub_y = Substitute(sub_y, vmap_scope_.back());
-        }
-
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return new_expr * (new_y * log(sub_x) + new_x * sub_y / sub_x);
-      } else if (op->name == "fabs") {
-        auto type = op->args[0].dtype();
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg0 = grad(op->args[0]);
-        PrimExpr sub_arg0 = op->args[0];
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-        if (!vmap.empty()) {
-          sub_arg0 = Substitute(sub_arg0, vmap);
-        }
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        return MulNode::make(new_arg0, SelectNode::make(GENode::make(sub_arg0, make_zero(type)),
-                                                        FloatImm(type, 1.0), FloatImm(type, -1.0)));
-      } else if (op->name == intrinsic::tvm_if_then_else) {
-        Map<Var, PrimExpr> vmap;
-        PrimExpr new_arg1 = grad(op->args[1]);
-        PrimExpr sub_cond = op->args[0];
-        for (auto kv : vmap_scope_.back()) {
-          vmap.Set(kv.first, kv.second);
-        }
-        if (!vmap.empty()) {
-          sub_cond = Substitute(sub_cond, vmap);
-        }
-
-        vmap_scope_.pop_back();
-
-        PrimExpr new_arg2 = grad(op->args[2]);
-
-        for (auto kv : vmap_scope_.back()) {
-          if (vmap.count(kv.first) != 0) {
-            LOG(WARNING) << "find repeated bindings, but still going ahead\n"
-                         << "old: " << vmap[kv.first] << "\n"
-                         << "new: " << kv.second << "\n";
-          } else {
-            vmap.Set(kv.first, kv.second);
-          }
-        }
-
-        if (!vmap_scope_.back().empty()) {
-          sub_cond = Substitute(sub_cond, vmap_scope_.back());
-        }
-
-        vmap_scope_.pop_back();
-        vmap_scope_.push_back(vmap);
-        Array<PrimExpr> new_args = {sub_cond, new_arg1, new_arg2};
-        return CallNode::make(op->dtype, op->name, new_args, op->call_type, op->func,
-                              op->value_index);
-      } else if (piecewise_const.count(op->name)) {
-        Map<Var, PrimExpr> vmap;
-        vmap_scope_.push_back(vmap);
-        return FloatImm(expr.dtype(), 0.0);
-      } else {
-        throw dmlc::Error("Derivative of this intrinsic is not implemented: " + op->name);
+        std::cout << "]\n";
       }
+      std::cout << "\n";
+#endif
+      // resolve the bindings
+      std::unordered_map<std::string, PrimExpr> results;
+      std::unordered_set<std::string> unused;
+      solve_substitutions(context_, bindings, unused, conditions, results);
+      // eliminate unused vars
+      for (auto it : unused) {
+        relaxes.erase(it);
+      }
+      // for the remaining vars, get the bounds
+      for (auto kv : results) {
+        // do not get bounds for const placeholder
+        // if (kv.first == const_tag_) {
+        //   continue;
+        // }
+        const VarNode* as_var = kv.second.as<VarNode>();
+        if (as_var != nullptr && relaxes.count(as_var->name_hint) != 0) {
+          // we should know the lhs
+          CHECK(context_.range_map.count(kv.first) != 0)
+              << "Internal error: unknown var: " << kv.first << ".\n";
+          context_.range_map[as_var->name_hint] = context_.range_map[kv.first];
+        }
+      }
+      for (auto kv : results) {
+        // const VarNode *as_var = kv.second.as<VarNode>();
+        // if (as_var != nullptr && relaxes.count(as_var->name_hint) != 0) {
+        //   // we should know the lhs
+        //   CHECK(context_.range_map.count(kv.first) != 0) << "Internal error: unknown var: "
+        //                                                  << kv.first << ".\n";
+        //   context_.range_map[as_var->name_hint] = context_.range_map[kv.first];
+        // }
+        RangeInference infer(context_.range_map[kv.first]);
+        infer.do_infer(kv.second);
+#ifdef DEBUG_AUTODIFF
+        std::cout << "check range inference:\n";
+#endif
+        for (auto kkv : infer.range_map) {
+#ifdef DEBUG_AUTODIFF
+          std::cout << kkv.first << ": [" << kkv.second.left << ", " << kkv.second.right << ")\n";
+#endif
+          if (context_.range_map.count(kkv.first) == 0 ||
+              context_.range_map[kkv.first].range_type() != ExtRangeType::LCRC) {
+            if (kkv.second.range_type() == ExtRangeType::LCRC)
+              context_.range_map[kkv.first] = kkv.second;
+          }
+        }
+
+        // Put bound checkers
+        // TODO: do not put unnecessary checkers
+        if (kv.second.as<VarNode>() == nullptr) {
+          CHECK(context_.range_map[kv.first].range_type() == ExtRangeType::LCRC);
+          conditions.push_back(
+              And(GE(kv.second, context_.range_map[kv.first].left),
+                            LT(kv.second, context_.range_map[kv.first].right)));
+        }
+      }
+#ifdef DEBUG_AUTODIFF
+      std::cout << "check conditions:\n";
+      for (auto it : conditions) {
+        std::cout << it << " ";
+      }
+      std::cout << "\n";
+
+      std::cout << "check bindings:\n";
+      for (auto kv : results) {
+        std::cout << kv.first << " = " << kv.second << "\n";
+      }
+      std::cout << "\n";
+
+      // check if any var his no concrete range
+      // std::cout << "\ncheck relax ranges:\n";
+#endif
+      for (auto it : relaxes) {
+        CHECK(context_.range_map.count(it) != 0)
+            << "Internal error: fail to infer range for: " << it << ".\n";
+        CHECK(context_.range_map[it].range_type() == ExtRangeType::LCRC)
+            << "Internel error"
+            << ": only infer unbounded range for: " << it << ".\n";
+      }
+
+      // form final expr
+      PrimExpr result_expr;
+      // prepare source
+      // result_expr = Call(op->dtype, doutput_->op->name, call_args_, CallNode::Halide,
+      //                               doutput_->op, doutput_->value_index);
+      result_expr = ProducerLoad(doutput_, call_args_);
+
+      // prepare axis
+      Array<IterVar> new_axis;
+      Map<Var, PrimExpr> pos_vmap;
+      for (std::string it : relaxes) {
+        ExtRange range = context_.range_map[it];
+        // use positive range
+        PrimExpr pos_ext = Sub(range.right, range.left);
+        pos_vmap.Set(context_.var_map[it], Add(context_.var_map[it], range.left));
+        IterVar iv = IterVar(Range(0, pos_ext), context_.var_map[it], kCommReduce);
+        new_axis.push_back(iv);
+        context_.range_map[it] = ExtRange(0, pos_ext, false, false);
+      }
+      // prepare condition
+      PrimExpr result_condition = const_true();
+      for (auto val : conditions) {
+        result_condition = And(result_condition, val);
+      }
+      result_condition = Substitute(result_condition, pos_vmap);
+
+      Map<Var, PrimExpr> vmap;
+      for (auto kv : results) {
+        vmap.Set(context_.var_map[kv.first], Substitute(kv.second, pos_vmap));
+      }
+      // add new vmap
+      vmap_scope_.push_back(vmap);
+
+      result_expr = Substitute(result_expr, vmap);
+
+      // no need to produce a reduce
+      if ((int)new_axis.size() == 0) {
+        result_expr = ana.Simplify(
+            Select(result_condition, result_expr, make_const(result_expr.dtype(), 0)));
+        return result_expr;
+      }
+      // form reduce
+      Var x("x", result_expr.dtype()), y("y", result_expr.dtype());
+      PrimExpr result = tir::Add(x, y);
+      PrimExpr identity_element = make_zero(result_expr.dtype());
+      tir::CommReducer combiner =
+          tir::CommReducer({x}, {y}, {result}, {identity_element});
+      return tir::Reduce(combiner, {result_expr}, new_axis, result_condition, 0, {});
+    } else {
+      Map<Var, PrimExpr> vmap;
+      vmap_scope_.push_back(vmap);
+      return make_zero(op->dtype);
+    }
+  }
+
+  PrimExpr VisitExpr_(const CallNode* op) {
+    PrimExpr expr = GetRef<PrimExpr>(op);
+    std::unordered_set<RelayExpr, ObjectPtrHash, ObjectPtrEqual> piecewise_const = {
+      Op::Get("tir.floor"), Op::Get("tir.ceil"), Op::Get("tir.trunc"), Op::Get("tir.round")};
+    if (op->op.same_as(Op::Get("tir.exp"))) {
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg0 = grad(op->args[0]);
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      PrimExpr new_expr = expr;
+      if (!vmap.empty()) {
+        new_expr = Substitute(new_expr, vmap);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return Mul(new_arg0, new_expr);
+    } else if (op->op.same_as(Op::Get("tir.log"))) {
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg0 = grad(op->args[0]);
+      PrimExpr new_expr = op->args[0];
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      if (!vmap.empty()) {
+        new_expr = Substitute(new_expr, vmap);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return Div(new_arg0, new_expr);
+    } else if (op->op.same_as(Op::Get("tir.sigmoid"))) {
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg0 = grad(op->args[0]);
+      PrimExpr new_expr = expr;
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      if (!vmap.empty()) {
+        new_expr = Substitute(new_expr, vmap);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return Mul(
+          new_arg0,
+          Mul(new_expr, Sub(FloatImm(new_expr.dtype(), 1.0), new_expr)));
+    } else if (op->op.same_as(Op::Get("tir.sqrt"))) {
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg0 = grad(op->args[0]);
+      PrimExpr new_expr = expr;
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      if (!vmap.empty()) {
+        new_expr = Substitute(new_expr, vmap);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return Div(new_arg0, Mul(new_expr, FloatImm(new_expr.dtype(), 2.0)));
+    } else if (op->op.same_as(Op::Get("tir.tanh"))) {
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg0 = grad(op->args[0]);
+      PrimExpr new_expr = expr;
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      if (!vmap.empty()) {
+        new_expr = Substitute(new_expr, vmap);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return Mul(new_arg0, Sub(FloatImm(new_expr.dtype(), 1.0),
+                                                    Mul(new_expr, new_expr)));
+    } else if (op->op.same_as(Op::Get("tir.pow"))) {
+      auto x = op->args[0], y = op->args[1];
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_x = grad(x);
+      PrimExpr new_expr = expr;
+      PrimExpr sub_x = x;
+      PrimExpr sub_y = y;
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+
+      if (!vmap.empty()) {
+        new_expr = Substitute(new_expr, vmap);
+        sub_x = Substitute(sub_x, vmap);
+        sub_y = Substitute(sub_y, vmap);
+      }
+
+      vmap_scope_.pop_back();
+
+      PrimExpr new_y = grad(y);
+      for (auto kv : vmap_scope_.back()) {
+        if (vmap.count(kv.first) != 0) {
+          LOG(WARNING) << "find repeated bindings, but still going ahead\n"
+                        << "old: " << vmap[kv.first] << "\n"
+                        << "new: " << kv.second << "\n";
+        } else {
+          vmap.Set(kv.first, kv.second);
+        }
+      }
+
+      if (!vmap_scope_.back().empty()) {
+        new_expr = Substitute(new_expr, vmap_scope_.back());
+        sub_x = Substitute(sub_x, vmap_scope_.back());
+        sub_y = Substitute(sub_y, vmap_scope_.back());
+      }
+
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return new_expr * (new_y * log(sub_x) + new_x * sub_y / sub_x);
+    } else if (op->op.same_as(Op::Get("tir.fabs"))) {
+      auto type = op->args[0].dtype();
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg0 = grad(op->args[0]);
+      PrimExpr sub_arg0 = op->args[0];
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      if (!vmap.empty()) {
+        sub_arg0 = Substitute(sub_arg0, vmap);
+      }
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      return Mul(new_arg0, Select(GE(sub_arg0, make_zero(type)),
+                                                      FloatImm(type, 1.0), FloatImm(type, -1.0)));
+    } else if (op->op.same_as(Op::Get("tir.if_then_else"))) {
+      Map<Var, PrimExpr> vmap;
+      PrimExpr new_arg1 = grad(op->args[1]);
+      PrimExpr sub_cond = op->args[0];
+      for (auto kv : vmap_scope_.back()) {
+        vmap.Set(kv.first, kv.second);
+      }
+      if (!vmap.empty()) {
+        sub_cond = Substitute(sub_cond, vmap);
+      }
+
+      vmap_scope_.pop_back();
+
+      PrimExpr new_arg2 = grad(op->args[2]);
+
+      for (auto kv : vmap_scope_.back()) {
+        if (vmap.count(kv.first) != 0) {
+          LOG(WARNING) << "find repeated bindings, but still going ahead\n"
+                        << "old: " << vmap[kv.first] << "\n"
+                        << "new: " << kv.second << "\n";
+        } else {
+          vmap.Set(kv.first, kv.second);
+        }
+      }
+
+      if (!vmap_scope_.back().empty()) {
+        sub_cond = Substitute(sub_cond, vmap_scope_.back());
+      }
+
+      vmap_scope_.pop_back();
+      vmap_scope_.push_back(vmap);
+      Array<PrimExpr> new_args = {sub_cond, new_arg1, new_arg2};
+      // return Call(op->dtype, op->name, new_args, op->call_type, op->func,
+      //                       op->value_index);
+      return Call(op->dtype, op->op, new_args);
+    } else if (piecewise_const.count(op->op)) {
+      Map<Var, PrimExpr> vmap;
+      vmap_scope_.push_back(vmap);
+      return FloatImm(expr.dtype(), 0.0);
+    } else {
+      LOG(FATAL) << "Derivative of this intrinsic is not implemented: " << op->op;
+      return PrimExpr();
     }
     NOT_IMPLEMENTED
   }
@@ -616,7 +589,7 @@ class GradOp : public ExprMutator {
     }
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return AddNode::make(new_a, new_b);
+    return Add(new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const SubNode* op) {
@@ -638,7 +611,7 @@ class GradOp : public ExprMutator {
     }
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return SubNode::make(new_a, new_b);
+    return Sub(new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const MulNode* op) {
@@ -676,7 +649,7 @@ class GradOp : public ExprMutator {
 
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return AddNode::make(MulNode::make(new_a, sub_b), MulNode::make(sub_a, new_b));
+    return Add(Mul(new_a, sub_b), Mul(sub_a, new_b));
   }
 
   PrimExpr VisitExpr_(const DivNode* op) {
@@ -721,8 +694,8 @@ class GradOp : public ExprMutator {
 
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return DivNode::make(SubNode::make(MulNode::make(new_a, sub_b), MulNode::make(sub_a, new_b)),
-                         MulNode::make(sub_b, sub_b));
+    return Div(Sub(Mul(new_a, sub_b), Mul(sub_a, new_b)),
+                         Mul(sub_b, sub_b));
   }
 
   PrimExpr VisitExpr_(const ModNode* op) NOT_IMPLEMENTED
@@ -763,9 +736,9 @@ class GradOp : public ExprMutator {
 
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return FloorDivNode::make(
-        SubNode::make(MulNode::make(new_a, sub_b), MulNode::make(sub_a, new_b)),
-        MulNode::make(sub_b, sub_b));
+    return FloorDiv(
+        Sub(Mul(new_a, sub_b), Mul(sub_a, new_b)),
+        Mul(sub_b, sub_b));
   }
 
   PrimExpr VisitExpr_(const FloorModNode* op) NOT_IMPLEMENTED
@@ -806,7 +779,7 @@ class GradOp : public ExprMutator {
 
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return SelectNode::make(LENode::make(sub_a, sub_b), new_a, new_b);
+    return Select(LE(sub_a, sub_b), new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const MaxNode* op) {
@@ -845,7 +818,7 @@ class GradOp : public ExprMutator {
 
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return SelectNode::make(GENode::make(sub_a, sub_b), new_a, new_b);
+    return Select(GE(sub_a, sub_b), new_a, new_b);
   }
 
   PrimExpr VisitExpr_(const EQNode* op) NOT_IMPLEMENTED PrimExpr
@@ -867,7 +840,7 @@ class GradOp : public ExprMutator {
       }
       vmap_scope_.pop_back();
       vmap_scope_.push_back(vmap);
-      return CastNode::make(op->dtype, new_value);
+      return Cast(op->dtype, new_value);
     } else {
       vmap_scope_.push_back(vmap);
       return make_zero(op->dtype);
@@ -909,7 +882,7 @@ class GradOp : public ExprMutator {
 
     vmap_scope_.pop_back();
     vmap_scope_.push_back(vmap);
-    return SelectNode::make(sub_cond, new_true, new_false);
+    return Select(sub_cond, new_true, new_false);
   }
 
   PrimExpr VisitExpr_(const RampNode* op) NOT_IMPLEMENTED PrimExpr
@@ -997,41 +970,45 @@ class LiftReduce : public ExprMutator {
           Array<PrimExpr> new_source;
           i = 0;
           for (auto expr : a_as_red->source) {
-            new_source.push_back(Substitute(AddNode::make(expr, b_as_red->source[i]), vmap));
+            new_source.push_back(Substitute(Add(expr, b_as_red->source[i]), vmap));
             ++i;
           }
-          return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis,
-                                  a_as_red->condition, a_as_red->value_index);
+          // TODO(size): what's the difference of init?
+          return Reduce(a_as_red->combiner, new_source, a_as_red->axis,
+                                  a_as_red->condition, a_as_red->value_index, a_as_red->init);
         }
       }
     } else if (a_as_red != nullptr && b_as_f != nullptr) {
       PrimExpr divides = 1;
       for (auto axis : a_as_red->axis) {
-        divides = MulNode::make(divides, axis->dom->extent);
+        divides = Mul(divides, axis->dom->extent);
       }
-      divides = CastNode::make(b_as_f->dtype, divides);
+      divides = Cast(b_as_f->dtype, divides);
       Array<PrimExpr> new_source;
       for (auto old : a_as_red->source) {
         new_source.push_back(
-            AddNode::make(old, DivNode::make(make_const(b_as_f->dtype, b_as_f->value), divides)));
+            Add(old, Div(make_const(b_as_f->dtype, b_as_f->value), divides)));
       }
-      return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
-                              a_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
+                              a_as_red->value_index, a_as_red->init);
     } else if (a_as_f != nullptr && b_as_red != nullptr) {
       PrimExpr divides = 1;
       for (auto axis : b_as_red->axis) {
-        divides = MulNode::make(divides, axis->dom->extent);
+        divides = Mul(divides, axis->dom->extent);
       }
-      divides = CastNode::make(a_as_f->dtype, divides);
+      divides = Cast(a_as_f->dtype, divides);
       Array<PrimExpr> new_source;
       for (auto old : b_as_red->source) {
         new_source.push_back(
-            AddNode::make(old, DivNode::make(make_const(a_as_f->dtype, a_as_f->value), divides)));
+            Add(old, Div(make_const(a_as_f->dtype, a_as_f->value), divides)));
       }
-      return ReduceNode::make(b_as_red->combiner, new_source, b_as_red->axis, b_as_red->condition,
-                              b_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(b_as_red->combiner, new_source, b_as_red->axis, b_as_red->condition,
+                              b_as_red->value_index, b_as_red->init);
     }
-    return Simplify(AddNode::make(new_a, new_b));
+    arith::Analyzer ana;
+    return ana.Simplify(Add(new_a, new_b));
   }
 
   PrimExpr VisitExpr_(const SubNode* op) override {
@@ -1088,41 +1065,45 @@ class LiftReduce : public ExprMutator {
           Array<PrimExpr> new_source;
           i = 0;
           for (auto expr : a_as_red->source) {
-            new_source.push_back(Substitute(SubNode::make(expr, b_as_red->source[i]), vmap));
+            new_source.push_back(Substitute(Sub(expr, b_as_red->source[i]), vmap));
             ++i;
           }
-          return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis,
-                                  a_as_red->condition, a_as_red->value_index);
+          // TODO(size): what's the difference of init?
+          return Reduce(a_as_red->combiner, new_source, a_as_red->axis,
+                                  a_as_red->condition, a_as_red->value_index, a_as_red->init);
         }
       }
     } else if (a_as_red != nullptr && b_as_f != nullptr) {
       PrimExpr divides = 1;
       for (auto axis : a_as_red->axis) {
-        divides = MulNode::make(divides, axis->dom->extent);
+        divides = Mul(divides, axis->dom->extent);
       }
-      divides = CastNode::make(b_as_f->dtype, divides);
+      divides = Cast(b_as_f->dtype, divides);
       Array<PrimExpr> new_source;
       for (auto old : a_as_red->source) {
         new_source.push_back(
-            SubNode::make(old, DivNode::make(make_const(b_as_f->dtype, b_as_f->value), divides)));
+            Sub(old, Div(make_const(b_as_f->dtype, b_as_f->value), divides)));
       }
-      return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
-                              a_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
+                              a_as_red->value_index, a_as_red->init);
     } else if (a_as_f != nullptr && b_as_red != nullptr) {
       PrimExpr divides = 1;
       for (auto axis : b_as_red->axis) {
-        divides = MulNode::make(divides, axis->dom->extent);
+        divides = Mul(divides, axis->dom->extent);
       }
-      divides = CastNode::make(a_as_f->dtype, divides);
+      divides = Cast(a_as_f->dtype, divides);
       Array<PrimExpr> new_source;
       for (auto old : b_as_red->source) {
         new_source.push_back(
-            SubNode::make(DivNode::make(make_const(a_as_f->dtype, a_as_f->value), divides), old));
+            Sub(Div(make_const(a_as_f->dtype, a_as_f->value), divides), old));
       }
-      return ReduceNode::make(b_as_red->combiner, new_source, b_as_red->axis, b_as_red->condition,
-                              b_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(b_as_red->combiner, new_source, b_as_red->axis, b_as_red->condition,
+                              b_as_red->value_index, b_as_red->init);
     }
-    return Simplify(SubNode::make(new_a, new_b));
+    arith::Analyzer ana;
+    return ana.Simplify(Sub(new_a, new_b));
   }
 
   PrimExpr VisitExpr_(const MulNode* op) override {
@@ -1133,19 +1114,22 @@ class LiftReduce : public ExprMutator {
     if (a_as_red != nullptr && b_as_red == nullptr) {
       Array<PrimExpr> new_source;
       for (auto expr : a_as_red->source) {
-        new_source.push_back(MulNode::make(expr, new_b));
+        new_source.push_back(Mul(expr, new_b));
       }
-      return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
-                              a_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
+                              a_as_red->value_index, a_as_red->init);
     } else if (a_as_red == nullptr && b_as_red != nullptr) {
       Array<PrimExpr> new_source;
       for (auto expr : b_as_red->source) {
-        new_source.push_back(MulNode::make(new_a, expr));
+        new_source.push_back(Mul(new_a, expr));
       }
-      return ReduceNode::make(b_as_red->combiner, new_source, b_as_red->axis, b_as_red->condition,
-                              b_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(b_as_red->combiner, new_source, b_as_red->axis, b_as_red->condition,
+                              b_as_red->value_index, b_as_red->init);
     }
-    return Simplify(MulNode::make(new_a, new_b));
+    arith::Analyzer ana;
+    return ana.Simplify(Mul(new_a, new_b));
   }
 
   PrimExpr VisitExpr_(const DivNode* op) override {
@@ -1156,12 +1140,14 @@ class LiftReduce : public ExprMutator {
     if (a_as_red != nullptr && b_as_red == nullptr) {
       Array<PrimExpr> new_source;
       for (auto expr : a_as_red->source) {
-        new_source.push_back(DivNode::make(expr, new_b));
+        new_source.push_back(Div(expr, new_b));
       }
-      return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
-                              a_as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(a_as_red->combiner, new_source, a_as_red->axis, a_as_red->condition,
+                              a_as_red->value_index, a_as_red->init);
     }
-    return Simplify(DivNode::make(new_a, new_b));
+    arith::Analyzer ana;
+    return ana.Simplify(Div(new_a, new_b));
   }
 
   // PrimExpr VisitExpr_(const ModNode* op) override;
@@ -1185,12 +1171,14 @@ class LiftReduce : public ExprMutator {
     if (as_red != nullptr) {
       Array<PrimExpr> new_source;
       for (auto expr : as_red->source) {
-        new_source.push_back(CastNode::make(op->dtype, expr));
+        new_source.push_back(Cast(op->dtype, expr));
       }
-      return ReduceNode::make(as_red->combiner, new_source, as_red->axis, as_red->condition,
-                              as_red->value_index);
+      // TODO(size): what's the difference of init?
+      return Reduce(as_red->combiner, new_source, as_red->axis, as_red->condition,
+                              as_red->value_index, as_red->init);
     }
-    return Simplify(CastNode::make(op->dtype, op->value));
+    arith::Analyzer ana;
+    return ana.Simplify(Cast(op->dtype, op->value));
   }
 
   // PrimExpr VisitExpr_(const NotNode* op) override;
@@ -1247,15 +1235,17 @@ class LiftReduce : public ExprMutator {
           i = 0;
           for (auto expr : a_as_red->source) {
             new_source.push_back(
-                Substitute(SelectNode::make(new_cond, expr, b_as_red->source[i]), vmap));
+                Substitute(Select(new_cond, expr, b_as_red->source[i]), vmap));
             ++i;
           }
-          return ReduceNode::make(a_as_red->combiner, new_source, a_as_red->axis,
-                                  a_as_red->condition, a_as_red->value_index);
+          // TODO(size): what's the difference of init?
+          return Reduce(a_as_red->combiner, new_source, a_as_red->axis,
+                                  a_as_red->condition, a_as_red->value_index, a_as_red->init);
         }
       }
     }
-    return Simplify(SelectNode::make(new_cond, new_true, new_false));
+    arith::Analyzer ana;
+    return ana.Simplify(Select(new_cond, new_true, new_false));
   }
 
   // PrimExpr VisitExpr_(const RampNode* op) override;
@@ -1305,7 +1295,7 @@ class FormCompute : public ExprVisitor {
     for (auto s : shape_) {
       auto var = Var("");
       vars.push_back(var);
-      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
     }
     std::string tag = generate_tag_from_body(axis, {func(vars)});
     tensor_list.push_back(
@@ -1313,20 +1303,22 @@ class FormCompute : public ExprVisitor {
   }
 
   void VisitExpr_(const SizeVarNode* op) override UNEXPECTED
-      void VisitExpr_(const LoadNode* op) override UNEXPECTED
-      void VisitExpr_(const BufferLoadNode* op) override UNEXPECTED
-      void VisitExpr_(const LetNode* op) override UNEXPECTED
+  void VisitExpr_(const LoadNode* op) override UNEXPECTED
+  void VisitExpr_(const BufferLoadNode* op) override UNEXPECTED
+  void VisitExpr_(const LetNode* op) override UNEXPECTED
 
-      void VisitExpr_(const CallNode* op) override {
+  void VisitExpr_(const ProducerLoadNode* op) override {
     auto func = [=](const Array<Var>& input_indices) {
       Map<Var, PrimExpr> vmap;
       CHECK(input_indices.size() == sub_vars_.size());
       for (size_t i = 0; i < input_indices.size(); ++i) {
         vmap.Set(sub_vars_[i], input_indices[i]);
       }
-      return Substitute(
-          CallNode::make(op->dtype, op->name, op->args, op->call_type, op->func, op->value_index),
-          vmap);
+      // DataType dtype, RelayExpr op, Array<PrimExpr> args
+      // return Substitute(
+      //     Call(op->dtype, op->name, op->args, op->call_type, op->func, op->value_index),
+      //     vmap);
+      return Substitute(ProducerLoad(op->producer, op->indices), vmap);
     };
 
     Array<IterVar> axis;
@@ -1334,7 +1326,7 @@ class FormCompute : public ExprVisitor {
     for (auto s : shape_) {
       auto var = Var("");
       vars.push_back(var);
-      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
     }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
     std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1342,8 +1334,35 @@ class FormCompute : public ExprVisitor {
         te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
   }
 
-  template <typename T>
-  void visit_binay_op(const T* op) {
+  void VisitExpr_(const CallNode* op) override {
+    auto func = [=](const Array<Var>& input_indices) {
+      Map<Var, PrimExpr> vmap;
+      CHECK(input_indices.size() == sub_vars_.size());
+      for (size_t i = 0; i < input_indices.size(); ++i) {
+        vmap.Set(sub_vars_[i], input_indices[i]);
+      }
+      // DataType dtype, RelayExpr op, Array<PrimExpr> args
+      // return Substitute(
+      //     Call(op->dtype, op->name, op->args, op->call_type, op->func, op->value_index),
+      //     vmap);
+      return Substitute(Call(op->dtype, op->op, op->args), vmap);
+    };
+
+    Array<IterVar> axis;
+    Array<Var> vars;
+    for (auto s : shape_) {
+      auto var = Var("");
+      vars.push_back(var);
+      axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
+    }
+    // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
+    std::string tag = generate_tag_from_body(axis, {func(vars)});
+    tensor_list.push_back(
+        te::compute(shape_, func, generator_.unique_name(tensor_name_key_), tag, {}, true));
+  }
+
+  template <typename T, typename TNode=typename T::ContainerType>
+  void visit_binary_op(const TNode* op) {
     VisitExpr(op->a);
     VisitExpr(op->b);
     CHECK((int)tensor_list.size() > 1);
@@ -1360,10 +1379,12 @@ class FormCompute : public ExprVisitor {
         for (auto v : input_indices) {
           call_args.push_back(v);
         }
-        PrimExpr a_body = CallNode::make(ta->dtype, ta->op->name, call_args,
-                                         CallNode::CallType::Halide, ta->op, ta->value_index);
-        PrimExpr b_body = CallNode::make(tb->dtype, tb->op->name, call_args,
-                                         CallNode::CallType::Halide, tb->op, tb->value_index);
+        // PrimExpr a_body = Call(ta->dtype, ta->op->name, call_args,
+        //                                  CallNode::CallType::Halide, ta->op, ta->value_index);
+        // PrimExpr b_body = Call(tb->dtype, tb->op->name, call_args,
+        //                                  CallNode::CallType::Halide, tb->op, tb->value_index);
+        PrimExpr a_body = ProducerLoad(ta, call_args);
+        PrimExpr b_body = ProducerLoad(tb, call_args);
         Map<Var, PrimExpr> vmap;
         CHECK(sub_vars_.size() == input_indices.size());
         size_t i = 0;
@@ -1371,7 +1392,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(T::make(a_body, b_body), vmap);
+        return Substitute(T(a_body, b_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1379,7 +1400,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1400,8 +1421,9 @@ class FormCompute : public ExprVisitor {
           ++i;
         }
         PrimExpr a_body = Substitute(ca->body[0], a_vmap);
-        PrimExpr b_body = CallNode::make(tb->dtype, tb->op->name, call_args,
-                                         CallNode::CallType::Halide, tb->op, tb->value_index);
+        // PrimExpr b_body = Call(tb->dtype, tb->op->name, call_args,
+        //                                  CallNode::CallType::Halide, tb->op, tb->value_index);
+        PrimExpr b_body = ProducerLoad(tb, call_args);
         Map<Var, PrimExpr> vmap;
         CHECK(sub_vars_.size() == input_indices.size());
         i = 0;
@@ -1409,7 +1431,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(T::make(a_body, b_body), vmap);
+        return Substitute(T(a_body, b_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1417,7 +1439,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1441,8 +1463,9 @@ class FormCompute : public ExprVisitor {
           ++i;
         }
         PrimExpr b_body = Substitute(cb->body[0], b_vmap);
-        PrimExpr a_body = CallNode::make(ta->dtype, ta->op->name, call_args,
-                                         CallNode::CallType::Halide, ta->op, ta->value_index);
+        // PrimExpr a_body = Call(ta->dtype, ta->op->name, call_args,
+        //                                  CallNode::CallType::Halide, ta->op, ta->value_index);
+        PrimExpr a_body = ProducerLoad(ta, call_args);
         Map<Var, PrimExpr> vmap;
         CHECK(sub_vars_.size() == input_indices.size());
         i = 0;
@@ -1450,7 +1473,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(T::make(a_body, b_body), vmap);
+        return Substitute(T(a_body, b_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1458,7 +1481,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1493,7 +1516,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(T::make(a_body, b_body), vmap);
+        return Substitute(T(a_body, b_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1501,7 +1524,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1513,23 +1536,23 @@ class FormCompute : public ExprVisitor {
     }
   }
 
-  void VisitExpr_(const AddNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const AddNode* op) override { visit_binary_op<Add>(op); }
 
-  void VisitExpr_(const SubNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const SubNode* op) override { visit_binary_op<Sub>(op); }
 
-  void VisitExpr_(const MulNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const MulNode* op) override { visit_binary_op<Mul>(op); }
 
-  void VisitExpr_(const DivNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const DivNode* op) override { visit_binary_op<Div>(op); }
 
-  void VisitExpr_(const ModNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const ModNode* op) override { visit_binary_op<Mod>(op); }
 
-  void VisitExpr_(const FloorDivNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const FloorDivNode* op) override { visit_binary_op<FloorDiv>(op); }
 
-  void VisitExpr_(const FloorModNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const FloorModNode* op) override { visit_binary_op<FloorMod>(op); }
 
-  void VisitExpr_(const MinNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const MinNode* op) override { visit_binary_op<Min>(op); }
 
-  void VisitExpr_(const MaxNode* op) override { visit_binay_op(op); }
+  void VisitExpr_(const MaxNode* op) override { visit_binary_op<Max>(op); }
 
   void VisitExpr_(const EQNode* op) override UNEXPECTED
       void VisitExpr_(const NENode* op) override UNEXPECTED
@@ -1547,8 +1570,9 @@ class FormCompute : public ExprVisitor {
       for (size_t i = 0; i < input_indices.size(); ++i) {
         vmap.Set(sub_vars_[i], input_indices[i]);
       }
+      // TODO(size): what's the difference of init?
       return Substitute(
-          ReduceNode::make(op->combiner, op->source, op->axis, op->condition, op->value_index),
+          Reduce(op->combiner, op->source, op->axis, op->condition, op->value_index, op->init),
           vmap);
     };
     std::string name = generator_.unique_name(tensor_name_key_);
@@ -1558,7 +1582,7 @@ class FormCompute : public ExprVisitor {
     for (auto s : shape_) {
       auto var = Var("");
       vars.push_back(var);
-      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
     }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
     std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1577,9 +1601,10 @@ class FormCompute : public ExprVisitor {
         for (auto v : input_indices) {
           call_args.push_back(v);
         }
-        PrimExpr body = CallNode::make(t->dtype, t->op->name, call_args, CallNode::CallType::Halide,
-                                       t->op, t->value_index);
-        body = CastNode::make(op->dtype, body);
+        // PrimExpr body = Call(t->dtype, t->op->name, call_args, CallNode::CallType::Halide,
+        //                                t->op, t->value_index);
+        PrimExpr body = ProducerLoad(t, call_args);
+        body = Cast(op->dtype, body);
         return body;
       };
 
@@ -1588,7 +1613,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1599,7 +1624,7 @@ class FormCompute : public ExprVisitor {
       auto func = [=](const Array<Var>& input_indices) {
         CHECK(cop->body.size() == 1) << "Only support body size 1.\n";
         PrimExpr body = cop->body[0];
-        body = CastNode::make(op->dtype, body);
+        body = Cast(op->dtype, body);
         CHECK(cop->axis.size() == input_indices.size())
             << "Internal error: input indices mismatch.\n";
         Map<Var, PrimExpr> vmap;
@@ -1616,7 +1641,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1629,7 +1654,7 @@ class FormCompute : public ExprVisitor {
 
   void VisitExpr_(const NotNode* op) override UNEXPECTED
 
-      void VisitExpr_(const SelectNode* op) override {
+  void VisitExpr_(const SelectNode* op) override {
     // TODO: we do not support grad in condition
     VisitExpr(op->true_value);
     VisitExpr(op->false_value);
@@ -1647,12 +1672,16 @@ class FormCompute : public ExprVisitor {
         for (auto v : input_indices) {
           call_args.push_back(v);
         }
+        // PrimExpr true_body =
+        //     Call(true_tensor->dtype, true_tensor->op->name, call_args,
+        //                    CallNode::CallType::Halide, true_tensor->op, true_tensor->value_index);
+        // PrimExpr false_body =
+        //     Call(false_tensor->dtype, false_tensor->op->name, call_args,
+        //                    CallNode::CallType::Halide, false_tensor->op, false_tensor->value_index);
         PrimExpr true_body =
-            CallNode::make(true_tensor->dtype, true_tensor->op->name, call_args,
-                           CallNode::CallType::Halide, true_tensor->op, true_tensor->value_index);
+            ProducerLoad(true_tensor, call_args);
         PrimExpr false_body =
-            CallNode::make(false_tensor->dtype, false_tensor->op->name, call_args,
-                           CallNode::CallType::Halide, false_tensor->op, false_tensor->value_index);
+            ProducerLoad(false_tensor, call_args);
         Map<Var, PrimExpr> vmap;
         CHECK(sub_vars_.size() == input_indices.size());
         size_t i = 0;
@@ -1660,7 +1689,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        return Substitute(Select(op->condition, true_body, false_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1668,7 +1697,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1689,9 +1718,10 @@ class FormCompute : public ExprVisitor {
           ++i;
         }
         PrimExpr true_body = Substitute(top->body[0], true_vmap);
-        PrimExpr false_body =
-            CallNode::make(false_tensor->dtype, false_tensor->op->name, call_args,
-                           CallNode::CallType::Halide, false_tensor->op, false_tensor->value_index);
+        // PrimExpr false_body =
+        //     Call(false_tensor->dtype, false_tensor->op->name, call_args,
+        //                    CallNode::CallType::Halide, false_tensor->op, false_tensor->value_index);
+        PrimExpr false_body = ProducerLoad(false_tensor, call_args);
         Map<Var, PrimExpr> vmap;
         CHECK(sub_vars_.size() == input_indices.size());
         i = 0;
@@ -1699,7 +1729,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        return Substitute(Select(op->condition, true_body, false_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1707,7 +1737,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1731,9 +1761,10 @@ class FormCompute : public ExprVisitor {
           ++i;
         }
         PrimExpr false_body = Substitute(fop->body[0], false_vmap);
-        PrimExpr true_body =
-            CallNode::make(true_tensor->dtype, true_tensor->op->name, call_args,
-                           CallNode::CallType::Halide, true_tensor->op, true_tensor->value_index);
+        // PrimExpr true_body =
+        //     Call(true_tensor->dtype, true_tensor->op->name, call_args,
+        //                    CallNode::CallType::Halide, true_tensor->op, true_tensor->value_index);
+        PrimExpr true_body = ProducerLoad(true_tensor, call_args);
         Map<Var, PrimExpr> vmap;
         CHECK(sub_vars_.size() == input_indices.size());
         i = 0;
@@ -1741,7 +1772,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        return Substitute(Select(op->condition, true_body, false_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1749,7 +1780,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1784,7 +1815,7 @@ class FormCompute : public ExprVisitor {
           vmap.Set(v, input_indices[i]);
           ++i;
         }
-        return Substitute(SelectNode::make(op->condition, true_body, false_body), vmap);
+        return Substitute(Select(op->condition, true_body, false_body), vmap);
       };
 
       Array<IterVar> axis;
@@ -1792,7 +1823,7 @@ class FormCompute : public ExprVisitor {
       for (auto s : shape_) {
         auto var = Var("");
         vars.push_back(var);
-        axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+        axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
       }
       // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
       std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1816,7 +1847,7 @@ class FormCompute : public ExprVisitor {
     for (auto s : shape_) {
       auto var = Var("");
       vars.push_back(var);
-      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
     }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
     std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1835,7 +1866,7 @@ class FormCompute : public ExprVisitor {
     for (auto s : shape_) {
       auto var = Var("");
       vars.push_back(var);
-      axis.push_back(IterVarNode::make(Range(0, s), var, IterVarType::kDataPar));
+      axis.push_back(IterVar(Range(0, s), var, IterVarType::kDataPar));
     }
     // std::string tag = tag_ + "_" + std::to_string(count_tag_++);
     std::string tag = generate_tag_from_body(axis, {func(vars)});
@@ -1871,7 +1902,7 @@ PrimExpr ensure_unique_var(const ComputeOpNode* op, SubstituteContext& context,
     Var new_var = Var(new_name);
     context.var_map[new_name] = new_var;
     context.range_map[new_name] = ExtRange(
-        iter_var->dom->min, AddNode::make(iter_var->dom->min, iter_var->dom->extent), false, false);
+        iter_var->dom->min, Add(iter_var->dom->min, iter_var->dom->extent), false, false);
     vmap.Set(iter_var->var, new_var);
     call_args.push_back(new_var);
   }
@@ -1888,13 +1919,13 @@ PrimExpr ensure_unique_var(const ComputeOpNode* op, SubstituteContext& context,
         // LOG(WARNING) << "Find repeat axis iter_var name: " << name_hint << "\n"
         //              << "change to new name: " << new_name;
       }
-      // new_iter_vars.push_back(IterVarNode::make(iv->dom,
+      // new_iter_vars.push_back(IterVar(iv->dom,
       //   Var(new_name, iv->var->dtype), iv->iter_type, iv->thread_tag));
       context.index_names.push_back(new_name);
       Var new_var = Var(new_name);
       context.var_map[new_name] = new_var;
       context.range_map[new_name] =
-          ExtRange(iv->dom->min, AddNode::make(iv->dom->min, iv->dom->extent), false, false);
+          ExtRange(iv->dom->min, Add(iv->dom->min, iv->dom->extent), false, false);
       vmap.Set(iv->var, new_var);
     }
     // modify the sources
@@ -1905,7 +1936,7 @@ PrimExpr ensure_unique_var(const ComputeOpNode* op, SubstituteContext& context,
 
     // PrimExpr new_condition = change_iter_var_names(red->condition, red->axis, new_iter_vars);
 
-    // body = ReduceNode::make(red->combiner, new_source, new_iter_vars, new_condition,
+    // body = Reduce(red->combiner, new_source, new_iter_vars, new_condition,
     // red->value_index);
   }
 
@@ -1935,7 +1966,7 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   for (size_t i = 0; i < input->shape.size(); ++i) {
     std::string new_name = generator.unique_name("z");
     compute_indices.push_back(
-        IterVarNode::make(Range(0, input->shape[i]), Var(new_name), kDataPar));
+        IterVar(Range(0, input->shape[i]), Var(new_name), kDataPar));
     context.range_map[new_name] = ExtRange(0, input->shape[i], false, false);
   }
 
@@ -1958,6 +1989,7 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
   PrimExpr grad_body;
 
   const ReduceNode* as_red = body.as<ReduceNode>();
+  arith::Analyzer ana;
   if (as_red != nullptr) {
     CHECK((int)as_red->source.size() == 1) << "Only support one source now.\n";
     Array<PrimExpr> new_source;
@@ -1969,18 +2001,18 @@ Tensor grad_op(const Tensor& input, const Tensor& output, const Tensor& doutput)
       new_source.push_back(new_expr);
     }
     // only take away the first one
-    grad_body = Simplify(new_source[0]);
+    grad_body = ana.Simplify(new_source[0]);
   } else {
     SubstituteContext new_context = context.copy();
     GradOp helper(generator, new_context, input, doutput, call_args, compute_args);
     PrimExpr new_expr = helper.grad(body);
     // std::cout << "check body: " << Simplify(new_expr)  << "\n";
-    grad_body = Simplify(new_expr);
+    grad_body = ana.Simplify(new_expr);
   }
 
   // std::cout << "\nLift ReduceNode:\n";
   LiftReduce lifter;
-  grad_body = Simplify(lifter.lift(grad_body));
+  grad_body = ana.Simplify(lifter.lift(grad_body));
   // std::cout << "\nResult:\n" << grad_body << "\n";
 
   // std::vector<Tensor> tensor_list;

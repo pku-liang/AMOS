@@ -1485,7 +1485,7 @@ ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_out
     }
   }
 
-  if (target->target_name == "cuda") {
+  if (target->kind->name == "cuda") {
     generate_schedule_skeletons(operation, target, is_output, can_compute_at, node->skeletons);
     node->merge = MergeSubSpace(4);
     node->allreduce = AllreduceSubSpace(as_compute->axis, as_compute->reduce_axis, 2, 2);
@@ -1497,7 +1497,7 @@ ScheduleSpace::ScheduleSpace(te::Operation operation, Target target, bool is_out
     //   node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), 1, 2);
     node->buffer_input = BufferInputSubSpace(as_compute->InputTensors(), 3, 2);
     node->unroll = UnrollSubSpace(max_extent);
-  } else if (target->target_name == "llvm") {
+  } else if (target->kind->name == "llvm") {
     generate_schedule_skeletons(operation, target, is_output, can_compute_at, node->skeletons);
     node->merge = MergeSubSpace(3);
     node->allreduce = AllreduceSubSpace(as_compute->axis, as_compute->reduce_axis, 2, 2);

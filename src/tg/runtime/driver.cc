@@ -70,12 +70,12 @@ SessionOption::SessionOption(int dummy) {
 
 Session::Session(Target target, int dev_id, SessionOption sess_option)
 : target(target), sess_option(sess_option) {
-  if (target->target_name == "cuda") {
+  if (target->kind->name == "cuda") {
     ctx = DLContext({kDLGPU, dev_id});
-  } else if (target->target_name == "llvm") {
+  } else if (target->kind->name == "llvm") {
     ctx = DLContext({kDLCPU, dev_id});
   } else {
-    ERROR << "Currently only support CUDA/LLVM but get " << target->target_name << ".";
+    ERROR << "Currently only support CUDA/LLVM but get " << target->kind->name << ".";
   }
 
   autoschedule_log.open(sess_option->autoschedule_log_file, std::ios::app);
@@ -283,10 +283,9 @@ void Session::run_autoschedule(int task_id, TIRMultiGraph multi_graph) {
         function_builder->build_for(
           result,
           target,
-          Target::Create("llvm"),
+          Target("llvm"),
           get_func_name(key),
-          std::unordered_map<te::Tensor, tir::Buffer>(),
-          tvm::BuildConfig::Create()
+          std::unordered_map<te::Tensor, tir::Buffer>()
         );
 
         future_functions[key].push(sch_func);
@@ -1122,8 +1121,8 @@ void Session::prepare_for_test(int task_id, std::string reference) {
       std::string name = get_func_name(key);
       
       auto module = function_builder->build_func(
-        schedule_result->schedule, schedule_result->tensors, target, Target::Create("llvm"),
-        name, std::unordered_map<te::Tensor, tir::Buffer>(), tvm::BuildConfig::Create());
+        schedule_result->schedule, schedule_result->tensors, target, Target("llvm"),
+        name, std::unordered_map<te::Tensor, tir::Buffer>());
 
       auto func = module->GetFunction(name);
       return std::make_tuple(schedule_result, module, func, perf, time);
@@ -1411,13 +1410,13 @@ int create_session(Target target, int dev_id, SessionOption sess_option) {
 
 std::shared_ptr<Session> get_session(int session_id) {
   // pass dummy target info
-  return create_or_get_session(target::llvm(), 0, SessionOption(0), session_id, true, false);
+  return create_or_get_session(Target("llvm"), 0, SessionOption(0), session_id, true, false);
 }
 
 
 void delete_session(int session_id) {
   // pass dummy target info
-  create_or_get_session(target::llvm(), 0, SessionOption(0), session_id, true, true);
+  create_or_get_session(Target("llvm"), 0, SessionOption(0), session_id, true, true);
 }
 
 

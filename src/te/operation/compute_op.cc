@@ -147,7 +147,7 @@ ComputeOp::ComputeOp(std::string name, std::string tag, Map<String, ObjectRef> a
 TVM_REGISTER_GLOBAL("te.ComputeOp")
     .set_body_typed([](std::string name, std::string tag, Map<String, ObjectRef> attrs,
                        Array<IterVar> axis,
-                       Array<PrimExpr> body) { return ComputeOp(name, tag, attrs, axis, body); });
+                       Array<PrimExpr> body, bool requires_grad) { return ComputeOp(name, tag, attrs, axis, body, requires_grad); });
 
 // The schedule related logics
 Array<Tensor> ComputeOpNode::InputTensors() const {

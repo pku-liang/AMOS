@@ -103,12 +103,12 @@ void Matrix<T>::col_transform(int i, int j, T s, T t, T g, T h) {
 ExtRange ExtRange::floor_div(int factor) {
   ExtRange ret;
   if (!this->left_inf) {
-    ret.left = FloorDivNode::make(this->left, factor);
+    ret.left = FloorDiv(this->left, factor);
     ret.left_inf = false;
   }
   if (!this->right_inf) {
     // ceil div
-    ret.right = FloorDivNode::make(AddNode::make(this->right, factor - 1), factor);
+    ret.right = FloorDiv(Add(this->right, factor - 1), factor);
     ret.right_inf = false;
   }
   return ret;
@@ -208,28 +208,28 @@ void RangeInference::VisitExpr_(const MulNode* op) {
     } else if (bias > 0) {
       ExtRangeType range_type = range.range_type();
       if (range_type == ExtRangeType::LCRC) {
-        range.left = FloorDivNode::make(range.left, bias);
-        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+        range.left = FloorDiv(range.left, bias);
+        range.right = FloorDiv(Add(range.right, bias - 1), bias);
       } else if (range_type == ExtRangeType::LCRO) {
-        range.left = FloorDivNode::make(range.left, bias);
+        range.left = FloorDiv(range.left, bias);
       } else if (range_type == ExtRangeType::LORC) {
-        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+        range.right = FloorDiv(Add(range.right, bias - 1), bias);
       } else {
         // nothing to do
       }
     } else {
       ExtRangeType range_type = range.range_type();
       if (range_type == ExtRangeType::LCRC) {
-        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(scope_.back().right, -bias-1), -bias), 1), -1);
-        range.right = MulNode::make(SubNode::make(FloorDivNode::make(scope_.back().left, -bias), 1), -1);
+        range.left = Mul(Sub(FloorDiv(Add(scope_.back().right, -bias-1), -bias), 1), -1);
+        range.right = Mul(Sub(FloorDiv(scope_.back().left, -bias), 1), -1);
       } else if (range_type == ExtRangeType::LCRO) {
         range.left_inf = true;
         range.right_inf = false;
-        range.right = MulNode::make(SubNode::make(FloorDivNode::make(range.left, -bias), 1), -1);
+        range.right = Mul(Sub(FloorDiv(range.left, -bias), 1), -1);
       } else if (range_type == ExtRangeType::LORC) {
         range.left_inf = false;
         range.right_inf = true;
-        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(range.right, -bias-1), -bias), 1), -1);
+        range.left = Mul(Sub(FloorDiv(Add(range.right, -bias-1), -bias), 1), -1);
       } else {
         // nothing to do
       }
@@ -248,28 +248,28 @@ void RangeInference::VisitExpr_(const MulNode* op) {
     } else if (bias > 0) {
       ExtRangeType range_type = range.range_type();
       if (range_type == ExtRangeType::LCRC) {
-        range.left = FloorDivNode::make(range.left, bias);
-        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+        range.left = FloorDiv(range.left, bias);
+        range.right = FloorDiv(Add(range.right, bias - 1), bias);
       } else if (range_type == ExtRangeType::LCRO) {
-        range.left = FloorDivNode::make(range.left, bias);
+        range.left = FloorDiv(range.left, bias);
       } else if (range_type == ExtRangeType::LORC) {
-        range.right = FloorDivNode::make(AddNode::make(range.right, bias - 1), bias);
+        range.right = FloorDiv(Add(range.right, bias - 1), bias);
       } else {
         // nothing to do
       }
     } else {
       ExtRangeType range_type = range.range_type();
       if (range_type == ExtRangeType::LCRC) {
-        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(scope_.back().right, -bias-1), -bias), 1), -1);
-        range.right = MulNode::make(SubNode::make(FloorDivNode::make(scope_.back().left, -bias), 1), -1);
+        range.left = Mul(Sub(FloorDiv(Add(scope_.back().right, -bias-1), -bias), 1), -1);
+        range.right = Mul(Sub(FloorDiv(scope_.back().left, -bias), 1), -1);
       } else if (range_type == ExtRangeType::LCRO) {
         range.left_inf = true;
         range.right_inf = false;
-        range.right = MulNode::make(SubNode::make(FloorDivNode::make(range.left, -bias), 1), -1);
+        range.right = Mul(Sub(FloorDiv(range.left, -bias), 1), -1);
       } else if (range_type == ExtRangeType::LORC) {
         range.left_inf = false;
         range.right_inf = true;
-        range.left = MulNode::make(SubNode::make(FloorDivNode::make(AddNode::make(range.right, -bias-1), -bias), 1), -1);
+        range.left = Mul(Sub(FloorDiv(Add(range.right, -bias-1), -bias), 1), -1);
       } else {
         // nothing to do
       }
@@ -291,7 +291,7 @@ Array<PrimExpr> relax_matrix_array_product(Matrix<int> &m, Array<PrimExpr> &v) {
     PrimExpr tmp = make_const(DataType::Int(32), 0);
     for (int j = 0; j < cols; ++j) {
       if (m[i][j] != 0) {
-        tmp = AddNode::make(tmp, MulNode::make(v[j], m[i][j]));
+        tmp = Add(tmp, Mul(v[j], m[i][j]));
       }
     }
     res.push_back(tmp);

@@ -3,11 +3,14 @@
  * \brief Extract feature of touch pattern of axes in lowered IR
  */
 
+#include <tvm/arith/analyzer.h>
+
 #include "touch_extractor.h"
 #include "feature.h"
 
 #include <set>
 #include <algorithm>
+#include <numeric>
 #include <cmath>
 #include <unordered_map>
 
@@ -28,7 +31,7 @@ public:
   PrimExpr VisitExpr_(const FloorDivNode* op) {
     PrimExpr a = this->VisitExpr(op->a);
     PrimExpr b = this->VisitExpr(op->b);
-    return DivNode::make(a, b);
+    return Div(a, b);
   }
 };
 
@@ -37,9 +40,9 @@ class IndexParser: public ExprVisitor {
  public:
   void Parse(PrimExpr expr) {
     pattern_map.clear();
-
+    arith::Analyzer ana;
     expr = IndexMutator()(expr);
-    expr = tvm::tir::CanonicalSimplify(expr);
+    expr = ana.canonical_simplify(expr);
     
     this->VisitExpr(expr);
   }
@@ -348,8 +351,8 @@ void GetInnerStatementFeature(
     std::stringstream buffer;
     buffer << stmt->buffer_var << "[" << stmt->index << "] = " << stmt->value;
     feature_row.push_back(Array<PrimExpr>{
-        std::string("_stmt_"),
-        buffer.str(),
+        StringImm("_stmt_"),
+        StringImm(buffer.str()),
     });
 
     // buffer access feature
@@ -362,7 +365,8 @@ void GetInnerStatementFeature(
     for (auto k : bufs) {
       BufferAccessFeature &v = fea.buffer_access_feature[k];
       feature_row.push_back(
-          Array<PrimExpr>{k,
+          Array<PrimExpr>{
+                StringImm(k),
                 v.access_type,
                 FloatImm(DataType::Float(32), trans(v.bytes)),
                 FloatImm(DataType::Float(32), trans(v.unique_bytes)),
@@ -377,7 +381,7 @@ void GetInnerStatementFeature(
     }
 
     Array<PrimExpr> int_arithmetic_features{
-      std::string("int_arith_features"),
+      StringImm("int_arith_features"),
       FloatImm(DataType::Float(32), trans(fea.int_add_ct)),
       FloatImm(DataType::Float(32), trans(fea.int_sub_ct)),
       FloatImm(DataType::Float(32), trans(fea.int_mul_ct)),
@@ -395,7 +399,7 @@ void GetInnerStatementFeature(
     feature_row.push_back(int_arithmetic_features);
 
     Array<PrimExpr> float_arithmetic_features{
-      std::string("flt_arith_features"),
+      StringImm("flt_arith_features"),
       FloatImm(DataType::Float(32), trans(fea.flt_add_ct)),
       FloatImm(DataType::Float(32), trans(fea.flt_sub_ct)),
       FloatImm(DataType::Float(32), trans(fea.flt_mul_ct)),
@@ -413,7 +417,7 @@ void GetInnerStatementFeature(
     feature_row.push_back(float_arithmetic_features);
 
     feature_row.push_back(Array<PrimExpr>{
-      std::string("vectorization_features"),
+      StringImm("vectorization_features"),
       FloatImm(DataType::Float(32), trans(fea.vectorize_len_imost)),
       FloatImm(DataType::Float(32), trans(fea.vectorize_len_prod)),
       FloatImm(DataType::Float(32), trans(fea.vectorize_loop_num)),
@@ -421,7 +425,7 @@ void GetInnerStatementFeature(
     });
 
     feature_row.push_back(Array<PrimExpr>{
-      std::string("unrolling_features"),
+      StringImm("unrolling_features"),
       FloatImm(DataType::Float(32), trans(fea.unroll_len_imost)),
       FloatImm(DataType::Float(32), trans(fea.unroll_len_prod)),
       FloatImm(DataType::Float(32), trans(fea.unroll_loop_num)),
@@ -429,7 +433,7 @@ void GetInnerStatementFeature(
     });
 
     feature_row.push_back(Array<PrimExpr>{
-      std::string("parallel_features"),
+      StringImm("parallel_features"),
       FloatImm(DataType::Float(32), trans(fea.parallel_len_imost)),
       FloatImm(DataType::Float(32), trans(fea.parallel_len_prod)),
       FloatImm(DataType::Float(32), trans(fea.parallel_loop_num)),
@@ -437,7 +441,7 @@ void GetInnerStatementFeature(
     });
 
     Array<PrimExpr> thread_bind_len{
-      std::string("thread_binding_features"),
+      StringImm("thread_binding_features"),
     };
     for (auto k : THREAD_BIND_KEYS) {
       if (fea.thread_bind_len.count(k))
@@ -448,7 +452,7 @@ void GetInnerStatementFeature(
     feature_row.push_back(thread_bind_len);
 
     Array<PrimExpr> alloc_features{
-      std::string("allocation_features"),
+      StringImm("allocation_features"),
       FloatImm(DataType::Float(32), trans(fea.num_allocation)),
     };
     for (int i = 0; i < std::min(10, int(fea.output_buffer_size.size())); i++)
@@ -458,7 +462,7 @@ void GetInnerStatementFeature(
     feature_row.push_back(alloc_features);
 
     feature_row.push_back(Array<PrimExpr>{
-        std::string("other_features"),
+        StringImm("other_features"),
         FloatImm(DataType::Float(32), trans(fea.num_outer_loops)),
         FloatImm(DataType::Float(32), trans(fea.prod_outer_loops)),
         FloatImm(DataType::Float(32), trans(fea.auto_unroll_max_step)),

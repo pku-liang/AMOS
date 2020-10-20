@@ -38,7 +38,7 @@ class OpTypeGetter : public tir::ExprVisitor {
 
   OpType get(te::Operation op);
 
-  void VisitExpr_(const tir::CallNode* op) final;
+  void VisitExpr_(const tir::ProducerLoadNode* op) final;
 
  private:
   void clear();

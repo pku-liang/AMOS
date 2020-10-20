@@ -45,8 +45,9 @@ IntImm make_int(int v) {
 
 int get_const_int(PrimExpr value) {
   const IntImmNode *as_int = value.as<IntImmNode>();
+  arith::Analyzer ana;
   if (as_int == nullptr) {
-    value = tir::Simplify(value);
+    value = ana.Simplify(value);
     const IntImmNode *as_int = value.as<IntImmNode>();
     CHECK(as_int != nullptr) << "Can't get const int from " << value << ".";
     return as_int->value;

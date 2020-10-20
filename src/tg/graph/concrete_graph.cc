@@ -317,20 +317,13 @@ class RewriteInput : public ExprMutator {
  protected:
  using ExprMutator::VisitExpr_;
   // list of functions to override.
-  PrimExpr VisitExpr_(const CallNode* op) override {
-    if (op->call_type == CallNode::CallType::Halide) {
-      int i = 0;
-      for (auto t : org_) {
-        if (t->op.same_as(op->func)) {
-          return CallNode::make(op->dtype,
-                    replace_[i]->op->name,
-                    op->args,
-                    op->call_type,
-                    replace_[i]->op,
-                    op->value_index);
-        }
-        i += 1;
+  PrimExpr VisitExpr_(const ProducerLoadNode* op) override {
+    int i = 0;
+    for (auto t : org_) {
+      if (t == Downcast<te::Tensor>(op->producer)) {
+        return ProducerLoad(replace_[i], op->indices);
       }
+      i += 1;
     }
     return ExprMutator::VisitExpr_(op);
   }
@@ -352,14 +345,15 @@ class InlineExpression : public ExprMutator {
     axis = as_compute->axis;
   }
 
-  PrimExpr VisitExpr_(const CallNode* op) override {
-    if (op->func.same_as(inlined) && op->call_type == CallNode::CallType::Halide) {
-      PrimExpr inline_body = body[op->value_index];
+  PrimExpr VisitExpr_(const ProducerLoadNode* op) override {
+    auto tensor = Downcast<te::Tensor>(op->producer);
+    if (tensor == inlined.output(0)) {
+      PrimExpr inline_body = body[tensor->value_index];
       Map<Var, PrimExpr> var_map;
-      ASSERT(axis.size() == op->args.size());
+      ASSERT(axis.size() == op->indices.size());
       int count_axis = 0;
       for (auto iv : axis) {
-        var_map.Set(iv->var, op->args[count_axis++]);
+        var_map.Set(iv->var, op->indices[count_axis++]);
       }
 
       inline_body = Substitute(inline_body, var_map);
@@ -414,7 +408,7 @@ TIRGraph inline_graph(TIRGraph graph) {
       }
       bodies_after_inline = tmp;
     }
-    auto new_op = ComputeOpNode::make(
+    auto new_op = ComputeOp(
       op->name, generate_tag_from_body(as_compute->axis, bodies_after_inline), op->attrs, as_compute->axis, bodies_after_inline);
     
     cache[op] = std::make_pair(can_inline, new_op);

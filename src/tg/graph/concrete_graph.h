@@ -3,6 +3,7 @@
 
 #include <tvm/ir/expr.h>
 #include <tvm/tir/expr_functor.h>
+#include <tvm/tir/stmt_functor.h>
 #include <tvm/tg/graph.h>
 
 #include "abstract_graph.h"

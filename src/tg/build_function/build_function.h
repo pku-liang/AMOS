@@ -65,8 +65,9 @@ class FunctionBuilder {
     const tvm::Target& target,
     const tvm::Target& target_host,
     const std::string& name,
-    const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-    const tvm::BuildConfig& config);
+    const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds
+    // const tvm::BuildConfig& config
+    );
 
   std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> >  build_for(
     tvm::tg::ScheduleResult sch_res,
@@ -74,7 +75,7 @@ class FunctionBuilder {
     const tvm::Target& target_host,
     const std::string& name,
     const std::unordered_map<tvm::te::Tensor, tvm::tir::Buffer>& binds,
-    const tvm::BuildConfig& config,
+    // const tvm::BuildConfig& config,
     int priority=0);
 
   // std::shared_future<std::pair<ScheduleResult, tvm::runtime::Module> > build_for_future(
