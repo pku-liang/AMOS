@@ -75,6 +75,24 @@ std::string CodeGenOpenCL::Finish() {
     decl_stream << "#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable\n"
                    "#pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable\n\n";
   }
+
+  if (enable_arm_dot_) {
+    decl_stream
+        << "#ifdef cl_arm_integer_dot_product_int8\n"
+           "#pragma OPENCL EXTENSION cl_arm_integer_dot_product_int8 : enable\n"
+           "#else\n"
+           "#error \"ARM int8 product not supported by OpenCL implementation on your device\"\n"
+           "#endif\n";
+
+    decl_stream
+        << "void arm_dot_vlen(__global char *A, __global char *B, __global char *C, int L) {\n"
+           "  int acc = 0;\n"
+           "  for (__global char *end = A + L; A != end; A += 4, B += 4)\n"
+           "    acc += arm_dot(*(__global char4 *)A, *(__global char4 *)B);\n"
+           "  *C = acc;\n"
+           "}\n";
+  }
+
   return CodeGenC::Finish();
 }
 
@@ -248,6 +266,8 @@ void CodeGenOpenCL::VisitExpr_(const CallNode* op, std::ostream& os) {
     // Enable atomics extension if used.
     if (func->value == "atomic_add") {
       enable_atomics_ = true;
+    } else if (std::string(func->value).find("arm_dot") == 0) {
+      enable_arm_dot_ = true;
     }
     CodeGenC::VisitExpr_(op, os);
   } else {
