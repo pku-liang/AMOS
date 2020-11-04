@@ -126,7 +126,15 @@ void CodeGenC::PrintFuncPrefix() { stream << "void"; }
 
 void CodeGenC::PrintFinalReturn() {}
 
-std::string CodeGenC::Finish() { return decl_stream.str() + stream.str(); }
+std::string CodeGenC::Finish() {
+  if (need_special_h_) {
+    CHECK(get_header) << "Can't get function auto_tensorize.get_header.";
+    String header = (*get_header)(String(special_target),
+                                  String(special_recipe_mnemonic));
+    decl_stream << std::string(header) << "\n";
+  }
+  return decl_stream.str() + stream.str();
+}
 
 void CodeGenC::PrintExpr(const PrimExpr& n, std::ostream& os) {  // NOLINT(*)
   if (print_ssa_form_) {
@@ -347,6 +355,40 @@ void CodeGenC::PrintStorageSync(const CallNode* op) {  // NOLINT(*)
 
 void CodeGenC::PrintStorageScope(const std::string& scope, std::ostream& os) {  // NOLINT(*)
   CHECK_EQ(scope, "global");
+}
+
+void CodeGenC::PrintSpeicalStorage(const VarNode* buffer,
+                                   const std::string& dtype,
+                                   const std::string& scope,
+                                   int32_t constant_size,
+                                   const std::string& vid,
+                                   std::ostream& os) {
+  CHECK(assemble_storage_scope)
+    << "Can't find function auto_tensorize.assemble_storage_scope.";
+  CHECK(special_storage_attributes_.count(buffer));
+  Map<String, String> attributes;
+  auto buffer_attributes = special_storage_attributes_.at(buffer);
+  int total = (int)buffer_attributes.size();
+  CHECK(total % 2 == 0) << "Key-value can't match.";
+  for (int i = 0; i < total; i += 2) {
+    attributes.Set(buffer_attributes[i], buffer_attributes[i + 1]);
+  }
+  CHECK(attributes.count(String("target")));
+  StringImm target = attributes.at(String("target"));
+  CHECK(attributes.count(String("recipe_mnemonic")));
+  StringImm recipe_mnemonic = attributes.at(String("recipe_mnemonic"));
+  need_special_h_ = true;
+  special_target = target->value;
+  special_recipe_mnemonic = recipe_mnemonic->value;
+  Array<PrimExpr> ret = (*assemble_storage_scope)(
+    target, recipe_mnemonic, StringImm(dtype), StringImm(scope),
+    constant_size, attributes);
+  CHECK(ret.size() == 2U);
+  const StringImmNode* storage_string = ret[0].as<StringImmNode>();
+  const IntImmNode* storage_size = ret[1].as<IntImmNode>();
+  CHECK(storage_string && storage_size);
+  os << std::string(storage_string->value)
+     << ' ' << vid << '[' << storage_size->value << "];\n";
 }
 
 void CodeGenC::PrintType(DataType t, std::ostream& os) {  // NOLINT(*)
@@ -645,6 +687,26 @@ void CodeGenC::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
       os << " != ";
       this->PrintExpr(op->args[0], os);
       os << ")";
+    } else if (op->op.same_as(builtin::capsule_compile())) {
+      CHECK(assemble_instruction) << "Can't get auto_tensorize.assemble_instructions.";
+      int arg_size = (int)op->args.size();
+      CHECK(arg_size >= 3);
+      const StringImmNode* target = op->args[0].as<StringImmNode>();
+      const StringImmNode* recipe_mnemonic = op->args[1].as<StringImmNode>();
+      const StringImmNode* capsule_mnemonic = op->args[2].as<StringImmNode>();
+      need_special_h_ = true;
+      special_target = target->value;
+      special_recipe_mnemonic = recipe_mnemonic->value;
+      Array<String> arg_strings;
+      for (int i = 3; i < arg_size; ++i) {
+        std::ostringstream oss;
+        this->PrintExpr(op->args[i], oss);
+        arg_strings.push_back(String(oss.str()));
+      }
+      String inst = (*assemble_instruction)(
+        String(target->value), String(recipe_mnemonic->value),
+        String(capsule_mnemonic->value), arg_strings);
+      os << inst;
     } else {
       LOG(FATAL) << "Unresolved call " << op->op;
     }
@@ -836,9 +898,18 @@ void CodeGenC::VisitStmt_(const AllocateNode* op) {
   CHECK_GT(constant_size, 0) << "Can only handle constant size stack allocation for now";
   const VarNode* buffer = op->buffer_var.as<VarNode>();
   std::string scope = alloc_storage_scope_.at(buffer);
-  PrintStorageScope(scope, stream);
-  PrintType(op->dtype, stream);
-  stream << ' ' << vid << '[' << constant_size << "];\n";
+  if (scope == "global") {
+    PrintStorageScope(scope, stream);
+    PrintType(op->dtype, stream);
+    stream << ' ' << vid << '[' << constant_size << "];\n";
+  } else {
+    // special scope brought by auto-tensorize
+    std::stringstream oss;
+    PrintType(op->dtype, oss);
+    std::string type_string = oss.str();
+    PrintSpeicalStorage(
+      buffer, type_string, scope, constant_size, vid, stream);
+  }
 
   RegisterHandleType(op->buffer_var.get(), op->dtype);
   this->PrintStmt(op->body);
@@ -864,6 +935,14 @@ void CodeGenC::VisitStmt_(const AttrStmtNode* op) {
     const StringImmNode* value = op->value.as<StringImmNode>();
     CHECK(value != nullptr);
     decl_stream << value->value;
+  } else {
+    const VarNode* v = op->node.as<VarNode>();
+    CHECK(v);
+    std::string attr_key = std::string(op->attr_key);
+    const StringImmNode* value = op->value.as<StringImmNode>();
+    CHECK(value != nullptr);
+    special_storage_attributes_[v].push_back(attr_key);
+    special_storage_attributes_[v].push_back(std::string(value->value));
   }
   this->PrintStmt(op->body);
 }

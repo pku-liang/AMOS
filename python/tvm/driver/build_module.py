@@ -266,6 +266,7 @@ def _build_for_device(input_mod, target, target_host):
             tvm.tir.transform.LowerDeviceStorageAccessInfo(),
             tvm.tir.transform.LowerCustomDatatypes(),
             tvm.tir.transform.LowerIntrin(),
+            tvm.tir.transform.RewriteMemoryScope(),
         ]
     )
     mod_dev = opt_device(mod_mixed)

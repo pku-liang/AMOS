@@ -418,6 +418,17 @@ def InferFragment():
     return _ffi_api.InferFragment()
 
 
+def RewriteMemoryScope():
+    """Rewrite memory scope for auto tensorization.
+
+    Returns
+    -------
+    fpass : tvm.transform.Pass
+        The result pass
+    """
+    return _ffi_api.RewriteMemoryScope()
+
+
 def LowerWarpMemory():
     """Lower warp memory access to low-level device related function calls.
 

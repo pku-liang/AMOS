@@ -549,6 +549,16 @@ TVM_DLL const Op& vectorlow();
  */
 TVM_DLL const Op& vectorcombine();
 
+/*!
+ * \brief intrinsic for automatic tensorization.
+ *
+ *  void capsule_compile(* to be filled *) {
+ *    // some comments
+ *    the function body;
+ *  }
+ */
+TVM_DLL const Op& capsule_compile();
+
 /*! \brief The kind of structure field info used in intrinsic */
 enum TVMStructFieldKind : int {
   // array head address

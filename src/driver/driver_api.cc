@@ -230,6 +230,7 @@ std::pair<IRModule, IRModule> SplitDevHostFuncs(IRModule mod_mixed, const Target
       tir::transform::LowerCustomDatatypes(),
       tir::transform::LowerIntrin(),
       tir::transform::LowerDeviceStorageAccessInfo(),
+      tir::transform::RewriteMemoryScope(),
   };
   auto opt_device = transform::Sequential(device_pass_list);
   auto mdevice = opt_device(mod_mixed);
