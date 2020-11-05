@@ -84,18 +84,29 @@ std::string CodeGenOpenCL::Finish() {
            "#error \"ARM int8 product not supported by OpenCL implementation on your device\"\n"
            "#endif\n";
 
-    decl_stream << "inline void "
-                   "arm_dot_vlen_local(char *A, char *B, char *C, int L) {\n"
-                   "  int acc = 0;\n"
-                   "  for (char *end = A + L; A != end; A += 4, B += 4)\n"
-                   "    acc += arm_dot(*(char4 *)A, *(char4 *)B);\n"
-                   "  *C += acc;\n"
+    decl_stream
+        << "#define DECL_ARM_DOT_VLEN(scope, prefix) "
+           "inline void "
+           "arm_dot_vlen_ ## scope (prefix char *A, prefix char *B, prefix char *C, int L) {"
+           "  int acc = 0;"
+           "  for (prefix char *end = A + L; A != end; A += 4, B += 4)"
+           "    acc += arm_dot(*(prefix char4 *)A, *(prefix char4 *)B);"
+           "  *C += acc;"
+           "}\n";
+
+    decl_stream << "#define DECL_ARM_DOT_RESET(scope, prefix) "
+                   "inline void "
+                   "arm_dot_reset_ ## scope (prefix char *C) {"
+                   "  *C = 0;"
                    "}\n";
 
-    decl_stream << "inline void "
-                   "arm_dot_reset_local(char *C) {\n"
-                   "  *C = 0;\n"
-                   "}\n";
+    for (auto scope : {"global", "shared", "local"}) {
+      std::ostringstream tmp_os;
+      PrintStorageScope(scope, tmp_os);
+      auto prefix = tmp_os.str();
+      decl_stream << "DECL_ARM_DOT_VLEN(" << scope << ", " << prefix << ")\n";
+      decl_stream << "DECL_ARM_DOT_RESET(" << scope << ", " << prefix << ")\n";
+    }
   }
 
   return CodeGenC::Finish();
