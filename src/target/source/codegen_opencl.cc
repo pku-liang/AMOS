@@ -84,13 +84,18 @@ std::string CodeGenOpenCL::Finish() {
            "#error \"ARM int8 product not supported by OpenCL implementation on your device\"\n"
            "#endif\n";
 
-    decl_stream
-        << "void arm_dot_vlen(__global char *A, __global char *B, __global char *C, int L) {\n"
-           "  int acc = 0;\n"
-           "  for (__global char *end = A + L; A != end; A += 4, B += 4)\n"
-           "    acc += arm_dot(*(__global char4 *)A, *(__global char4 *)B);\n"
-           "  *C = acc;\n"
-           "}\n";
+    decl_stream << "inline void "
+                   "arm_dot_vlen_local(char *A, char *B, char *C, int L) {\n"
+                   "  int acc = 0;\n"
+                   "  for (char *end = A + L; A != end; A += 4, B += 4)\n"
+                   "    acc += arm_dot(*(char4 *)A, *(char4 *)B);\n"
+                   "  *C += acc;\n"
+                   "}\n";
+
+    decl_stream << "inline void "
+                   "arm_dot_reset_local(char *C) {\n"
+                   "  *C = 0;\n"
+                   "}\n";
   }
 
   return CodeGenC::Finish();
