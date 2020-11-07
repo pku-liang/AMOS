@@ -20,6 +20,10 @@ pad_w = 1
 stride_h = 1
 stride_w = 1
 
+# data type
+dtype = "float16"
+out_dtype = "float32"
+
 
 def conv2d_nchw(N, C, H, W, K, R, S,
                 stride=1, padding=0, dilation=1,
@@ -50,8 +54,9 @@ def conv2d_nchw(N, C, H, W, K, R, S,
     Output = tvm.te.compute(
         [N, K, P, Q],
         lambda n, k, p, q: tvm.te.sum(
-            Padded[n, rc, p*stride + rr*dilation, q*stride + rr*dilation]
-            * Filter[k, rc, rr, rs],
+            (Padded[n, rc, p*stride + rr*dilation,
+                    q*stride + rr*dilation]
+                * Filter[k, rc, rr, rs]).astype(out_dtype),
             axis=[rr, rs, rc]
         ),
         name="Output"
@@ -102,9 +107,9 @@ def conv2d_nchwnc(N, C, H, W, K, R, S, NI, CI, KI,
         [NO, KO, P, Q, NI, KI],
         lambda n, k, p, q, nn, kk:
             tvm.te.sum(
-                Padded[n, rco, p*stride+rr*dilation,
-                       q*stride+rs*dilation, nn, rci]
-                * Filter[k, rco, rr, rs, kk, rci]
+                (Padded[n, rco, p*stride+rr*dilation,
+                        q*stride+rs*dilation, nn, rci]
+                    * Filter[k, rco, rr, rs, kk, rci]).astype(out_dtype)
             ),
         name="Output"
     )
@@ -218,7 +223,7 @@ def conv2d_intrin_wmma_load_matrix(strides_from, operand="Src",
 def conv2d_intrin_wmma_store_matrix(
         strides_dst, dtype="float16", out_dtype="float32", layout="NCHW"):
     layout = layout.upper()
-    assert dtype in ["int4", "int8", "float16"]
+    assert dtype in ["int32", "float32"]
     assert out_dtype in ["int32", "float32"]
     if layout == "NCHW":
         assert isinstance(strides_dst, list) and len(strides_dst) == 4
@@ -276,13 +281,14 @@ def conv2d_intrin_wmma_mma_sync(
     assert dtype in ["int4", "int8", "float16"]
     assert out_dtype in ["int32", "float32"]
     if layout == "NCHW":
-        A = tvm.te.placeholder((WMMA_M, WMMA_K), name="A", dtype=dtype)
-        B = tvm.te.placeholder((WMMA_N, WMMA_K), name="B", dtype=dtype)
+        A = tvm.te.placeholder((WMMA_M, WMMA_K, 1, 1), name="A", dtype=dtype)
+        B = tvm.te.placeholder((WMMA_N, WMMA_K, 1, 1), name="B", dtype=dtype)
         k = tvm.te.reduce_axis((0, WMMA_K), name="k")
         C = tvm.te.compute(
-            (WMMA_M, WMMA_N),
-            lambda ii, jj: tvm.te.sum(
-                A[ii, k].astype(out_dtype) * B[k, jj].astype(out_dtype),
+            (WMMA_M, WMMA_N, 1, 1),
+            lambda ii, jj, p, q: tvm.te.sum(
+                (A[ii, k, p, q]
+                    * B[jj, k, p, q]).astype(out_dtype),
                 axis=k),
             name="C",
         )
@@ -294,13 +300,13 @@ def conv2d_intrin_wmma_mma_sync(
         )
         bB = tvm.tir.decl_buffer(
             B.shape, B.dtype,
-            name="BA", scope="wmma.matrix_b",
+            name="BB", scope="wmma.matrix_b",
             data_alignment=WMMA_K * (tvm.runtime.DataType(dtype).bits // 8),
             offset_factor=WMMA_N * WMMA_K
         )
         bC = tvm.tir.decl_buffer(
-            A.shape, A.dtype,
-            name="BA", scope="wmma.accumulator",
+            C.shape, C.dtype,
+            name="BC", scope="wmma.accumulator",
             data_alignment=WMMA_N * (tvm.runtime.DataType(dtype).bits // 8),
             offset_factor=WMMA_M * WMMA_N
         )
@@ -346,7 +352,7 @@ def conv2d_intrin_wmma_mma_sync(
         raise RuntimeError("Unknown layout: %s" % layout)
 
 
-def schedule_conv2d_nchw(args):
+def schedule_conv2d_nchw(args, dtype="float16", out_dtype="float32"):
     Src, Filter, Output = args
     Padded = Output.op.input_tensors[0]
 
@@ -358,6 +364,9 @@ def schedule_conv2d_nchw(args):
     AL = sch.cache_read(AS, "wmma.matrix_a", [Output])
     WL = sch.cache_read(WS, "wmma.matrix_b", [Output])
     OL = sch.cache_write(Output, "wmma.accumulator")
+    # AL = sch.cache_read(AS, "local", [Output])
+    # WL = sch.cache_read(WS, "local", [Output])
+    # OL = sch.cache_write(Output, "local")
     OLL = sch.cache_read(OL, "local", [Output])
 
     NO = 4
@@ -370,8 +379,8 @@ def schedule_conv2d_nchw(args):
     KT = 4
     KI = WMMA_N
     assert (KO * KV * KT * KI) == out_channels
-    CO = 4
-    CV = 4
+    CO = 8
+    CV = 2
     CI = WMMA_K
     assert (CO * CV * CI) == in_channels
 
@@ -422,44 +431,49 @@ def schedule_conv2d_nchw(args):
     n, c, h, w = sch[AS].op.axis
     no, n = sch[AS].split(n, nparts=NT)
     nv, ni = sch[AS].split(n, nparts=KT)
-    co, ci = sch[AS].split(c, nparts=2)
-    sch[AS].reorder(h, w, no, co, nv, ni, ci)
+    co, ci = sch[AS].split(c, factor=32)
+    # sch[AS].reorder(h, w, no, co, nv, ni, ci)
     sch[AS].bind(no, thread_z)
     sch[AS].bind(nv, thread_y)
-    sch[AS].bind(co, thread_x)
+    sch[AS].bind(ci, thread_x)
 
     # schedule for Filter's shared memory
     sch[WS].compute_at(sch[OL], rs)
     k, c, r, s = sch[WS].op.axis
     ko, k = sch[WS].split(k, nparts=NT)
     kv, ki = sch[WS].split(k, nparts=KT)
-    co, ci = sch[WS].split(c, nparts=2)
-    sch[WS].reorder(r, s, ko, co, kv, ki, ci)
+    co, ci = sch[WS].split(c, factor=32)
+    # sch[WS].reorder(r, s, ko, co, kv, ki, ci)
     sch[WS].bind(ko, thread_z)
     sch[WS].bind(kv, thread_y)
-    sch[WS].bind(co, thread_x)
+    sch[WS].bind(ci, thread_x)
 
     # tensorize
     sch[AL].tensorize(sch[AL].op.axis[0], conv2d_intrin_wmma_load_matrix(
         [CV * CI, 1, 1, 1],
         operand="Src",
-        dtype="float16",
+        dtype=dtype,
         layout="NCHW"
     ))
     sch[WL].tensorize(sch[WL].op.axis[0], conv2d_intrin_wmma_load_matrix(
         [CV * CI, 1, 1, 1],
         operand="Filter",
-        dtype="float16",
+        dtype=dtype,
+        layout="NCHW"
+    ))
+    sch[OL].tensorize(sch[OL].op.axis[0], conv2d_intrin_wmma_mma_sync(
+        dtype=dtype,
+        out_dtype=out_dtype,
         layout="NCHW"
     ))
     sch[OLL].tensorize(sch[OLL].op.axis[0], conv2d_intrin_wmma_store_matrix(
         [KI, 1, 1, 1],
-        dtype="float32",
+        dtype=out_dtype,
+        out_dtype=out_dtype,
         layout="NCHW"
     ))
-    
 
-    print(tvm.lower(sch, args, simple_mode=True))
+    return sch
 
 
 def schedule_conv2d_nchwnc(args):
@@ -489,6 +503,20 @@ if __name__ == "__main__":
         stride=stride_h,
         padding=pad_h,
         dilation=1,
-        dtype="float16",
-        out_dtype="float32")
-    schedule_conv2d_nchw(args)
+        dtype=dtype,
+        out_dtype=out_dtype)
+    sch = schedule_conv2d_nchw(args, dtype=dtype, out_dtype=out_dtype)
+    print(tvm.lower(sch, args, simple_mode=True))
+    func = tvm.build(sch, args, target="cuda")
+    print(func.imported_modules[0].get_source())
+    ctx = tvm.gpu(0)
+    data_shape = [batch_size, in_channels, height, width]
+    kernel_shape = [out_channels, in_channels, kernel_h, kernel_w]
+    output_shape = [int(x) for x in output.shape]
+    a_np = np.random.uniform(size=data_shape).astype(dtype)
+    w_np = np.random.uniform(size=kernel_shape).astype(dtype)
+    a = tvm.nd.array(a_np, ctx)
+    w = tvm.nd.array(w_np, ctx)
+    c = tvm.nd.array(np.zeros(output_shape, dtype=out_dtype), ctx)
+    evaluator = func.time_evaluator(func.entry_name, ctx, number=10)
+    print("conv2d with tensor core: %f ms" % (evaluator(a, w, c).mean * 1e3))

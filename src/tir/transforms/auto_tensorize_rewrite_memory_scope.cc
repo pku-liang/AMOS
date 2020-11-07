@@ -73,10 +73,7 @@ class MemoryScopeGetter : public StmtExprVisitor {
       runtime::Registry::Get("auto_tensorize.query_capsule_memory_scope");
   std::unordered_map<const VarNode*, std::vector<MemoryScopeInfo>> memory_info;
 
-  MemoryScopeGetter() {
-      CHECK(query_capsule_memory_scope)
-        << "Can't find auto_tensorize.query_capsule_memory_scope.";
-  }
+  MemoryScopeGetter() {}
 
   void VisitStmt_(const AllocateNode* op) final {
     buffer_vars.insert(op->buffer_var.get());
@@ -87,6 +84,8 @@ class MemoryScopeGetter : public StmtExprVisitor {
     StmtExprVisitor::VisitExpr_(op);
 
     if (op->op.same_as(builtin::capsule_compile())) {
+      CHECK(query_capsule_memory_scope)
+        << "Can't find auto_tensorize.query_capsule_memory_scope.";
       CHECK_GE(op->args.size(), 3U);
       const StringImmNode* target = op->args[0].as<StringImmNode>();
       const StringImmNode* recipe_mnemonic = op->args[1].as<StringImmNode>();
