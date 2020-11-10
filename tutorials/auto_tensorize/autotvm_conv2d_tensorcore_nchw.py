@@ -454,8 +454,8 @@ def conv2d_nchw_tensorcore(N, H, W, CO, CI, KH, KW, stride, padding):
     sch[AS].bind(co, thread_y)
     sch[AS].bind(ti, thread_x)
     # if cfg["use_vectorize_AS"].val > 1:
-    #     _, ti = sch[AS].split(ti, factor=cfg["use_vectorize_AS"].val)
-    #     sch[AS].vectorize(ti)
+    _, ti = sch[AS].split(ti, factor=4)
+    sch[AS].vectorize(ti)
 
     # schedule WS
     sch[WS].compute_at(sch[OL], rr)
@@ -468,8 +468,8 @@ def conv2d_nchw_tensorcore(N, H, W, CO, CI, KH, KW, stride, padding):
     sch[WS].bind(co, thread_y)
     sch[WS].bind(ti, thread_x)
     # if cfg["use_vectorize_WS"].val > 1:
-    #     _, ti = sch[WS].split(ti, factor=cfg["use_vectorize_WS"].val)
-    #     sch[WS].vectorize(ti)
+    _, ti = sch[WS].split(ti, factor=4)
+    sch[WS].vectorize(ti)
 
     # tune unroll
     sch[ChangedOutput].pragma(
@@ -489,7 +489,7 @@ def conv2d_transform(N, K, P, Q):
     sch = te.create_schedule([Output.op])
 
     AS = sch.cache_read(args[0], "shared", [Output])
-    OL = sch.cache_write(Output, "local")
+    # OL = sch.cache_write(Output, "local")
 
     # space definition begin
     # first, Output schedule space
@@ -510,6 +510,7 @@ def conv2d_transform(N, K, P, Q):
     thread_vy = tvm.te.thread_axis("vthread")
     thread_x = tvm.te.thread_axis("threadIdx.x")
     thread_y = tvm.te.thread_axis("threadIdx.y")
+    thread_z = tvm.te.thread_axis("threadIdx.z")
 
     n, k, p, q = sch[Output].op.axis
     # kernel_scope, n = sch[Output].split(n, nparts=1)
@@ -534,7 +535,18 @@ def conv2d_transform(N, K, P, Q):
     #     cfg["unroll_explicit_output"].val)
 
     sch[AS].compute_at(sch[Output], tk)
-    sch[OL].compute_at(sch[Output], tk)
+    n, k, p, q, nn, ii = sch[AS].op.axis
+    no, ni = sch[AS].split(n, nparts=cfg["tile_n_output"].size[2])
+    ko, ki = sch[AS].split(k, nparts=cfg["tile_k_output"].size[2])
+    sch[AS].bind(no, thread_y)
+    sch[AS].bind(ko, thread_x)
+    t = sch[AS].fuse(nn, ii)
+    to, ti = sch[AS].split(t, nparts=WARP_SIZE)
+    sch[AS].bind(to, thread_z)
+    _, ti = sch[AS].split(ti, factor=4)
+    sch[AS].vectorize(ti)
+
+    # sch[OL].compute_at(sch[Output], tk)
 
     cfg.add_flop(N * K * P * Q)
 
@@ -571,11 +583,11 @@ measure_option = autotvm.measure_option(
 # During tuning we will also try many invalid configs, so you are expected to
 # see many error reports. As long as you can see non-zero GFLOPS, it is okay.
 tuner = autotvm.tuner.XGBTuner(task_conv)
-tuner.tune(
-    n_trial=2000,
-    measure_option=measure_option,
-    callbacks=[autotvm.callback.log_to_file(log_name)],
-)
+# tuner.tune(
+#     n_trial=1000,
+#     measure_option=measure_option,
+#     callbacks=[autotvm.callback.log_to_file(log_name)],
+# )
 
 
 task_transform = autotvm.task.create(
@@ -598,7 +610,7 @@ measure_option = autotvm.measure_option(
 # see many error reports. As long as you can see non-zero GFLOPS, it is okay.
 tuner = autotvm.tuner.XGBTuner(task_transform)
 # tuner.tune(
-#     n_trial=2000,
+#     n_trial=1000,
 #     measure_option=measure_option,
 #     callbacks=[autotvm.callback.log_to_file(log_transform_name)],
 # )
@@ -632,6 +644,7 @@ with autotvm.apply_history_best(log_name):
                 (height + 2 * pad_h - kernel_h) // stride_h + 1,
                 (width + 2 * pad_w - kernel_w) // stride_w + 1,
             )
+            print(tvm.lower(s, arg_bufs_trans, simple_mode=True))
             func_trans = tvm.build(s, arg_bufs_trans)
 
 # check correctness
