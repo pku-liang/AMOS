@@ -138,17 +138,17 @@ def conv2d_nchw_by_nchwnc(N, C, H, W, K, R, S,
         name="ChangedOutput"
     )
 
-    # Output = tvm.te.compute(
-    #     [N, K, P, Q],
-    #     lambda n, k, p, q: ChangedOutput[
-    #         (n + WMMA_M - 1) // WMMA_M,
-    #         (k + WMMA_N - 1) // WMMA_N,
-    #         p, q, n % WMMA_M, k % WMMA_N],
-    #     name="Output"
-    # )
+    Output = tvm.te.compute(
+        [N, K, P, Q],
+        lambda n, k, p, q: ChangedOutput[
+            (n + WMMA_M - 1) // WMMA_M,
+            (k + WMMA_N - 1) // WMMA_N,
+            p, q, n % WMMA_M, k % WMMA_N],
+        name="Output"
+    )
 
-    # return Output, [Src, Filter, Output]
-    return ChangedOutput, [Src, Filter, ChangedOutput]
+    return Output, [Src, Filter, Output]
+    # return ChangedOutput, [Src, Filter, ChangedOutput]
 
 
 def conv2d_nchwnc(N, C, H, W, K, R, S, NI, CI, KI,
@@ -434,7 +434,7 @@ def conv2d_intrin_wmma_store_matrix(
         )
         C = tvm.te.compute((WMMA_M, WMMA_N), lambda i, j: A[i, j], name="C")
         BC = tvm.tir.decl_buffer(
-            C.shape, C.dtype, scope="global",
+            C.shape, C.dtype, scope="shared",
             data_alignment=32, offset_factor=256)
 
         def intrin_func(ins, outs):
@@ -725,8 +725,8 @@ def schedule_conv2d_nchw(args, dtype="float16", out_dtype="float32"):
 
 def schedule_conv2d_nchw_by_nchwnc(args, dtype="float16", out_dtype="float32"):
     Src, Filter, Output = args
-    # ChangedOutput = Output.op.input_tensors[0]
-    ChangedSrc, ChangedFilter = Output.op.input_tensors
+    ChangedOutput = Output.op.input_tensors[0]
+    ChangedSrc, ChangedFilter = ChangedOutput.op.input_tensors
     Padded = ChangedSrc.op.input_tensors[0]
 
     sch = tvm.te.create_schedule(Output.op)
@@ -734,19 +734,20 @@ def schedule_conv2d_nchw_by_nchwnc(args, dtype="float16", out_dtype="float32"):
     sch[Padded].compute_inline()
     sch[ChangedSrc].compute_inline()
     sch[ChangedFilter].compute_inline()
-    AS = sch.cache_read(ChangedSrc, "shared", [Output])
-    WS = sch.cache_read(ChangedFilter, "shared", [Output])
-    AL = sch.cache_read(AS, "wmma.matrix_a", [Output])
-    WL = sch.cache_read(WS, "wmma.matrix_b", [Output])
-    # sch[ChangedOutput].set_scope("wmma.accumulator")
-    # OL = sch.cache_read(ChangedOutput, "global", [Output])
-    ChangedOutput = sch.cache_write(Output, "wmma.accumulator")
+    AS = sch.cache_read(ChangedSrc, "shared", [ChangedOutput])
+    WS = sch.cache_read(ChangedFilter, "shared", [ChangedOutput])
+    AL = sch.cache_read(AS, "wmma.matrix_a", [ChangedOutput])
+    WL = sch.cache_read(WS, "wmma.matrix_b", [ChangedOutput])
+    sch[ChangedOutput].set_scope("wmma.accumulator")
+    OL = sch.cache_read(ChangedOutput, "shared", [Output])
+    # OL = sch.cache_write(ChangedOutput, "wmma.accumulator")
+    # ChangedOutput = sch.cache_write(Output, "wmma.accumulator")
 
     # Define tiling sizes
     block_row_warps = 4
     block_col_warps = 2
-    warp_row_tiles = 2
-    warp_col_tiles = 4
+    warp_row_tiles = 1
+    warp_col_tiles = 1
     warp_size = 32
     chunk = 2
 
@@ -758,23 +759,11 @@ def schedule_conv2d_nchw_by_nchwnc(args, dtype="float16", out_dtype="float32"):
     thread_z = tvm.te.thread_axis("threadIdx.z")
 
     # schedule Output
-    # n, k, p, q = sch[Output].op.axis
-    # n, nnc = sch[Output].split(n, factor=WMMA_M)
-    # n, nci = sch[Output].split(n, factor=warp_row_tiles)
-    # block_i, nc = sch[Output].split(n, factor=block_row_warps)
-    # k, ook = sch[Output].split(k, factor=WMMA_N)
-    # k, kci = sch[Output].split(k, factor=warp_col_tiles)
-    # block_j, kc = sch[Output].split(k, factor=block_col_warps)
-    # block_k = sch[Output].fuse(p, q)
-    # sch[Output].reorder(block_k, block_i, block_j, nc, kc, nci, kci, nnc, ook)
-    # sch[Output].bind(block_k, block_z)
-    # sch[Output].bind(block_i, block_x)
-    # sch[Output].bind(block_j, block_y)
-    # sch[Output].bind(nc, thread_y)
-    # sch[Output].bind(kc, thread_z)
-    n, k, p, q, nnc, ook = sch[Output].op.axis
+    n, k, p, q = sch[Output].op.axis
+    n, nnc = sch[Output].split(n, factor=WMMA_M)
     n, nci = sch[Output].split(n, factor=warp_row_tiles)
     block_i, nc = sch[Output].split(n, factor=block_row_warps)
+    k, ook = sch[Output].split(k, factor=WMMA_N)
     k, kci = sch[Output].split(k, factor=warp_col_tiles)
     block_j, kc = sch[Output].split(k, factor=block_col_warps)
     block_k = sch[Output].fuse(p, q)
@@ -784,6 +773,22 @@ def schedule_conv2d_nchw_by_nchwnc(args, dtype="float16", out_dtype="float32"):
     sch[Output].bind(block_j, block_y)
     sch[Output].bind(nc, thread_y)
     sch[Output].bind(kc, thread_z)
+    # t = sch[Output].fuse(nnc, ook)
+    # to, ti = sch[Output].split(t, nparts=warp_size)
+    # sch[Output].bind(to, thread_x)
+    # sch[Output].vectorize(ti)
+    # n, k, p, q, nnc, ook = sch[Output].op.axis
+    # n, nci = sch[Output].split(n, factor=warp_row_tiles)
+    # block_i, nc = sch[Output].split(n, factor=block_row_warps)
+    # k, kci = sch[Output].split(k, factor=warp_col_tiles)
+    # block_j, kc = sch[Output].split(k, factor=block_col_warps)
+    # block_k = sch[Output].fuse(p, q)
+    # sch[Output].reorder(block_k, block_i, block_j, nc, kc, nci, kci, nnc, ook)
+    # sch[Output].bind(block_k, block_z)
+    # sch[Output].bind(block_i, block_x)
+    # sch[Output].bind(block_j, block_y)
+    # sch[Output].bind(nc, thread_y)
+    # sch[Output].bind(kc, thread_z)
 
     # schedule ChangedOutput
     sch[ChangedOutput].compute_at(sch[Output], kc)
@@ -792,7 +797,8 @@ def schedule_conv2d_nchw_by_nchwnc(args, dtype="float16", out_dtype="float32"):
     rcoo, rcoi = sch[ChangedOutput].split(rco, factor=chunk)
     sch[ChangedOutput].reorder(rcoo, rr, rcoi, rs, n, k, nn, kk, rci)
 
-    # sch[OL].compute_at(sch[Output], kc)
+    # schedule OL
+    sch[OL].compute_at(sch[Output], kc)
 
     # schedule fragment
     sch[AL].compute_at(sch[ChangedOutput], rs)
@@ -837,8 +843,8 @@ def schedule_conv2d_nchw_by_nchwnc(args, dtype="float16", out_dtype="float32"):
             dtype=dtype,
             out_dtype=out_dtype,
             layout="NCHW_NCHWnc"))
-    sch[Output].tensorize(
-        sch[Output].op.axis[-2], conv2d_intrin_wmma_store_matrix(
+    sch[OL].tensorize(
+        sch[OL].op.axis[-2], conv2d_intrin_wmma_store_matrix(
             [],
             dtype=out_dtype,
             out_dtype=out_dtype,
