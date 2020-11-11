@@ -161,7 +161,7 @@ class CompilationRecipe(object):
         """
         raise NotImplementedError()
 
-    def get_haeder(self):
+    def get_header(self):
         return ""
 
 
@@ -284,7 +284,7 @@ def assemble_storage_scope(target, recipe, dtype, scope,
     scope: tvm.tir.StringImm
         e.g., nvcuda::wmma::matrix_a
     constant_size: int
-        the total elemnets as an 1D array
+        the total elements as an 1D array
     attributes: dict of {tvm.runtime.String, tvm.runtime.String}
     ---
     Returns:
