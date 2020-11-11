@@ -2,6 +2,22 @@ import tvm
 import numpy as np
 
 
+"""
+This file is to explore how to use tensor core for convolution
+with different layouts (NCHW, NCHWnc...). We manually write scheudle
+to test if tensorize works. This file just provides some experience,
+but not good performance.
+---
+NCHW:
+1. directly use tensorize, write speical intrin: fail
+    NCHW_NCHWnc
+2. use layout transform: success
+    NCHW
+---
+NCHWnc:
+"""
+
+
 # The sizes of WMMA
 WMMA_M = 16
 WMMA_N = 16

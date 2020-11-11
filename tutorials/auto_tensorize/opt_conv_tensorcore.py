@@ -15,7 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-.. _opt-conv-tensorcore:
+This file is to demonstrate how to use capsule compile for
+tensorcore. Currently we only test NCHWnc layout convolution,
+which is modified from TVM official tutorial.
 """
 
 ################################################################

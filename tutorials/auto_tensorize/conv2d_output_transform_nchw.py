@@ -2,6 +2,23 @@ import tvm
 import numpy as np
 
 
+"""
+This file is to explore how to schedule output transform if we
+want to change a NCHWnc layout tensor to NCHW.
+We use autotvm for parameter tuning.
+---
+Methodology:
+    Directly change layout.
+---
+Transformation:
+    NCHWnc --> NCHW
+---
+Notes:
+    We have to use shared memory for input, otherwise we will
+    always get errors.
+"""
+
+
 # The sizes of WMMA
 WMMA_M = 16
 WMMA_N = 16

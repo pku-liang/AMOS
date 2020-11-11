@@ -15,6 +15,24 @@
 # specific language governing permissions and limitations
 # under the License.
 
+"""
+This file is to explore how to use tensor core for convolution
+with NCHW layout.
+We use autotvm for parameter tuning.
+---
+Methodology:
+    Change layout to adapt to tensor core.
+    Use dimension split.
+---
+Transformation:
+    NKPQ = NCHW * KCRS --> NKPQnk = NCHWnc * RSCKck
+---
+Notes:
+    The convolution will finally become two separate kernels,
+    one is tensor core convolution, the other is output transform.
+    They are scheduled separately.
+"""
+
 ######################################################################
 # Install dependencies
 # --------------------
