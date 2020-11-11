@@ -76,6 +76,8 @@ class TensorNode : public DataProducerNode {
   Operation op;
   /*! \brief the output index from source operation */
   int value_index{0};
+  /*! \brief whether requires grad */
+  bool requires_grad{false};
   /*! \brief constructor */
   TensorNode() {}
 
@@ -84,6 +86,7 @@ class TensorNode : public DataProducerNode {
     v->Visit("dtype", &dtype);
     v->Visit("op", &op);
     v->Visit("value_index", &value_index);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   Array<PrimExpr> GetShape() const final { return shape; }
@@ -102,7 +105,7 @@ class TensorNode : public DataProducerNode {
  */
 class Tensor : public DataProducer {
  public:
-  TVM_DLL Tensor(Array<PrimExpr> shape, DataType dtype, Operation op, int value_index);
+  TVM_DLL Tensor(Array<PrimExpr> shape, DataType dtype, Operation op, int value_index, bool requires_grad=true);
   /*!
    * \brief check if two tensors equals each other.
    * \param other tensor to be checked.

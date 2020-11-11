@@ -499,6 +499,7 @@ class ObjectRef {
  public:
   /*! \brief default constructor */
   ObjectRef() = default;
+  // virtual ~ObjectRef() {}
   /*! \brief Constructor from existing object ptr */
   explicit ObjectRef(ObjectPtr<Object> data) : data_(data) {}
   /*!

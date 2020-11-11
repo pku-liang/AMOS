@@ -572,7 +572,6 @@ void CodeGenCUDA::VisitStmt_(const AttrStmtNode* op) {
 
 void CodeGenCUDA::VisitStmt_(const AllocateNode* op) {
   CHECK(!is_zero(op->condition));
-  std::string vid = AllocVarID(op->buffer_var.get());
 
   this->PrintIndent();
   int32_t constant_size = op->constant_allocation_size();
@@ -593,10 +592,16 @@ void CodeGenCUDA::VisitStmt_(const AllocateNode* op) {
     }
     constant_size = GetWmmaFragmentSize(scope, buffer, constant_size);
     PrintWmmaScope(scope, op->dtype, buffer, stream);
-  } else {
+  } else if (scope == "global" || scope == "shared" || scope == "local") {
     PrintStorageScope(scope, stream);
     PrintType(op->dtype, stream);
+  } else {
+    // degrade to codegen c
+    CodeGenC::VisitStmt_(op);
+    return;
   }
+
+  std::string vid = AllocVarID(op->buffer_var.get());
   if ((op->dtype == DataType::Int(4) || op->dtype == DataType::UInt(4) ||
        op->dtype == DataType::Int(1)) &&
       scope == "shared") {

@@ -83,7 +83,8 @@ class StorageAllocaBaseVisitor : public ExprVisitor {
     std::vector<StorageToken*> fields;
     for (Expr field : op->fields) {
       auto tok = GetToken(field);
-      CHECK_EQ(tok.size(), 1U);
+      //In backward, the size can be bigger than 1
+      //CHECK_EQ(tok.size(), 1U);
       fields.push_back(tok[0]);
     }
     token_map_[op] = fields;

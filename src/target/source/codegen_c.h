@@ -174,6 +174,9 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
    */
   virtual void BindThreadIndex(const IterVar& iv);                             // NOLINT(*)
   virtual void PrintStorageScope(const std::string& scope, std::ostream& os);  // NOLINT(*)
+  virtual void PrintSpeicalStorage(
+    const VarNode* buffer, const std::string& dtype, const std::string& scope,
+    int32_t constant_size, const std::string& vid, std::ostream& os);  // NOLINT(*)
   virtual void PrintStorageSync(const CallNode* op);                           // NOLINT(*)
   // Binary vector op.
   virtual void PrintVecBinaryOp(const std::string& op, DataType op_type, PrimExpr lhs, PrimExpr rhs,
@@ -257,10 +260,19 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
   std::string restrict_keyword_{""};
   /*! \brief the storage scope of allocation */
   std::unordered_map<const VarNode*, std::string> alloc_storage_scope_;
+  /*! \brief the special storage attributes except for storage scope */
+  std::unordered_map<const VarNode*, std::vector<std::string>> special_storage_attributes_;
   /*! \brief the data type of allocated buffers */
   std::unordered_map<const VarNode*, DataType> handle_data_type_;
   /*! \brief Record of ops that have pre-defined global symbol. */
   OpAttrMap<TGlobalSymbol> op_attr_global_symbol_ = Op::GetAttrMap<TGlobalSymbol>("TGlobalSymbol");
+  /*! \brief Extern function for auto-tensorize memory scope. */
+  const tvm::runtime::PackedFunc* assemble_storage_scope =
+      runtime::Registry::Get("auto_tensorize.assemble_storage_scope");
+  const tvm::runtime::PackedFunc* get_header =
+      runtime::Registry::Get("auto_tensorize.get_header");
+  const tvm::runtime::PackedFunc* assemble_instruction =
+      runtime::Registry::Get("auto_tensorize.assemble_instruction");
   // cache commonly used ops
   const Op& builtin_call_extern_ = builtin::call_extern();
   const Op& builtin_call_pure_extern_ = builtin::call_pure_extern();
@@ -272,6 +284,10 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
   std::unordered_set<const VarNode*> volatile_buf_;
   // deep comparison of PrimExpr
   ExprDeepEqual deep_equal_;
+  // whether need special headers
+  bool need_special_h_{false};
+  std::string special_target{""};
+  std::string special_recipe_mnemonic{""};
   // binding of let variables. Enables duplicate var defs that map to same value
   std::unordered_map<Var, const LetNode*, ObjectPtrHash, ObjectPtrEqual> let_binding_;
 };

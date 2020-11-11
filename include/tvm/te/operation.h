@@ -61,6 +61,8 @@ class TVM_DLL OperationNode : public Object {
   std::string tag;
   /*! \brief additional attributes of the operation*/
   Map<String, ObjectRef> attrs;
+  /*! \brief whether this operation requires grad*/
+  bool requires_grad{false};
   // virtual destructor.
   virtual ~OperationNode() {}
   /*! \return number of outputs */
@@ -178,6 +180,7 @@ class PlaceholderOpNode : public OperationNode {
     v->Visit("attrs", &attrs);
     v->Visit("shape", &shape);
     v->Visit("dtype", &dtype);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   static constexpr const char* _type_key = "PlaceholderOp";
@@ -190,7 +193,7 @@ class PlaceholderOpNode : public OperationNode {
  */
 class PlaceholderOp : public Operation {
  public:
-  TVM_DLL PlaceholderOp(std::string name, Array<PrimExpr> shape, DataType dtype);
+  TVM_DLL PlaceholderOp(std::string name, Array<PrimExpr> shape, DataType dtype, bool requires_grad=true);
 
   TVM_DEFINE_OBJECT_REF_METHODS(PlaceholderOp, Operation, PlaceholderOpNode);
 };
@@ -248,6 +251,7 @@ class TVM_DLL ComputeOpNode : public BaseComputeOpNode {
     v->Visit("axis", &axis);
     v->Visit("reduce_axis", &reduce_axis);
     v->Visit("body", &body);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   static constexpr const char* _type_key = "ComputeOp";
@@ -261,7 +265,7 @@ class TVM_DLL ComputeOpNode : public BaseComputeOpNode {
 class ComputeOp : public Operation {
  public:
   TVM_DLL ComputeOp(std::string name, std::string tag, Map<String, ObjectRef> attrs,
-                    Array<IterVar> axis, Array<PrimExpr> body);
+                    Array<IterVar> axis, Array<PrimExpr> body, bool requires_grad=true);
 
   TVM_DEFINE_OBJECT_REF_METHODS(ComputeOp, Operation, ComputeOpNode);
 };
@@ -306,6 +310,7 @@ class TensorComputeOpNode : public BaseComputeOpNode {
     v->Visit("inputs", &inputs);
     v->Visit("input_regions", &input_regions);
     v->Visit("scalar_inputs", &scalar_inputs);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   static constexpr const char* _type_key = "TensorComputeOp";
@@ -384,6 +389,7 @@ class ScanOpNode : public OperationNode {
     v->Visit("state_placeholder", &state_placeholder);
     v->Visit("inputs", &inputs);
     v->Visit("spatial_axis_", &spatial_axis_);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   static constexpr const char* _type_key = "ScanOp";
@@ -445,6 +451,7 @@ class ExternOpNode : public OperationNode {
     v->Visit("input_placeholders", &input_placeholders);
     v->Visit("output_placeholders", &output_placeholders);
     v->Visit("body", &body);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   static constexpr const char* _type_key = "ExternOp";
@@ -510,6 +517,7 @@ class HybridOpNode : public OperationNode {
     v->Visit("outputs", &outputs);
     v->Visit("axis", &axis);
     v->Visit("body", &body);
+    v->Visit("requires_grad", &requires_grad);
   }
 
   static constexpr const char* _type_key = "HybridOp";
@@ -563,8 +571,10 @@ using FBatchCompute = std::function<Array<PrimExpr>(const Array<Var>& i)>;
  * \param dtype the data type of the tensor.
  * \param name The name of the Tensor.
  */
-TVM_DLL Tensor placeholder(Array<PrimExpr> shape, DataType dtype = DataType::Float(32),
-                           std::string name = "placeholder");
+TVM_DLL Tensor placeholder(Array<PrimExpr> shape,
+                           DataType dtype = DataType::Float(32),
+                           std::string name = "placeholder",
+                           bool requires_grad=true);
 
 /*!
  * \brief Construct a new tensor by computing over shape,
@@ -575,8 +585,12 @@ TVM_DLL Tensor placeholder(Array<PrimExpr> shape, DataType dtype = DataType::Flo
  * \param tag The optional tag of the tensor.
  * \param attrs Optional additional attributes of the compute.
  */
-TVM_DLL Tensor compute(Array<PrimExpr> shape, FCompute fcompute, std::string name = "tensor",
-                       std::string tag = "", Map<String, ObjectRef> attrs = {});
+TVM_DLL Tensor compute(Array<PrimExpr> shape,
+                       FCompute fcompute,
+                       std::string name = "tensor",
+                       std::string tag = "",
+                       Map<String, ObjectRef> attrs = {},
+                       bool requires_grad=true);
 
 /*!
  * \brief Construct a new tensor by computing over shape,
@@ -587,9 +601,12 @@ TVM_DLL Tensor compute(Array<PrimExpr> shape, FCompute fcompute, std::string nam
  * \param tag The optional tag of the tensor.
  * \param attrs Optional additional attributes of the compute.
  */
-TVM_DLL Array<Tensor> compute(Array<PrimExpr> shape, FBatchCompute fcompute,
-                              std::string name = "tensor", std::string tag = "",
-                              Map<String, ObjectRef> attrs = {});
+TVM_DLL Array<Tensor> compute(Array<PrimExpr> shape,
+                              FBatchCompute fcompute,
+                              std::string name = "tensor",
+                              std::string tag = "",
+                              Map<String, ObjectRef> attrs = {},
+                              bool requires_grad=true);
 
 /*!
  * \brief Construct new tensors by scan.
@@ -609,29 +626,41 @@ TVM_DLL Array<Tensor> scan(Array<Tensor> init, Array<Tensor> update,
                            Map<String, ObjectRef> attrs = {});
 
 // same as compute, specialized for different fcompute function
-inline Tensor compute(Array<PrimExpr> shape, std::function<PrimExpr(Var)> f,
-                      std::string name = "tensor", std::string tag = "",
-                      Map<String, ObjectRef> attrs = {}) {
-  FCompute fc = [f](const Array<Var>& i) { return f(i[0]); };
-  return compute(shape, fc, name, tag, attrs);
+inline Tensor compute(Array<PrimExpr> shape,
+                      std::function<PrimExpr(Var)> f,
+                      std::string name = "tensor",
+                      std::string tag = "",
+                      Map<String, ObjectRef> attrs = {},
+                      bool requires_grad=true) {
+  FCompute fc = [f] (const Array<Var>& i) { return f(i[0]); };
+  return compute(shape, fc, name, tag, attrs, requires_grad);
 }
-inline Tensor compute(Array<PrimExpr> shape, std::function<PrimExpr(Var, Var)> f,
-                      std::string name = "tensor", std::string tag = "",
-                      Map<String, ObjectRef> attrs = {}) {
-  FCompute fc = [f](const Array<Var>& i) { return f(i[0], i[1]); };
-  return compute(shape, fc, name, tag, attrs);
+inline Tensor compute(Array<PrimExpr> shape,
+                      std::function<PrimExpr(Var, Var)> f,
+                      std::string name = "tensor",
+                      std::string tag = "",
+                      Map<String, ObjectRef> attrs = {},
+                      bool requires_grad=true) {
+  FCompute fc = [f] (const Array<Var>& i) { return f(i[0], i[1]); };
+  return compute(shape, fc, name, tag, attrs, requires_grad);
 }
-inline Tensor compute(Array<PrimExpr> shape, std::function<PrimExpr(Var, Var, Var)> f,
-                      std::string name = "tensor", std::string tag = "",
-                      Map<String, ObjectRef> attrs = {}) {
-  FCompute fc = [f](const Array<Var>& i) { return f(i[0], i[1], i[2]); };
-  return compute(shape, fc, name, tag, attrs);
+inline Tensor compute(Array<PrimExpr> shape,
+                      std::function<PrimExpr(Var, Var, Var)> f,
+                      std::string name = "tensor",
+                      std::string tag = "",
+                      Map<String, ObjectRef> attrs = {},
+                      bool requires_grad=true) {
+  FCompute fc = [f] (const Array<Var>& i) { return f(i[0], i[1], i[2]); };
+  return  compute(shape, fc, name, tag, attrs, requires_grad);
 }
-inline Tensor compute(Array<PrimExpr> shape, std::function<PrimExpr(Var, Var, Var, Var)> f,
-                      std::string name = "tensor", std::string tag = "",
-                      Map<String, ObjectRef> attrs = {}) {
-  FCompute fc = [f](const Array<Var>& i) { return f(i[0], i[1], i[2], i[3]); };
-  return compute(shape, fc, name, tag, attrs);
+inline Tensor compute(Array<PrimExpr> shape,
+                      std::function<PrimExpr(Var, Var, Var, Var)> f,
+                      std::string name = "tensor",
+                      std::string tag = "",
+                      Map<String, ObjectRef> attrs = {},
+                      bool requires_grad=true) {
+  FCompute fc = [f] (const Array<Var>& i) { return f(i[0], i[1], i[2], i[3]); };
+  return compute(shape, fc, name, tag, attrs, requires_grad);
 }
 
 // inline function.

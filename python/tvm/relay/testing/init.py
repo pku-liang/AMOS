@@ -178,3 +178,41 @@ def create_workload(net, initializer=None, seed=0):
         initializer(k, init_value)
         params[k] = tvm.nd.array(init_value, ctx=tvm.cpu(0))
     return mod, params
+
+def create_workload_with_label(net, initializer=None, seed=0):
+    """Helper function to create benchmark image classification workload.
+    This function is exactly the same as above except k.startwith("data") instead of k == "data"
+    so that "label" can be named as data2 to get input.
+    Parameters
+    ----------
+    net : tvm.relay.Function
+        The selected function of the network.
+
+    initializer : Initializer
+        The initializer used
+
+    seed : int
+        The seed used in initialization.
+
+    Returns
+    -------
+    mod : tvm.IRModule
+        The created relay module.
+
+    params : dict of str to NDArray
+        The parameters.
+    """
+    mod = tvm.IRModule.from_expr(net)
+    mod = relay.transform.InferType()(mod)
+    shape_dict = {
+        v.name_hint : v.checked_type for v in mod["main"].params}
+    np.random.seed(seed)
+    initializer = initializer if initializer else Xavier()
+    params = {}
+    for k, v in shape_dict.items():
+        if k.startswith("data"):
+            continue
+        init_value = np.zeros(v.concrete_shape).astype(v.dtype)
+        initializer(k, init_value)
+        params[k] = tvm.nd.array(init_value, ctx=tvm.cpu(0))
+    return mod, params

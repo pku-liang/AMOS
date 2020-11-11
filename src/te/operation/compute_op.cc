@@ -88,7 +88,7 @@ Array<PrimExpr> BaseComputeOpNode::output_shape(size_t idx) const {
 }
 
 Tensor compute(Array<PrimExpr> shape, FCompute fcompute, std::string name, std::string tag,
-               Map<String, ObjectRef> attrs) {
+               Map<String, ObjectRef> attrs, bool requires_grad) {
   // compute dimension.
   size_t ndim = shape.size();
   std::vector<IterVar> axis;
@@ -100,11 +100,11 @@ Tensor compute(Array<PrimExpr> shape, FCompute fcompute, std::string name, std::
     args.push_back(axis.back()->var);
   }
 
-  return ComputeOp(name, tag, attrs, axis, {fcompute(args)}).output(0);
+  return ComputeOp(name, tag, attrs, axis, {fcompute(args)}, requires_grad).output(0);
 }
 
 Array<Tensor> compute(Array<PrimExpr> shape, FBatchCompute fcompute, std::string name,
-                      std::string tag, Map<String, ObjectRef> attrs) {
+                      std::string tag, Map<String, ObjectRef> attrs, bool requires_grad) {
   // compute dimension.
   size_t ndim = shape.size();
   std::vector<IterVar> axis;
@@ -116,7 +116,7 @@ Array<Tensor> compute(Array<PrimExpr> shape, FBatchCompute fcompute, std::string
     args.push_back(axis.back()->var);
   }
 
-  Operation op = ComputeOp(name, tag, attrs, axis, fcompute(args));
+  Operation op = ComputeOp(name, tag, attrs, axis, fcompute(args), requires_grad);
   Array<Tensor> outputs;
   for (int idx = 0; idx < op->num_outputs(); ++idx) {
     outputs.push_back(op.output(idx));
@@ -125,7 +125,7 @@ Array<Tensor> compute(Array<PrimExpr> shape, FBatchCompute fcompute, std::string
 }
 
 ComputeOp::ComputeOp(std::string name, std::string tag, Map<String, ObjectRef> attrs,
-                     Array<IterVar> axis, Array<PrimExpr> body) {
+                     Array<IterVar> axis, Array<PrimExpr> body, bool requires_grad) {
   if (!attrs.defined()) {
     attrs = Map<String, ObjectRef>();
   }
@@ -135,6 +135,7 @@ ComputeOp::ComputeOp(std::string name, std::string tag, Map<String, ObjectRef> a
   n->attrs = std::move(attrs);
   n->axis = std::move(axis);
   n->body = std::move(body);
+  n->requires_grad = std::move(requires_grad);
   if (n->body[0]->IsInstance<tir::ReduceNode>()) {
     const tir::ReduceNode* reduce = n->body[0].as<tir::ReduceNode>();
     n->reduce_axis = reduce->axis;
@@ -146,7 +147,7 @@ ComputeOp::ComputeOp(std::string name, std::string tag, Map<String, ObjectRef> a
 TVM_REGISTER_GLOBAL("te.ComputeOp")
     .set_body_typed([](std::string name, std::string tag, Map<String, ObjectRef> attrs,
                        Array<IterVar> axis,
-                       Array<PrimExpr> body) { return ComputeOp(name, tag, attrs, axis, body); });
+                       Array<PrimExpr> body, bool requires_grad) { return ComputeOp(name, tag, attrs, axis, body, requires_grad); });
 
 // The schedule related logics
 Array<Tensor> ComputeOpNode::InputTensors() const {

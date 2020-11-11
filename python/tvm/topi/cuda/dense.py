@@ -186,6 +186,7 @@ def _schedule_dense_large_batch(cfg, s, C):
 
     # Deal with op fusion
     if C.op not in s.outputs:
+        print("Remind me if one day this is visited, zsz...", __file__)
         s[C].compute_inline()
         C = s.outputs[0].output(0)
 

@@ -24,13 +24,14 @@ import tvm.tir._ffi_api
 
 from tvm._ffi.base import string_types
 from tvm.runtime import convert
+from tvm import tg
 
 from . import tag as _tag
 from . import tensor as _tensor
 from . import _ffi_api
 
 
-def placeholder(shape, dtype=None, name="placeholder"):
+def placeholder(shape, dtype=None, name="placeholder", requires_grad=True):
     """Construct an empty tensor object.
 
     Parameters
@@ -44,6 +45,9 @@ def placeholder(shape, dtype=None, name="placeholder"):
     name: str, optional
         The name hint of the tensor
 
+    requires_grad: bool, optional
+        Whether the output tensor requires grad
+
     Returns
     -------
     tensor: Tensor
@@ -51,10 +55,11 @@ def placeholder(shape, dtype=None, name="placeholder"):
     """
     shape = (shape,) if isinstance(shape, tvm.tir.PrimExpr) else shape
     dtype = "float32" if dtype is None else dtype
-    return _ffi_api.Placeholder(shape, dtype, name)
+    return _ffi_api.Placeholder(
+        shape, dtype, name, requires_grad)
 
 
-def compute(shape, fcompute, name="compute", tag="", attrs=None):
+def compute(shape, fcompute, name="compute", tag="", attrs=None, requires_grad=True, reorder=None):
     """Construct a new tensor by computing over the shape domain.
 
     The compute rule is result[axis] = fcompute(axis)
@@ -75,6 +80,12 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None):
 
     attrs: dict, optional
         The additional auxiliary attributes about the compute.
+
+    requires_grad: bool, optional
+        Whether the output tensor requires grad.
+
+    reorder: list or tuple
+        The order to feed dim vars
 
     Returns
     -------
@@ -102,28 +113,43 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None):
         raise ValueError("fcompute do not match dimension, ndim=%d" % ndim)
 
     dim_var = [tvm.tir.IterVar((0, s), x, 0) for x, s in zip(arg_names, shape[:out_ndim])]
+    # org_dim_var = [x for x in dim_var]
+    # if reorder is not None:
+    #     assert isinstance(reorder, (list, tuple)) and len(reorder) == out_ndim
+    #     for v, org_pos in zip(dim_var, reorder):
+    #         org_dim_var[org_pos] = v
     body = fcompute(*[v.var for v in dim_var])
 
+    reorder_dim_var = [x for x in dim_var]
+    if reorder is not None:
+        assert isinstance(reorder, (list, tuple)) and len(reorder) == out_ndim
+        new_dim_var = [dim_var[reorder[i]] for i in range(out_ndim)]
+        # print("check new dim var", new_dim_var)
+        reorder_dim_var = new_dim_var
+    
+    # we don't handle tensor intrin
+    # the reorder behavior is not guaranteed
     if isinstance(body, _tensor.TensorIntrinCall):
         for i, s in enumerate(shape[out_ndim:]):
             var_name = "ax" + str(i)
-            dim_var.append(tvm.tir.IterVar((0, s), var_name, 4))
-        op_node = _ffi_api.TensorComputeOp(
-            name,
-            tag,
-            dim_var,
-            body.reduce_axis,
-            out_ndim,
-            body.intrin,
-            body.tensors,
-            body.regions,
-            body.scalar_inputs,
-        )
+            reorder_dim_var.append(tvm.tir.IterVar((0, s), var_name, 4))
+        op_node = _ffi_api.TensorComputeOp(name,
+                                           tag,
+                                           reorder_dim_var,
+                                           body.reduce_axis,
+                                           out_ndim,
+                                           body.intrin,
+                                           body.tensors,
+                                           body.regions,
+                                           body.scalar_inputs)
     else:
         if not isinstance(body, (list, tuple)):
             body = [body]
+        if tag == "TG_AUTOGEN":
+            tag = tg.generate_tag_from_body(reorder_dim_var, body)
         body = convert(body)
-        op_node = _ffi_api.ComputeOp(name, tag, attrs, dim_var, body)
+        op_node = _ffi_api.ComputeOp(
+            name, tag, attrs, reorder_dim_var, body, requires_grad)
 
     num = op_node.num_outputs
     outputs = tuple(op_node.output(i) for i in range(num))
@@ -133,12 +159,8 @@ def compute(shape, fcompute, name="compute", tag="", attrs=None):
 def scan(init, update, state_placeholder, inputs=None, name="scan", tag="", attrs=None):
     """Construct new tensors by scanning over axis.
 
-    Parameters
-    ----------
-    init: Tensor or list of Tensor
         The initial condition of first init.shape[0] timestamps
 
-    update: Tensor or list of Tensor
         The update rule of the scan given by symbolic tensor.
 
     state_placeholder: Tensor or list of Tensor

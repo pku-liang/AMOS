@@ -277,6 +277,13 @@ TVM_DLL Pass LowerThreadAllreduce();
 TVM_DLL Pass InferFragment();
 
 /*!
+ * \brief Rewrite the memory scope for auto tensorization
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass RewriteMemoryScope();
+
+/*!
  * \brief Lower builtin intrinsics.
  * \return The pass.
  */

@@ -118,6 +118,11 @@ class Tensor(DataProducer, _expr.ExprOp):
         return self.__getattr__("shape")
 
     @property
+    def requires_grad(self):
+        """The requires_grad of the tensor."""
+        return self.__getattr__("requires_grad")
+
+    @property
     def name(self):
         op = self.op
         if op.num_outputs == 1:

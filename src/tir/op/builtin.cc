@@ -229,6 +229,10 @@ TIR_DEFINE_BUILTIN_FUNC(vectorlow).set_attr<TCallEffectKind>("TCallEffectKind",
 TIR_DEFINE_BUILTIN_FUNC(vectorcombine)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure));
 
+// currently no assumption about capsule_compile
+TIR_DEFINE_BUILTIN_FUNC(capsule_compile)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
 }  // namespace builtin
 }  // namespace tir
 }  // namespace tvm

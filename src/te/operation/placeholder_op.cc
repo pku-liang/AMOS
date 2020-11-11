@@ -50,22 +50,24 @@ Array<PrimExpr> PlaceholderOpNode::output_shape(size_t i) const {
   return shape;
 }
 
-PlaceholderOp::PlaceholderOp(std::string name, Array<PrimExpr> shape, DataType dtype) {
+PlaceholderOp::PlaceholderOp(std::string name, Array<PrimExpr> shape, DataType dtype, bool requires_grad) {
   auto n = make_object<PlaceholderOpNode>();
   n->name = name;
   n->shape = shape;
   n->dtype = dtype;
+  n->requires_grad = requires_grad;
   data_ = std::move(n);
 }
 
-Tensor placeholder(Array<PrimExpr> shape, DataType dtype, std::string name) {
-  return PlaceholderOp(name, shape, dtype).output(0);
+Tensor placeholder(Array<PrimExpr> shape, DataType dtype, std::string name, bool requires_grad) {
+  return PlaceholderOp(name, shape, dtype, requires_grad).output(0);
 }
 
 TVM_REGISTER_GLOBAL("te.Placeholder")
-    .set_body_typed([](Array<PrimExpr> shape, DataType dtype, std::string name) {
-      return placeholder(shape, dtype, name);
+    .set_body_typed([](Array<PrimExpr> shape, DataType dtype, std::string name, bool requires_grad) {
+      return placeholder(shape, dtype, name, requires_grad);
     });
+
 
 Array<Tensor> PlaceholderOpNode::InputTensors() const { return {}; }
 
