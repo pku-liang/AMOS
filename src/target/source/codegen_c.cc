@@ -357,7 +357,7 @@ void CodeGenC::PrintStorageScope(const std::string& scope, std::ostream& os) {  
   CHECK_EQ(scope, "global");
 }
 
-void CodeGenC::PrintSpeicalStorage(const VarNode* buffer,
+void CodeGenC::PrintSpecialStorage(const VarNode* buffer,
                                    const std::string& dtype,
                                    const std::string& scope,
                                    int32_t constant_size,
@@ -907,7 +907,7 @@ void CodeGenC::VisitStmt_(const AllocateNode* op) {
     std::stringstream oss;
     PrintType(op->dtype, oss);
     std::string type_string = oss.str();
-    PrintSpeicalStorage(
+    PrintSpecialStorage(
       buffer, type_string, scope, constant_size, vid, stream);
   }
 
