@@ -174,7 +174,7 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
    */
   virtual void BindThreadIndex(const IterVar& iv);                             // NOLINT(*)
   virtual void PrintStorageScope(const std::string& scope, std::ostream& os);  // NOLINT(*)
-  virtual void PrintSpeicalStorage(
+  virtual void PrintSpecialStorage(
     const VarNode* buffer, const std::string& dtype, const std::string& scope,
     int32_t constant_size, const std::string& vid, std::ostream& os);  // NOLINT(*)
   virtual void PrintStorageSync(const CallNode* op);                           // NOLINT(*)
