@@ -329,6 +329,39 @@ class WMMAMmaSync(CompilationCapsule):
         return inst
 
 
+@register_capsule("cuda", "nvcuda::wmma::bmma_sync")
+class WMMABmmaSync(CompilationCapsule):
+    def get_params_usage(self):
+        """
+        ---
+        Returns:
+        usage string: str
+            help to understand the instruction this capsule contains
+        """
+        usage = ("nvcuda::wmma::bmma_sync"
+                 "Args:",
+                 "---",
+                 "fragment: dst fragment",
+                 "fragment: a fragment",
+                 "fragment: b fragment",
+                 "fragment: c fragment",
+                 "satf: saturate to inf")
+        return usage
+
+    get_buffer_memory_scope_info = WMMAMmaSync.get_buffer_memory_scope_info
+
+    def get_instruction_prefix(self):
+        """
+        ---
+        Returns:
+        instruction prefix
+            e.g., nvcuda::wmma::load_matrix_sync
+        """
+        return "nvcuda::wmma::bmma_sync"
+
+    assemble_instruction = WMMAMmaSync.assemble_instruction
+
+
 @register_recipe("cuda", "wmma_fp16_fp32")
 class WMMAFp16Fp32(CompilationRecipe):
     def get_memory_scope_realize(
@@ -385,3 +418,25 @@ class WMMAFp16Fp32(CompilationRecipe):
 
     def get_header(self):
         return "#include <mma.h>\n"
+
+
+@register_recipe("cuda", "wmma_int4_int32")
+class WMMAInt4Int32(CompilationRecipe):
+    get_memory_scope_realize = WMMAFp16Fp32.get_memory_scope_realize
+    get_header = WMMAFp16Fp32.get_header
+
+    def get_special_dtype(self, dtype):
+        return {
+            "int4": "nvcuda::wmma::experimental::precision::s4",
+        }.get(dtype, "")
+
+
+@register_recipe("cuda", "wmma_bin1_int32")
+class WMMABin1Int32(CompilationRecipe):
+    get_memory_scope_realize = WMMAFp16Fp32.get_memory_scope_realize
+    get_header = WMMAFp16Fp32.get_header
+
+    def get_special_dtype(self, dtype):
+        return {
+            "int1": "nvcuda::wmma::experimental::precision::b1",
+        }.get(dtype, "")
