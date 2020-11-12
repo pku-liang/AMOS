@@ -446,6 +446,34 @@ void CodeGenC::PrintType(const Type& type, std::ostream& os) {  // NOLINT(*)
   }
 }
 
+void CodeGenC::PrintSpecialType(const VarNode* buffer, DataType t, std::ostream& os) {
+  CHECK(get_special_dtype) << "Can't find function auto_tensorize.get_special_dtype.";
+  
+  CHECK(special_storage_attributes_.count(buffer));
+  Map<String, String> attributes;
+  auto buffer_attributes = special_storage_attributes_.at(buffer);
+  int total = (int)buffer_attributes.size();
+  CHECK(total % 2 == 0) << "Key-value can't match.";
+  for (int i = 0; i < total; i += 2) {
+    attributes.Set(buffer_attributes[i], buffer_attributes[i + 1]);
+  }
+
+  CHECK(attributes.count(String("target")));
+  StringImm target = attributes.at(String("target"));
+  CHECK(attributes.count(String("recipe_mnemonic")));
+  StringImm recipe_mnemonic = attributes.at(String("recipe_mnemonic"));
+
+  StringImm orig_dtype = StringImm(runtime::DLDataType2String(DLDataType(t)));
+  std::string dtype_string = (*get_special_dtype)(target, recipe_mnemonic, orig_dtype);
+
+  if (dtype_string.empty()) {
+    // Fallback to PrintType
+    PrintType(t, os);
+  } else {
+    os << dtype_string;
+  }
+}
+
 inline void PrintConst(const IntImmNode* op, std::ostream& os, CodeGenC* p) {  // NOLINT(*)
   if (op->dtype == DataType::Int(32)) {
     std::ostringstream temp;
@@ -905,7 +933,8 @@ void CodeGenC::VisitStmt_(const AllocateNode* op) {
   } else {
     // special scope brought by auto-tensorize
     std::stringstream oss;
-    PrintType(op->dtype, oss);
+    // PrintType(op->dtype, oss);
+    PrintSpecialType(buffer, op->dtype, oss);
     std::string type_string = oss.str();
     PrintSpecialStorage(
       buffer, type_string, scope, constant_size, vid, stream);

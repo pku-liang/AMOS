@@ -40,6 +40,8 @@ pad_w = 1
 stride_h = 1
 stride_w = 1
 
+alignment = 32
+
 # TensorCore shape
 wmma_m = 8
 wmma_n = 8
@@ -160,9 +162,13 @@ def intrin_wmma_load_matrix(scope, operand):
     if operand == "Src":
         frag_shape = (wmma_m, wmma_k)
         frag_dtype = a_dtype
+        frag_layout = "nvcuda::wmma::row_major"
+        frag_ldm = wmma_k
     elif operand == "Filter":
         frag_shape = (wmma_k, wmma_n)
         frag_dtype = b_dtype
+        frag_layout = "nvcuda::wmma::col_major"
+        frag_ldm = wmma_k
     else:
         raise ValueError(f"Invalid argument: operand = {operand}")
 
@@ -170,10 +176,10 @@ def intrin_wmma_load_matrix(scope, operand):
 
     A = te.placeholder(frag_shape, name="A", dtype=frag_dtype)
     BA = tvm.tir.decl_buffer(
-        A.shape, A.dtype, scope="shared", data_alignment=32, offset_factor=offset_factor)
+        A.shape, A.dtype, scope="shared", data_alignment=alignment, offset_factor=offset_factor)
     C = te.compute(frag_shape, lambda i, j: A[i, j], name="C")
     BC = tvm.tir.decl_buffer(
-        C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=offset_factor)
+        C.shape, C.dtype, scope=scope, data_alignment=alignment, offset_factor=offset_factor)
 
     def intrin_func(ins, outs):
         ib = tvm.tir.ir_builder.create()
@@ -185,7 +191,7 @@ def intrin_wmma_load_matrix(scope, operand):
                 "handle",
                 "tir.capsule_compile",
                 "cuda",
-                "wmma_fp16_fp32",
+                "wmma_int4_int32",
                 "nvcuda::wmma::load_matrix_sync",
                 BC.data,
                 wmma_m,
@@ -193,8 +199,8 @@ def intrin_wmma_load_matrix(scope, operand):
                 wmma_k,
                 BC.elem_offset // offset_factor,
                 BA.access_ptr("r"),
-                frag_shape[1],
-                "nvcuda::wmma::row_major",
+                frag_ldm,
+                frag_layout,
             )
         )
         return ib.get()
@@ -214,15 +220,15 @@ def intrin_wmma_gemm():
     )
     BA = tvm.tir.decl_buffer(
         A.shape, A.dtype, name="BA", scope="local",
-        data_alignment=32, offset_factor=wmma_m * wmma_k
+        data_alignment=alignment, offset_factor=wmma_m * wmma_k
     )
     BB = tvm.tir.decl_buffer(
         B.shape, B.dtype, name="BB", scope="local",
-        data_alignment=32, offset_factor=wmma_k * wmma_n
+        data_alignment=alignment, offset_factor=wmma_k * wmma_n
     )
     BC = tvm.tir.decl_buffer(
         C.shape, C.dtype, name="BC", scope="local",
-        data_alignment=32, offset_factor=wmma_m * wmma_n
+        data_alignment=alignment, offset_factor=wmma_m * wmma_n
     )
 
     def intrin_func(ins, outs):
@@ -236,7 +242,7 @@ def intrin_wmma_gemm():
                     "handle",
                     "tir.capsule_compile",
                     "cuda",
-                    "wmma_fp16_fp32",
+                    "wmma_int4_int32",
                     "nvcuda::wmma::fill_fragment",
                     BC.data, 
                     wmma_m, wmma_n, wmma_k, 
@@ -253,7 +259,7 @@ def intrin_wmma_gemm():
                     "handle",
                     "tir.capsule_compile",
                     "cuda",
-                    "wmma_fp16_fp32",
+                    "wmma_int4_int32",
                     "nvcuda::wmma::mma_sync",
                     BC.data,
                     BC.elem_offset // (wmma_m * wmma_n),
@@ -277,11 +283,11 @@ def intrin_wmma_gemm():
 def intrin_wmma_store_matrix():
     A = te.placeholder((wmma_m, wmma_n), name="A", dtype=out_dtype)
     BA = tvm.tir.decl_buffer(
-        A.shape, A.dtype, scope="local", data_alignment=32, offset_factor=(wmma_m * wmma_n)
+        A.shape, A.dtype, scope="local", data_alignment=alignment, offset_factor=(wmma_m * wmma_n)
     )
     C = te.compute((wmma_m, wmma_n), lambda i, j: A[i, j], name="C")
     BC = tvm.tir.decl_buffer(
-        C.shape, C.dtype, scope="global", data_alignment=32, offset_factor=(wmma_m * wmma_n))
+        C.shape, C.dtype, scope="global", data_alignment=alignment, offset_factor=(wmma_m * wmma_n))
 
     def intrin_func(ins, outs):
         ib = tvm.tir.ir_builder.create()
@@ -292,7 +298,7 @@ def intrin_wmma_store_matrix():
                 "handle",
                 "tir.capsule_compile",
                 "cuda",
-                "wmma_fp16_fp32",
+                "wmma_int4_int32",
                 "nvcuda::wmma::store_matrix_sync",
                 BA.data,
                 wmma_m, 
@@ -444,11 +450,11 @@ if nvcc.have_tensorcore(ctx.compute_version):
     with tvm.transform.PassContext(config={"tir.UnrollLoop":
                                               {"auto_max_step": 16}}):
         func = tvm.build(s, [A, W, Conv], "cuda")
-    a_np = np.random.uniform(size=data_shape).astype(A.dtype)
-    w_np = np.random.uniform(size=kernel_shape).astype(W.dtype)
+    a_np = np.random.uniform(size=data_shape).astype("int8")
+    w_np = np.random.uniform(size=kernel_shape).astype("int8")
     a = tvm.nd.array(a_np, ctx)
     w = tvm.nd.array(w_np, ctx)
-    c = tvm.nd.array(np.zeros(output_shape, dtype=Conv.dtype), ctx)
+    c = tvm.nd.array(np.zeros(output_shape, dtype="int32"), ctx)
     evaluator = func.time_evaluator(func.entry_name, ctx, number=10)
     print("conv2d with tensor core: %f ms" % (evaluator(a, w, c).mean * 1e3))
 

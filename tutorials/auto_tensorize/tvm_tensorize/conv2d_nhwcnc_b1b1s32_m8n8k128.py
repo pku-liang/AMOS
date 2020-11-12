@@ -160,9 +160,13 @@ def intrin_wmma_load_matrix(scope, operand):
     if operand == "Src":
         frag_shape = (wmma_m, wmma_k)
         frag_dtype = a_dtype
+        frag_layout = "nvcuda::wmma::row_major"
+        frag_ldm = wmma_k
     elif operand == "Filter":
         frag_shape = (wmma_k, wmma_n)
         frag_dtype = b_dtype
+        frag_layout = "nvcuda::wmma::col_major"
+        frag_ldm = wmma_k
     else:
         raise ValueError(f"Invalid argument: operand = {operand}")
 
@@ -185,7 +189,7 @@ def intrin_wmma_load_matrix(scope, operand):
                 "handle",
                 "tir.capsule_compile",
                 "cuda",
-                "wmma_fp16_fp32",
+                "wmma_bin1_int32",
                 "nvcuda::wmma::load_matrix_sync",
                 BC.data,
                 wmma_m,
@@ -193,8 +197,8 @@ def intrin_wmma_load_matrix(scope, operand):
                 wmma_k,
                 BC.elem_offset // offset_factor,
                 BA.access_ptr("r"),
-                frag_shape[1],
-                "nvcuda::wmma::row_major",
+                frag_ldm,
+                frag_layout,
             )
         )
         return ib.get()
@@ -236,7 +240,7 @@ def intrin_wmma_gemm():
                     "handle",
                     "tir.capsule_compile",
                     "cuda",
-                    "wmma_fp16_fp32",
+                    "wmma_bin1_int32",
                     "nvcuda::wmma::fill_fragment",
                     BC.data, 
                     wmma_m, wmma_n, wmma_k, 
@@ -253,8 +257,8 @@ def intrin_wmma_gemm():
                     "handle",
                     "tir.capsule_compile",
                     "cuda",
-                    "wmma_fp16_fp32",
-                    "nvcuda::wmma::mma_sync",
+                    "wmma_bin1_int32",
+                    "nvcuda::wmma::bmma_sync",
                     BC.data,
                     BC.elem_offset // (wmma_m * wmma_n),
                     BA.data,
@@ -292,7 +296,7 @@ def intrin_wmma_store_matrix():
                 "handle",
                 "tir.capsule_compile",
                 "cuda",
-                "wmma_fp16_fp32",
+                "wmma_bin1_int32",
                 "nvcuda::wmma::store_matrix_sync",
                 BA.data,
                 wmma_m, 
@@ -444,8 +448,8 @@ if nvcc.have_tensorcore(ctx.compute_version):
     with tvm.transform.PassContext(config={"tir.UnrollLoop":
                                               {"auto_max_step": 16}}):
         func = tvm.build(s, [A, W, Conv], "cuda")
-    a_np = np.random.uniform(size=data_shape).astype(A.dtype)
-    w_np = np.random.uniform(size=kernel_shape).astype(W.dtype)
+    a_np = np.random.uniform(size=data_shape).astype("int8")
+    w_np = np.random.uniform(size=kernel_shape).astype("int8")
     a = tvm.nd.array(a_np, ctx)
     w = tvm.nd.array(w_np, ctx)
     c = tvm.nd.array(np.zeros(output_shape, dtype=Conv.dtype), ctx)

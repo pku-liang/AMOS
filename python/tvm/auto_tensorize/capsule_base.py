@@ -164,6 +164,9 @@ class CompilationRecipe(object):
     def get_header(self):
         return ""
 
+    def get_special_dtype(self, dtype: str) -> str:
+        return ""
+
 
 class CompilationRecipeRegisterPool(object):
     def __init__(self):
@@ -340,3 +343,11 @@ def assemble_instruction(target, recipe, capsule, arg_strings):
         str(target), str(capsule))(str(recipe))
     arg_strings = [str(x) for x in arg_strings]
     return recipe.assemble_instruction(arg_strings)
+
+
+@tvm._ffi.register_func("auto_tensorize.get_special_dtype")
+def get_special_dtype(target, recipe, dtype):
+    recipe = COMPILATION_RECIPE_REGISTER_POOL.find(
+        target.value, recipe.value)()
+    special_dtype = recipe.get_special_dtype(dtype.value)
+    return special_dtype
