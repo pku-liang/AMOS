@@ -131,4 +131,23 @@ class arm_dot_reset_local(CompilationCapsule):
     def get_header(self):
         return ""
 
-# Question: Do we really need CompilationRecipe for arm_dot?
+@register_recipe("opencl", "arm_dot_vlen_local_char4")
+class arm_dot_vlen_local_char4(CompilationRecipe):
+    def get_memory_scope_realize(
+            self, dtype, scope, constant_size, attributes):
+        """
+        dtype: str
+            e.g. int8
+        scope: str
+            e.g. local
+        constant_size: int
+            size of elements in the buffer
+        attributes: dict of {tvm.runtime.String, tvm.tir.StringImm}
+            other useful information, e.g., layout/leading dimension length
+        ---
+        """
+        return ["", constant_size]
+        
+
+    def get_header(self):
+        return ""

@@ -344,8 +344,8 @@ class WMMAFp16Fp32(CompilationRecipe):
             other useful information, e.g., layout/leading dimension length
         ---
         Returns:
-        memory scope realization: str
-            e.g. nvcuda::wmma::fragment<
+        memory scope realization: [str, int]
+            as for str, e.g. nvcuda::wmma::fragment<
                     nvcuda::wmma::matrix_a, 16, 16, 16,
                     nvcuda::wmma::row_major, 16>
         """
