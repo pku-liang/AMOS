@@ -149,11 +149,7 @@ void CodeGenC::PrintExpr(const PrimExpr& n, std::ostream& os) {  // NOLINT(*)
 void CodeGenC::PrintSSAAssign(const std::string& target, const std::string& src, DataType t) {
   PrintType(t, stream);
   stream << ' ' << target << " = ";
-  if (src.length() > 3 && src[0] == '(' && src[src.length() - 1] == ')') {
-    stream << src.substr(1, src.length() - 2);
-  } else {
-    stream << src;
-  }
+  stream << src;
   stream << ";\n";
 }
 
@@ -898,7 +894,7 @@ void CodeGenC::VisitStmt_(const AllocateNode* op) {
   CHECK_GT(constant_size, 0) << "Can only handle constant size stack allocation for now";
   const VarNode* buffer = op->buffer_var.as<VarNode>();
   std::string scope = alloc_storage_scope_.at(buffer);
-  if (scope == "global") {
+  if (scope == "global" || scope == "shared" || scope == "local") {
     PrintStorageScope(scope, stream);
     PrintType(op->dtype, stream);
     stream << ' ' << vid << '[' << constant_size << "];\n";

@@ -131,7 +131,7 @@ class arm_dot_reset_local(CompilationCapsule):
     def get_header(self):
         return ""
 
-@register_recipe("opencl", "arm_dot_vlen_local_char4")
+@register_recipe("opencl", "arm_dot_vlen_local")
 class arm_dot_vlen_local_char4(CompilationRecipe):
     def get_memory_scope_realize(
             self, dtype, scope, constant_size, attributes):

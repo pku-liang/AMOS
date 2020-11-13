@@ -65,7 +65,7 @@ class CodeGenOpenCL final : public CodeGenC {
   // Whether to enable atomics extension.
   bool enable_atomics_{false};
   // Whether to enable arm int8 dot product
-  bool enable_arm_dot_{false};
+  bool enable_arm_dot_{true};
 };
 
 }  // namespace codegen

@@ -3,10 +3,44 @@ from tvm.te import schedule
 import numpy as np
 import tvm
 from tvm import te
-from tvm.contrib import ndk
 from tempfile import mkstemp
 from tvm import rpc
+from tvm.contrib import ndk
 import os
+from tvm import tir
+from tvm import auto_tensorize
+
+
+def arm_dot_intrin(L, scope="local"):
+    assert L % 4 == 0
+    A = te.placeholder((L,), name="A", dtype="int8")
+    B = te.placeholder((L,), name="B", dtype="int8")
+    k = te.reduce_axis((0, L), name="k")
+    C = te.compute((1,), lambda _: te.sum(A[k] * B[k], axis=[k]), name="C")
+
+    Ab, Bb, Cb = [tir.decl_buffer(X.shape, X.dtype, offset_factor=1,
+                                  data_alignment=4, scope=scope,
+                                  strides=[te.var(f"{X.name}s")]) for X in (A, B, C)]
+
+    def intrin(inps, outs):
+        aa, bb = inps
+        cc, = outs
+
+        def _body():
+            builder = tir.ir_builder.create()
+            builder.emit(tir.call_intrin("handle", "tir.capsule_compile", "opencl", "arm_dot_vlen_local", f"arm_dot_vlen_{scope}",
+                                         aa.access_ptr("r"), bb.access_ptr("r"), cc.access_ptr("w"), L))
+            return builder.get()
+
+        def _reset():
+            builder = tir.ir_builder.create()
+            builder.emit(tir.call_intrin("handle", "tir.capsule_compile", "opencl",
+                                         "arm_dot_reset_local", f"arm_dot_reset_{scope}", cc.access_ptr("w")))
+            return builder.get()
+
+        return _body(), _reset(), _body()
+
+    return te.decl_tensor_intrin(C.op, intrin, binds={A: Ab, B: Bb, C: Cb})
 
 
 def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=3, pad=1, stride=1):
@@ -47,6 +81,8 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     s = te.create_schedule(B.op)
     s[Apad].compute_inline()  # compute Apad inline
 
+    def dump(): return print(tvm.lower(s, [A, W, B]))
+
     AA = s.cache_read(Apad, 'shared', [B])
     WW = s.cache_read(W, "shared", [B])
     AL = s.cache_read(AA, "local", [B])
@@ -60,7 +96,7 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     step = 8
     vthread = 2
 
-    # Get the thread indices
+    # Get the GPU thread indices
     block_x = te.thread_axis("blockIdx.x")
     block_y = te.thread_axis("blockIdx.y")
     block_z = te.thread_axis("blockIdx.z")
@@ -70,6 +106,7 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     thread_yz = te.thread_axis((0, vthread), "vthread", name="vy")
 
     # Split the workloads
+    # hi, wi, fi, ni = s[B].op.axis
     ni, hi, wi, fi = s[B].op.axis
     bz = s[B].fuse(hi, wi)
     by, fi = s[B].split(fi, factor=block_factor)
@@ -84,6 +121,7 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     txz, ni = s[B].split(ni, nparts=vthread)  # virtual thread split
     ty, fi = s[B].split(fi, nparts=num_thread)
     tx, ni = s[B].split(ni, nparts=num_thread)
+    # s[B].reorder(bz, by, bx, tyz, txz, ty, tx, fi, ni)
     s[B].reorder(bz, by, bx, tyz, txz, ty, tx, ni, fi)
 
     s[B].bind(tyz, thread_yz)
@@ -93,38 +131,53 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
 
     # Schedule BL local write
     s[BL].compute_at(s[B], tx)
+    # yi, xi, fi, ni = s[BL].op.axis
     ni, yi, xi, fi = s[BL].op.axis
     ry, rx, rc = s[BL].op.reduce_axis
     rco, rci = s[BL].split(rc, factor=step)
-    s[BL].reorder(ni, rco, ry, rx, rci, fi)
+    # s[BL].reorder(rco, ry, rx, rci, fi, ni)
+    s[BL].reorder(ni, rco, ry, rx, fi, rci)
+    # s[BL].reorder(ni, ry, rx, fi, rc)
 
     # Attach computation to iteration variables
     s[AA].compute_at(s[BL], rx)
     s[WW].compute_at(s[BL], rx)
-    s[AL].compute_at(s[BL], rci)
-    s[WL].compute_at(s[BL], rci)
+    # s[AL].compute_at(s[BL], rci)
+    # s[WL].compute_at(s[BL], rci)
+    s[AL].compute_at(s[BL], fi)
+    s[WL].compute_at(s[BL], fi)
 
     # Schedule for A's shared memory load
+    # yi, xi, ci, ni = s[AA].op.axis
     ni, yi, xi, ci = s[AA].op.axis
     ty, ci = s[AA].split(ci, nparts=num_thread)
     tx, ni = s[AA].split(ni, nparts=num_thread)
+    # _, ni = s[AA].split(ni, factor=4)
+    # s[AA].reorder(ty, tx, yi, xi, ci, ni)
     s[AA].reorder(tx, ni, yi, xi, ty, ci)
     s[AA].bind(ty, thread_y)
     s[AA].bind(tx, thread_x)
-    s[AA].vectorize(ni)  # vectorize memory load
+    # s[AA].vectorize(ni)  # vectorize memory load
 
     # Schedule for W's shared memory load
+    # yi, xi, ci, fi = s[WW].op.axis
     yi, xi, fi, ci = s[WW].op.axis
     ty, ci = s[WW].split(ci, nparts=num_thread)
     tx, fi = s[WW].split(fi, nparts=num_thread)
+    # _, fi = s[WW].split(fi, factor=4)
+    # s[WW].reorder(ty, tx, yi, xi, ci, fi)
     s[WW].reorder(ty, tx, yi, xi, fi, ci)
     s[WW].bind(ty, thread_y)
     s[WW].bind(tx, thread_x)
-    s[WW].vectorize(fi)  # vectorize memory load
+    # s[WW].vectorize(fi)  # vectorize memory load
+
+    s[BL].tensorize(rci, arm_dot_intrin(step))
+
+    # dump()
+    # return
 
     mod = tvm.lower(s, [A, W, B])
     print(mod)
-    func = tvm.build(mod, target="opencl")
 
     target = "opencl"
     target_host = 'llvm -mtriple=aarch64-linux-android'
@@ -168,9 +221,9 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     print("Evaluating...")
     func(a, w, b)
     evaluator = func.time_evaluator(func.entry_name, ctx, number=10)
-    print('Convolution without intrinstic: {} ms'.format(
+    print('Convolution with intrinstic: {} ms'.format(
         evaluator(a, w, b).mean * 1e3))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_conv_nhwc()
