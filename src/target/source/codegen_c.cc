@@ -361,6 +361,11 @@ void CodeGenC::PrintSpeicalStorage(const VarNode* buffer,
                                    std::ostream& os) {
   CHECK(assemble_storage_scope)
     << "Can't find function auto_tensorize.assemble_storage_scope.";
+  if (special_storage_attributes_.count(buffer) == 0) {
+    PrintStorageScope(scope, os); // fall back to normal
+    os << dtype << ' ' << vid << '[' << constant_size << "];\n";
+    return;
+  }
   CHECK(special_storage_attributes_.count(buffer));
   Map<String, String> attributes;
   auto buffer_attributes = special_storage_attributes_.at(buffer);
@@ -894,7 +899,7 @@ void CodeGenC::VisitStmt_(const AllocateNode* op) {
   CHECK_GT(constant_size, 0) << "Can only handle constant size stack allocation for now";
   const VarNode* buffer = op->buffer_var.as<VarNode>();
   std::string scope = alloc_storage_scope_.at(buffer);
-  if (scope == "global" || scope == "shared" || scope == "local") {
+  if (scope == "global") {
     PrintStorageScope(scope, stream);
     PrintType(op->dtype, stream);
     stream << ' ' << vid << '[' << constant_size << "];\n";
