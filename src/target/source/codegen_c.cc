@@ -359,13 +359,13 @@ void CodeGenC::PrintSpeicalStorage(const VarNode* buffer,
                                    int32_t constant_size,
                                    const std::string& vid,
                                    std::ostream& os) {
-  CHECK(assemble_storage_scope)
-    << "Can't find function auto_tensorize.assemble_storage_scope.";
-  if (special_storage_attributes_.count(buffer) == 0) {
+  if (!assemble_storage_scope || special_storage_attributes_.count(buffer) == 0) {
     PrintStorageScope(scope, os); // fall back to normal
     os << dtype << ' ' << vid << '[' << constant_size << "];\n";
     return;
   }
+  CHECK(assemble_storage_scope)
+    << "Can't find function auto_tensorize.assemble_storage_scope.";
   CHECK(special_storage_attributes_.count(buffer));
   Map<String, String> attributes;
   auto buffer_attributes = special_storage_attributes_.at(buffer);
