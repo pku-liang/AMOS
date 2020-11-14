@@ -3,8 +3,11 @@ import tvm._ffi
 
 
 class CompilationCapsule(object):
-    def __init__(self, recipe):
-        self.belong_recipe = recipe
+    def __init__(self, recipe_name):
+        """
+        recipe_name: the name of recipe
+        """
+        self.belong_recipe_name = recipe_name
 
     def get_params_usage(self):
         """
@@ -12,6 +15,38 @@ class CompilationCapsule(object):
         Returns:
         usage string: str
             help to understand the instruction this capsule contains
+        """
+        raise NotImplementedError()
+
+    def get_compute_expression(
+            self, input_shapes, output_shapes,
+            input_dtypes, output_dtypes, problem_size):
+        """
+        input_shapes: list of tuple/list of int
+        output_shapes: list of tuple/list of int
+        input_dtypes: list of str
+        output_dtypes: list of str
+        problem_size: list of int
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
+    def get_intrinsic(
+            self, input_shapes, output_shapes,
+            input_dtypes, output_dtypes, problem_size):
+        """
+        input_shapes: list of tuple/list of int
+        output_shapes: list of tuple/list of int
+        input_dtypes: list of str
+        output_dtypes: list of str
+        problem_size: list of int
+        ---
+        Returns:
+        intrin: tvm.te.TensorIntrin
         """
         raise NotImplementedError()
 
@@ -49,23 +84,64 @@ class CompilationCapsule(object):
         raise NotImplementedError()
 
 
+class MemoryCapsule(CompilationCapsule):
+    def get_compute_expression(
+            self, input_shapes, output_shapes,
+            input_dtypes, output_dtypes, problem_size, input_major=True):
+        """
+        input_shapes: list of tuple/list of int
+        output_shapes: list of tuple/list of int
+        input_dtypes: list of str
+        output_dtypes: list of str
+        problem_size: list of int
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert isinstance(input_shapes, (list, tuple))
+        assert isinstance(output_shapes, (list, tuple))
+        assert isinstance(input_dtypes, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert len(input_shapes) == 1
+        assert len(output_shapes) == 1
+        assert len(input_dtypes) == 1
+        assert len(output_dtypes) == 1
+        dtype = input_dtypes[0] if input_major else output_dtypes[0]
+        A = tvm.te.placeholder(
+            input_shapes[0], name="A", dtype=dtype)
+        B = tvm.te.compute(
+            output_shapes[0],
+            lambda *indices: A(*indices), name="B")
+        return [A], [B]
+
+
+class ComputeCapsule(CompilationCapsule):
+    pass
+
+
+class ElementwiseCapsule(ComputeCapsule):
+    pass
+
+
 class CompilationCapsuleRegisterPool(object):
     def __init__(self):
         self.registries = {}
 
-    def add(self, target, mnemonic, capsule, override=False):
+    def add(self, target, mnemonic, capsule_class, override=False):
         """
         target: str
             e.g. cuda
         mnemonic: str
             e.g. wmma::load_matrix_sync
-        capsule: the class of CompilationCapsule
+        capsule_class: the class of CompilationCapsule
         override: optional bool
             allow to replace existing capsule
         """
         assert isinstance(target, str)
         assert isinstance(mnemonic, str)
-        assert issubclass(capsule, CompilationCapsule)
+        assert issubclass(capsule_class, CompilationCapsule)
         if target not in self.registries:
             self.registries[target] = {}
         if mnemonic in self.registries[target]:
@@ -73,7 +149,7 @@ class CompilationCapsuleRegisterPool(object):
                 raise RuntimeError(
                     ("Try to add repeated capsules: target=%s, mnemonic=%s"
                         % (target, mnemonic)))
-        self.registries[target][mnemonic] = capsule
+        self.registries[target][mnemonic] = capsule_class
 
     def remove(self, target, mnemonic, allow_missing=False):
         """
@@ -129,17 +205,63 @@ COMPILATION_CAPSULE_REGISTER_POOL = CompilationCapsuleRegisterPool()
 def register_capsule(target, mnemonic, override=False):
     global COMPILATION_CAPSULE_REGISTER_POOL
 
-    def register(capsule):
+    def register(capsule_class):
         COMPILATION_CAPSULE_REGISTER_POOL.add(
-            target, mnemonic, capsule, override=override)
-        return capsule
+            target, mnemonic, capsule_class, override=override)
+        return capsule_class
     return register
 
 
 class CompilationRecipe(object):
     def __init__(self):
-        self.capsules = []
+        self.capsules = {}
         self.edges = {}
+        self.main_capsule_name = ""
+
+    def get_name(self):
+        raise NotImplementedError()
+
+    def valid(self):
+        """Check if the capsule dag is valid.
+           The main capsule should be ComputeCapsule.
+           Other capsules are either MemoryCapsule or ElemenwiseCapsule.
+        """
+        for k, v in self.capsules.items():
+            if k == self.main_capsule_name:
+                if not issubclass(v, ComputeCapsule):
+                    return False
+            else:
+                if not issubclass(v, (MemoryCapsule, ElementwiseCapsule)):
+                    return False
+        return True
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str
+        """
+        raise NotImplementedError()
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str
+        """
+        raise NotImplementedError()
+
+    def get_main_compute_expression(self, compute_key, shpae_key):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
+    def get_problem_size(self, shape_key):
+        """
+        ---
+        Returns:
+        input_shapes, output_shapes: list of list/tuple of int
+        """
+        raise NotImplementedError()
 
     def get_memory_scope_realize(
             self, dtype, scope, constant_size, attributes):
@@ -168,23 +290,147 @@ class CompilationRecipe(object):
         return ""
 
 
+def compute_like(inputs, outputs, new_inputs):
+    def compute_func(*indices):
+        ret = [tvm.tg.substitute_expression(
+                    expr,
+                    inputs, new_inputs,
+                    [x.var for x in outputs[0].op.axis], indices,
+                    outputs[0].op.reduce_axis, outputs[0].op.reduce_axis)
+                for expr in outputs[0].op.body]
+        if len(ret) == 1:
+            return ret[0]
+
+    tensors = tvm.te.compute(
+        outputs[0].shape,
+        compute_func,
+        name=outputs[0].op.name)
+    if not isinstance(tensors, (list, tuple)):
+        return [tensors]
+    return tensors
+
+
+def construct_dag(
+        recipe, compute_key, shape_key, input_tensors, output_tensors):
+    """Construct a compute dag by inserting stages 
+        according to inner capsule dag structures.
+    recipe: CompliationRecipe
+    compute_key: str
+    shape_key: str
+    input_tensors: list of tvm.te.Tensor
+    output_tensors: list of tvm.te.Tensor
+    ---
+    Returns:
+    new_outputs, compute_dag
+        new_outputs: list of str
+        compute_dag: dict of {str: list of tvm.te.Tensor}
+    """
+    assert isinstance(recipe, CompilationRecipe)
+
+    entry_point = output_tensors[0]
+    anchor_point = recipe.main_capsule_name
+
+    def check_valid_entry():
+        input_set = set()
+        for inp in input_tensors:
+            input_set.add(inp)
+        for inp in entry_point.op.input_tensors:
+            assert inp in input_set, "Can't construct dag from multi-stage entry."
+
+    check_valid_entry()  # check entry point is valid
+    assert recipe.valid()   # check recipe is valid
+    constructed_dag = {}
+    constructed_outputs = []
+    read_graph = recipe.edges
+    feed_graph = {}
+    for k, inputs in read_graph.items():
+        for inp in inputs:
+            if inp not in feed_graph:
+                feed_graph[inp] = []
+            feed_graph[inp].push_back(k)
+
+    ptr_inputs = 0
+
+    def construct_inputs(curr):
+        if curr in constructed_dag:
+            return
+        capsule_class = recipe.capsules[curr]
+        if curr not in read_graph:
+            if curr == recipe.main_capsule_name:
+                constructed_dag[curr] = output_tensors
+            else:
+                assert ptr_inputs < len(input_tensors)
+                inp = input_tensors[ptr_inputs]
+                constructed_dag[curr] = [inp]
+            return
+        new_inputs = []
+        for i, inp_capsule_name in read_graph[curr]:
+            construct_inputs(inp_capsule_name)
+            new_inputs.extend(constructed_dag[inp_capsule_name])
+        if curr == recipe.main_capsule_name:
+            constructed_dag[curr] = compute_like(
+                input_tensors,
+                output_tensors,
+                new_inputs
+            )
+        else:
+            capsule = capsule_class(recipe.get_name())
+            ins, outs = capsule.get_compute_expression(
+                [x.shape for x in new_inputs],
+                [x.shape for x in new_inputs],
+                [x.dtype for x in new_inputs]
+            )
+            constructed_dag[curr] = compute_like(
+                ins, outs, new_inputs
+            )
+    
+    def construct_outputs(curr):
+        capsule_class = recipe.capsules[curr]
+        if curr not in constructed_dag:
+            assert curr in read_graph
+            new_inputs = []
+            for inp in read_graph[curr]:
+                if inp not in constructed_dag:
+                    return
+                new_inputs.append(constructed_dag[inp])
+            capsule = capsule_class(recipe.get_name())
+            ins, outs = capsule.get_compute_expression(
+                [x.shape for x in new_inputs],
+                [x.shape for x in new_inputs],
+                [x.dtype for x in new_inputs]
+            )
+            constructed_dag[curr] = compute_like(
+                ins, outs, new_inputs
+            )
+        if curr not in feed_graph:
+            constructed_outputs.append(curr)
+            return
+        else:
+            for output in feed_graph[curr]:
+                construct_outputs(output)
+    
+    construct_inputs(anchor_point)
+    construct_outputs(anchor_point)
+    return constructed_outputs, constructed_dag
+
+
 class CompilationRecipeRegisterPool(object):
     def __init__(self):
         self.registries = {}
 
-    def add(self, target, mnemonic, recipe, override=False):
+    def add(self, target, mnemonic, recipe_class, override=False):
         """
         target: str
             e.g. cuda
         mnemonic: str
             e.g. wmma_fp16_fp32
-        recipe: the class of CompilationRecipe
+        recipe_class: the class of CompilationRecipe
         override: optional bool
             allow to replace existing recipe
         """
         assert isinstance(target, str)
         assert isinstance(mnemonic, str)
-        assert issubclass(recipe, CompilationRecipe)
+        assert issubclass(recipe_class, CompilationRecipe)
         if target not in self.registries:
             self.registries[target] = {}
         if mnemonic in self.registries[target]:
@@ -192,7 +438,7 @@ class CompilationRecipeRegisterPool(object):
                 raise RuntimeError(
                     ("Try to add repeated recipes: target=%s, mnemonic=%s"
                         % (target, mnemonic)))
-        self.registries[target][mnemonic] = recipe
+        self.registries[target][mnemonic] = recipe_class
 
     def remove(self, target, mnemonic, allow_missing=False):
         """
@@ -241,10 +487,10 @@ COMPILATION_RECIPE_REGISTER_POOL = CompilationRecipeRegisterPool()
 def register_recipe(target, mnemonic, override=False):
     global COMPILATION_RECIPE_REGISTER_POOL
 
-    def register(recipe):
+    def register(recipe_class):
         COMPILATION_RECIPE_REGISTER_POOL.add(
-            target, mnemonic, recipe, override=override)
-        return recipe
+            target, mnemonic, recipe_class, override=override)
+        return recipe_class
     return register
 
 
