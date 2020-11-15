@@ -35,6 +35,18 @@ class CompilationCapsule(object):
         """
         raise NotImplementedError()
 
+    def get_capsule_compute_expression_with_shape(
+        self, compute_key, shape_key, capsule_key,
+            input_shapes, output_shapes):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
     def get_intrinsic(
             self, input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size):
@@ -87,7 +99,7 @@ class CompilationCapsule(object):
 class MemoryCapsule(CompilationCapsule):
     def get_compute_expression(
             self, input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size, input_major=True):
+            input_dtypes, output_dtypes, problem_size):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -108,9 +120,8 @@ class MemoryCapsule(CompilationCapsule):
         assert len(output_shapes) == 1
         assert len(input_dtypes) == 1
         assert len(output_dtypes) == 1
-        dtype = input_dtypes[0] if input_major else output_dtypes[0]
         A = tvm.te.placeholder(
-            input_shapes[0], name="A", dtype=dtype)
+            input_shapes[0], name="A", dtype=input_dtypes[0])
         B = tvm.te.compute(
             output_shapes[0],
             lambda *indices: A(*indices), name="B")
@@ -255,11 +266,41 @@ class CompilationRecipe(object):
         """
         raise NotImplementedError()
 
+    def get_capsule_compute_expression(
+            self, compute_key, shape_key, capsule_key):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
+    def get_capsule_compute_expression_with_shape(
+            self, compute_key, shape_key, capsule_key):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
     def get_problem_size(self, shape_key):
         """
         ---
         Returns:
         input_shapes, output_shapes: list of list/tuple of int
+        """
+        raise NotImplementedError()
+
+    def get_intrinsic(self, capsule_key):
+        """
+        ---
+        Returns:
+        tvm.te.TensorIntrin
         """
         raise NotImplementedError()
 
@@ -293,11 +334,11 @@ class CompilationRecipe(object):
 def compute_like(inputs, outputs, new_inputs):
     def compute_func(*indices):
         ret = [tvm.tg.substitute_expression(
-                    expr,
-                    inputs, new_inputs,
-                    [x.var for x in outputs[0].op.axis], indices,
-                    outputs[0].op.reduce_axis, outputs[0].op.reduce_axis)
-                for expr in outputs[0].op.body]
+            expr,
+            inputs, new_inputs,
+            [x.var for x in outputs[0].op.axis], indices,
+            outputs[0].op.reduce_axis, outputs[0].op.reduce_axis)
+            for expr in outputs[0].op.body]
         if len(ret) == 1:
             return ret[0]
 
@@ -311,14 +352,18 @@ def compute_like(inputs, outputs, new_inputs):
 
 
 def construct_dag(
-        recipe, compute_key, shape_key, input_tensors, output_tensors):
+        recipe, compute_key, shape_key,
+            input_tensors, entry_tensors,
+            addition_inputs=None, output_tensors=None):
     """Construct a compute dag by inserting stages 
         according to inner capsule dag structures.
-    recipe: CompliationRecipe
+    recipe: CompilationRecipe
     compute_key: str
     shape_key: str
     input_tensors: list of tvm.te.Tensor
+    entry_tensors: list of tvm.te.Tensor
     output_tensors: list of tvm.te.Tensor
+        for elementwise operations
     ---
     Returns:
     new_outputs, compute_dag
@@ -327,8 +372,10 @@ def construct_dag(
     """
     assert isinstance(recipe, CompilationRecipe)
 
-    entry_point = output_tensors[0]
-    anchor_point = recipe.main_capsule_name
+    entry_point = entry_tensors[0]
+    anchor_point = recipe.anchor_point
+    addition_inputs = [] if addition_inputs is None else addition_inputs
+    output_tensors = entry_tensors if output_tensors is None else output_tensors
 
     def check_valid_entry():
         input_set = set()
@@ -339,79 +386,82 @@ def construct_dag(
 
     check_valid_entry()  # check entry point is valid
     assert recipe.valid()   # check recipe is valid
-    constructed_dag = {}
-    constructed_outputs = []
+    constructed_nodes = {}
+    constructed_input_names = []
+    constructed_output_names = []
     read_graph = recipe.edges
     feed_graph = {}
     for k, inputs in read_graph.items():
         for inp in inputs:
             if inp not in feed_graph:
                 feed_graph[inp] = []
-            feed_graph[inp].push_back(k)
+            feed_graph[inp].append(k)
 
     ptr_inputs = 0
 
     def construct_inputs(curr):
-        if curr in constructed_dag:
+        nonlocal ptr_inputs
+        if curr in constructed_nodes:
             return
-        capsule_class = recipe.capsules[curr]
         if curr not in read_graph:
             if curr == recipe.main_capsule_name:
-                constructed_dag[curr] = output_tensors
+                constructed_nodes[curr] = entry_tensors
             else:
-                assert ptr_inputs < len(input_tensors)
-                inp = input_tensors[ptr_inputs]
-                constructed_dag[curr] = [inp]
+                assert ptr_inputs < len(input_tensors + addition_inputs)
+                inp = (input_tensors + addition_inputs)[ptr_inputs]
+                ptr_inputs += 1
+                constructed_nodes[curr] = [inp]
+                constructed_input_names.append(curr)
             return
         new_inputs = []
-        for i, inp_capsule_name in read_graph[curr]:
+        for inp_capsule_name in read_graph[curr]:
             construct_inputs(inp_capsule_name)
-            new_inputs.extend(constructed_dag[inp_capsule_name])
+            new_inputs.extend(constructed_nodes[inp_capsule_name])
         if curr == recipe.main_capsule_name:
-            constructed_dag[curr] = compute_like(
+            constructed_nodes[curr] = compute_like(
                 input_tensors,
-                output_tensors,
+                entry_tensors,
                 new_inputs
             )
         else:
-            capsule = capsule_class(recipe.get_name())
-            ins, outs = capsule.get_compute_expression(
-                [x.shape for x in new_inputs],
-                [x.shape for x in new_inputs],
-                [x.dtype for x in new_inputs]
-            )
-            constructed_dag[curr] = compute_like(
+            ins, outs = \
+                recipe.get_capsule_compute_expression_with_shape(
+                    compute_key, shape_key, curr,
+                    [x.shape for x in new_inputs],
+                    [new_inputs[0].shape]
+                )
+            constructed_nodes[curr] = compute_like(
                 ins, outs, new_inputs
             )
-    
+
     def construct_outputs(curr):
-        capsule_class = recipe.capsules[curr]
-        if curr not in constructed_dag:
+        if curr not in constructed_nodes:
             assert curr in read_graph
             new_inputs = []
             for inp in read_graph[curr]:
-                if inp not in constructed_dag:
+                if inp not in constructed_nodes:
                     return
-                new_inputs.append(constructed_dag[inp])
-            capsule = capsule_class(recipe.get_name())
-            ins, outs = capsule.get_compute_expression(
-                [x.shape for x in new_inputs],
-                [x.shape for x in new_inputs],
-                [x.dtype for x in new_inputs]
-            )
-            constructed_dag[curr] = compute_like(
+                new_inputs.extend(constructed_nodes[inp])
+            ins, outs = \
+                recipe.get_capsule_compute_expression_with_shape(
+                    compute_key, shape_key, curr,
+                    [x.shape for x in new_inputs],
+                    [x.shape for x in new_inputs]
+                )
+            constructed_nodes[curr] = compute_like(
                 ins, outs, new_inputs
             )
         if curr not in feed_graph:
-            constructed_outputs.append(curr)
+            constructed_output_names.append(curr)
             return
         else:
             for output in feed_graph[curr]:
                 construct_outputs(output)
-    
+
     construct_inputs(anchor_point)
     construct_outputs(anchor_point)
-    return constructed_outputs, constructed_dag
+    return constructed_input_names, constructed_output_names, \
+        constructed_nodes, read_graph, feed_graph
 
 
 class CompilationRecipeRegisterPool(object):

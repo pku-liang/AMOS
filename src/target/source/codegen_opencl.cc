@@ -75,6 +75,40 @@ std::string CodeGenOpenCL::Finish() {
     decl_stream << "#pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable\n"
                    "#pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable\n\n";
   }
+
+  if (enable_arm_dot_) {
+    decl_stream
+        << "#ifdef cl_arm_integer_dot_product_int8\n"
+           "#pragma OPENCL EXTENSION cl_arm_integer_dot_product_int8 : enable\n"
+           "#else\n"
+           "#error \"ARM int8 product not supported by OpenCL implementation on your device\"\n"
+           "#endif\n";
+
+    decl_stream
+        << "#define DECL_ARM_DOT_VLEN(scope, prefix) "
+           "inline void "
+           "arm_dot_vlen_ ## scope (prefix char *A, prefix char *B, prefix char *C, int L) {"
+           "  int acc = 0;"
+           "  for (prefix char *end = A + L; A != end; A += 4, B += 4)"
+           "    acc += arm_dot(*(prefix char4 *)A, *(prefix char4 *)B);"
+           "  *C += acc;"
+           "}\n";
+
+    decl_stream << "#define DECL_ARM_DOT_RESET(scope, prefix) "
+                   "inline void "
+                   "arm_dot_reset_ ## scope (prefix char *C) {"
+                   "  *C = 0;"
+                   "}\n";
+
+    for (auto scope : {"global", "shared", "local"}) {
+      std::ostringstream tmp_os;
+      PrintStorageScope(scope, tmp_os);
+      auto prefix = tmp_os.str();
+      decl_stream << "DECL_ARM_DOT_VLEN(" << scope << ", " << prefix << ")\n";
+      decl_stream << "DECL_ARM_DOT_RESET(" << scope << ", " << prefix << ")\n";
+    }
+  }
+
   return CodeGenC::Finish();
 }
 
@@ -248,6 +282,8 @@ void CodeGenOpenCL::VisitExpr_(const CallNode* op, std::ostream& os) {
     // Enable atomics extension if used.
     if (func->value == "atomic_add") {
       enable_atomics_ = true;
+    } else if (std::string(func->value).find("arm_dot") == 0) {
+      enable_arm_dot_ = true;
     }
     CodeGenC::VisitExpr_(op, os);
   } else {

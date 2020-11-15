@@ -15,9 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-This file is to demonstrate how to use capsule compile for
-tensorcore. Currently we only test NCHWnc layout convolution,
-which is modified from TVM official tutorial.
+.. _opt-conv-tensorcore:
 """
 
 ################################################################
@@ -86,6 +84,7 @@ ii = te.reduce_axis((0, block_size), name="ii")
 # Algorithm
 A = te.placeholder(data_shape, name="A", dtype="float16")
 W = te.placeholder(kernel_shape, name="W", dtype="float16")
+bias = te.placeholder(output_shape, name="bias", dtype="float16")
 Apad = te.compute(
     (
         batch_size // block_size,
@@ -101,7 +100,7 @@ Apad = te.compute(
         A[n, h - pad_h, w - pad_w, i, nn, ii],
         tvm.tir.const(0.0, "float16"),
     ),
-    name="Apad",
+    name="Apad"
 )
 Conv = te.compute(
     output_shape,
@@ -111,10 +110,17 @@ Conv = te.compute(
         * W[kh, kw, ic, o, ii, oo].astype("float32"),
         axis=[ic, kh, kw, ii],
     ),
-    name="Conv",
+    name="Conv"
 )
 
-s = te.create_schedule(Conv.op)
+Output = te.compute(
+    output_shape,
+    lambda n, h, w, o, nn, oo:
+        Conv[n, h, w, o, nn, oo] + bias[n, h, w, o, nn, oo].astype("float32"),
+    name="Output"
+)
+
+s = te.create_schedule(Output.op)
 s[Apad].compute_inline()
 
 ###############################################################################
@@ -131,7 +137,13 @@ AS = s.cache_read(Apad, "shared", [Conv])
 WS = s.cache_read(W, "shared", [Conv])
 AF = s.cache_read(AS, "local", [Conv])
 WF = s.cache_read(WS, "local", [Conv])
-ConvF = s.cache_write(Conv, "local")
+# ConvF = s.cache_write(Conv, "local")
+ConvF = Conv
+s[ConvF].set_scope("local")
+Conv = Output
+biasF = s.cache_read(bias, "local", [Conv])
+OutputF = s.cache_write(Conv, "local")
+
 
 ###############################################################################
 # Define Tensor Intrinsic
@@ -150,11 +162,12 @@ ConvF = s.cache_write(Conv, "local")
 # three intrinsics.
 
 
-def intrin_wmma_load_matrix(scope):
+def intrin_wmma_load_matrix(scope, from_scope="shared",
+        dtype="float16", layout="nvcuda::wmma::row_major"):
     n = 16
-    A = te.placeholder((n, n), name="A", dtype="float16")
+    A = te.placeholder((n, n), name="A", dtype=dtype)
     BA = tvm.tir.decl_buffer(
-        A.shape, A.dtype, scope="shared", data_alignment=32, offset_factor=256)
+        A.shape, A.dtype, scope=from_scope, data_alignment=32, offset_factor=256)
     C = te.compute((n, n), lambda i, j: A[i, j], name="C")
     BC = tvm.tir.decl_buffer(
         C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=256)
@@ -178,7 +191,7 @@ def intrin_wmma_load_matrix(scope):
                 BC.elem_offset // 256,
                 BA.access_ptr("r"),
                 n,
-                "nvcuda::wmma::row_major",
+                layout,
             )
         )
         return ib.get()
@@ -292,6 +305,47 @@ def intrin_wmma_store_matrix():
     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, C: BC})
 
 
+def intrin_wmma_add_bias():
+    n = 16
+    A = te.placeholder((n, n), name="A", dtype="float32")
+    B = te.placeholder((n, n), name="B", dtype="float16")
+    BA = tvm.tir.decl_buffer(
+        A.shape, A.dtype, scope="local", data_alignment=32, offset_factor=256
+    )
+    BB = tvm.tir.decl_buffer(
+        B.shape, B.dtype, scope="local", data_alignment=32, offset_factor=256
+    )
+    C = te.compute((n, n), lambda i, j: A[i, j] + B[i, j].astype("float32"), name="C")
+    BC = tvm.tir.decl_buffer(
+        C.shape, C.dtype, scope="local", data_alignment=32, offset_factor=256
+    )
+
+    def intrin_func(ins, outs):
+        ib = tvm.tir.ir_builder.create()
+        BA = ins[0]
+        BB = ins[1]
+        BC = outs[0]
+        ib.emit(
+            tvm.tir.call_intrin(
+                "handle",
+                "tir.capsule_compile",
+                "cuda",
+                "wmma_fp16_fp32",
+                "nvcuda::wmma::add_bias",
+                BC.data,
+                BC.elem_offset // 256,
+                BA.data,
+                BA.elem_offset // 256,
+                BB.data,
+                BB.elem_offset // 256,
+                "nvcuda::wmma::mem_row_major",
+            )
+        )
+        return ib.get()
+
+    return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, B: BB, C: BC})
+
+
 ###############################################################################
 # Scheduling the Computation
 # --------------------------
@@ -360,6 +414,9 @@ n, h, w, o, nnf, oof = ConvF.op.axis
 ko, ki = s[ConvF].split(ic, factor=chunk)
 s[ConvF].reorder(ko, kh, ki, kw, n, o, nnf, oof, ii)
 
+s[biasF].compute_at(s[Conv], oc)
+s[OutputF].compute_at(s[Conv], oc)
+
 # Move intermediate computation into each output compute tile
 s[AF].compute_at(s[ConvF], kw)
 s[WF].compute_at(s[ConvF], kw)
@@ -397,14 +454,19 @@ s[WS].vectorize(ti)
 
 s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix("local"))
 s[WF].tensorize(WF.op.axis[-2], intrin_wmma_load_matrix("local"))
+s[biasF].tensorize(
+    biasF.op.axis[-2],
+    intrin_wmma_load_matrix("local", from_scope="global",
+    layout="nvcuda::wmma::mem_row_major"))
 s[Conv].tensorize(nnc, intrin_wmma_store_matrix())
+s[OutputF].tensorize(OutputF.op.axis[-2], intrin_wmma_add_bias())
 s[ConvF].tensorize(nnf, intrin_wmma_gemm())
-ir_module = tvm.lower(s, [A, W, Conv], simple_mode=True)
+ir_module = tvm.lower(s, [A, W, bias, Conv], simple_mode=True)
 print("Lowered IRModule")
 print(ir_module)
-# func = tvm.build(ir_module, target="cuda")
-# print("Source Code")
-# print(func.imported_modules[0].get_source())
+func = tvm.build(ir_module, target="cuda")
+print("Source Code")
+print(func.imported_modules[0].get_source())
 
 ###############################################################################
 # Generate CUDA Kernel
@@ -420,14 +482,17 @@ ctx = tvm.gpu(0)
 if nvcc.have_tensorcore(ctx.compute_version):
     with tvm.transform.PassContext(config={"tir.UnrollLoop":
                                               {"auto_max_step": 16}}):
-        func = tvm.build(s, [A, W, Conv], "cuda")
+        func = tvm.build(s, [A, W, bias, Conv], "cuda")
     a_np = np.random.uniform(size=data_shape).astype(A.dtype)
     w_np = np.random.uniform(size=kernel_shape).astype(W.dtype)
+    bias_np = np.random.uniform(size=output_shape).astype(bias.dtype)
     a = tvm.nd.array(a_np, ctx)
     w = tvm.nd.array(w_np, ctx)
+    bias = tvm.nd.array(bias_np, ctx)
     c = tvm.nd.array(np.zeros(output_shape, dtype=Conv.dtype), ctx)
     evaluator = func.time_evaluator(func.entry_name, ctx, number=10)
-    print("conv2d with tensor core: %f ms" % (evaluator(a, w, c).mean * 1e3))
+    print("conv2d with tensor core: %f ms" % (
+        evaluator(a, w, bias, c).mean * 1e3))
 
 ###############################################################################
 # Summary
