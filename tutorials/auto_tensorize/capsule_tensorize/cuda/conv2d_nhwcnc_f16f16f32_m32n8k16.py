@@ -15,9 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-This file is to demonstrate how to use capsule compile for
-tensorcore. Currently we only test NCHWnc layout convolution,
-which is modified from TVM official tutorial.
+.. _opt-conv-tensorcore:
 """
 
 ################################################################
@@ -30,11 +28,11 @@ from tvm.contrib import nvcc
 from tvm import auto_tensorize
 
 # The sizes of inputs and filters
-batch_size = 256
+batch_size = 128  # 256
 height = 14
 width = 14
-in_channels = 256
-out_channels = 512
+in_channels = 64  # 256
+out_channels = 32  # 512
 kernel_h = 3
 kernel_w = 3
 pad_h = 1
@@ -43,57 +41,59 @@ stride_h = 1
 stride_w = 1
 
 # TensorCore shape
-block_size = 16
+wmma_m = 32
+wmma_n = 8
+wmma_k = 16
 
-assert batch_size % block_size == 0
-assert in_channels % block_size == 0
-assert out_channels % block_size == 0
+assert batch_size % wmma_m == 0
+assert in_channels % wmma_k == 0
+assert out_channels % wmma_n == 0
 
 # Input feature map: (N, H, W, IC, n, ic)
 data_shape = (
-    batch_size // block_size,
+    batch_size // wmma_m,
     height,
     width,
-    in_channels // block_size,
-    block_size,
-    block_size,
+    in_channels // wmma_k,
+    wmma_m,
+    wmma_k,
 )
 # Kernel: (H, W, IC, OC, ic, oc)
 kernel_shape = (
     kernel_h,
     kernel_w,
-    in_channels // block_size,
-    out_channels // block_size,
-    block_size,
-    block_size,
+    in_channels // wmma_k,
+    out_channels // wmma_n,
+    wmma_k,
+    wmma_n,
 )
 # Output feature map: (N, H, W, OC, n, oc)
 output_shape = (
-    batch_size // block_size,
+    batch_size // wmma_m,
     height,
     width,
-    out_channels // block_size,
-    block_size,
-    block_size,
+    out_channels // wmma_n,
+    wmma_m,
+    wmma_n,
 )
 
 # Reduction axes
 kh = te.reduce_axis((0, kernel_h), name="kh")
 kw = te.reduce_axis((0, kernel_w), name="kw")
-ic = te.reduce_axis((0, in_channels // block_size), name="ic")
-ii = te.reduce_axis((0, block_size), name="ii")
+ic = te.reduce_axis((0, in_channels // wmma_k), name="ic")
+ii = te.reduce_axis((0, wmma_k), name="ii")
 
 # Algorithm
 A = te.placeholder(data_shape, name="A", dtype="float16")
 W = te.placeholder(kernel_shape, name="W", dtype="float16")
 Apad = te.compute(
     (
-        batch_size // block_size,
+        batch_size // wmma_m,
         height + 2 * pad_h,
         width + 2 * pad_w,
-        in_channels // block_size,
-        block_size,
-        block_size,
+        in_channels // wmma_k,
+        wmma_m,
+        wmma_k,
     ),
     lambda n, h, w, i, nn, ii: tvm.tir.if_then_else(
         tvm.tir.all(h >= pad_h, h - pad_h < height,
@@ -150,14 +150,22 @@ ConvF = s.cache_write(Conv, "local")
 # three intrinsics.
 
 
-def intrin_wmma_load_matrix(scope):
-    n = 16
-    A = te.placeholder((n, n), name="A", dtype="float16")
+def intrin_wmma_load_matrix(scope, operand):
+    if operand == "Src":
+        frag_shape = (wmma_m, wmma_k)
+    elif operand == "Filter":
+        frag_shape = (wmma_k, wmma_n)
+    else:
+        raise ValueError(f"Invalid argument: operand = {operand}")
+
+    offset_factor = frag_shape[0] * frag_shape[1]
+
+    A = te.placeholder(frag_shape, name="A", dtype="float16")
     BA = tvm.tir.decl_buffer(
-        A.shape, A.dtype, scope="shared", data_alignment=32, offset_factor=256)
-    C = te.compute((n, n), lambda i, j: A[i, j], name="C")
+        A.shape, A.dtype, scope="shared", data_alignment=32, offset_factor=offset_factor)
+    C = te.compute(frag_shape, lambda i, j: A[i, j], name="C")
     BC = tvm.tir.decl_buffer(
-        C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=256)
+        C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=offset_factor)
 
     def intrin_func(ins, outs):
         ib = tvm.tir.ir_builder.create()
@@ -172,12 +180,12 @@ def intrin_wmma_load_matrix(scope):
                 "wmma_fp16_fp32",
                 "nvcuda::wmma::load_matrix_sync",
                 BC.data,
-                n,
-                n,
-                n,
-                BC.elem_offset // 256,
+                wmma_m,
+                wmma_n,
+                wmma_k,
+                BC.elem_offset // offset_factor,
                 BA.access_ptr("r"),
-                n,
+                frag_shape[1],
                 "nvcuda::wmma::row_major",
             )
         )
@@ -187,27 +195,26 @@ def intrin_wmma_load_matrix(scope):
 
 
 def intrin_wmma_gemm():
-    n = 16
-    A = te.placeholder((n, n), name="A", dtype="float16")
-    B = te.placeholder((n, n), name="B", dtype="float16")
-    k = te.reduce_axis((0, n), name="k")
+    A = te.placeholder((wmma_m, wmma_k), name="A", dtype="float16")
+    B = te.placeholder((wmma_k, wmma_n), name="B", dtype="float16")
+    k = te.reduce_axis((0, wmma_k), name="k")
     C = te.compute(
-        (n, n),
+        (wmma_m, wmma_n),
         lambda ii, jj: te.sum(A[ii, k].astype(
             "float") * B[k, jj].astype("float"), axis=k),
         name="C",
     )
     BA = tvm.tir.decl_buffer(
         A.shape, A.dtype, name="BA", scope="local",
-        data_alignment=32, offset_factor=256
+        data_alignment=32, offset_factor=wmma_m * wmma_k
     )
     BB = tvm.tir.decl_buffer(
         B.shape, B.dtype, name="BB", scope="local",
-        data_alignment=32, offset_factor=256
+        data_alignment=32, offset_factor=wmma_k * wmma_n
     )
     BC = tvm.tir.decl_buffer(
         C.shape, C.dtype, name="BC", scope="local",
-        data_alignment=32, offset_factor=256
+        data_alignment=32, offset_factor=wmma_m * wmma_n
     )
 
     def intrin_func(ins, outs):
@@ -223,7 +230,10 @@ def intrin_wmma_gemm():
                     "cuda",
                     "wmma_fp16_fp32",
                     "nvcuda::wmma::fill_fragment",
-                    BC.data, n, n, n, BC.elem_offset // 256, 0.0
+                    BC.data, 
+                    wmma_m, wmma_n, wmma_k, 
+                    BC.elem_offset // (wmma_m * wmma_n), 
+                    0.0
                 )
             )
             return ib.get()
@@ -238,13 +248,13 @@ def intrin_wmma_gemm():
                     "wmma_fp16_fp32",
                     "nvcuda::wmma::mma_sync",
                     BC.data,
-                    BC.elem_offset // 256,
+                    BC.elem_offset // (wmma_m * wmma_n),
                     BA.data,
-                    BA.elem_offset // 256,
+                    BA.elem_offset // (wmma_m * wmma_k),
                     BB.data,
-                    BB.elem_offset // 256,
+                    BB.elem_offset // (wmma_k * wmma_n),
                     BC.data,
-                    BC.elem_offset // 256,
+                    BC.elem_offset // (wmma_m * wmma_n),
                     False
                 )
             )
@@ -257,14 +267,13 @@ def intrin_wmma_gemm():
 
 
 def intrin_wmma_store_matrix():
-    n = 16
-    A = te.placeholder((n, n), name="A", dtype="float32")
+    A = te.placeholder((wmma_m, wmma_n), name="A", dtype="float32")
     BA = tvm.tir.decl_buffer(
-        A.shape, A.dtype, scope="local", data_alignment=32, offset_factor=256
+        A.shape, A.dtype, scope="local", data_alignment=32, offset_factor=(wmma_m * wmma_n)
     )
-    C = te.compute((n, n), lambda i, j: A[i, j], name="C")
+    C = te.compute((wmma_m, wmma_n), lambda i, j: A[i, j], name="C")
     BC = tvm.tir.decl_buffer(
-        C.shape, C.dtype, scope="global", data_alignment=32, offset_factor=256)
+        C.shape, C.dtype, scope="global", data_alignment=32, offset_factor=(wmma_m * wmma_n))
 
     def intrin_func(ins, outs):
         ib = tvm.tir.ir_builder.create()
@@ -278,12 +287,12 @@ def intrin_wmma_store_matrix():
                 "wmma_fp16_fp32",
                 "nvcuda::wmma::store_matrix_sync",
                 BA.data,
-                n,
-                n,
-                n,
-                BA.elem_offset // 256,
+                wmma_m, 
+                wmma_n,
+                wmma_k,
+                BA.elem_offset // (wmma_m * wmma_n),
                 BC.access_ptr("w"),
-                n,
+                wmma_n,
                 "nvcuda::wmma::mem_row_major",
             )
         )
@@ -326,11 +335,18 @@ def intrin_wmma_store_matrix():
 #   The only thing we should do is to make sure all threads in a warp can
 #   call TensorCore at the same time.
 
+# 256x512x256
+# 32x32x32
+# 32x8x16
 # Define tiling sizes
+# block_row_warps = 4
+# block_col_warps = 2
 block_row_warps = 4
 block_col_warps = 2
+# warp_row_tiles = 2
+# warp_col_tiles = 4
 warp_row_tiles = 2
-warp_col_tiles = 4
+warp_col_tiles = 16
 warp_size = 32
 chunk = 2
 
@@ -394,9 +410,8 @@ s[WS].vectorize(ti)
 # The last phase is to lower the computation loops down to TensorCore hardware
 # intrinsics
 # by mapping the 2D convolution to tensor intrinsics
-
-s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix("local"))
-s[WF].tensorize(WF.op.axis[-2], intrin_wmma_load_matrix("local"))
+s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix("local", "Src"))
+s[WF].tensorize(WF.op.axis[-2], intrin_wmma_load_matrix("local", "Filter"))
 s[Conv].tensorize(nnc, intrin_wmma_store_matrix())
 s[ConvF].tensorize(nnf, intrin_wmma_gemm())
 ir_module = tvm.lower(s, [A, W, Conv], simple_mode=True)

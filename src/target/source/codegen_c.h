@@ -168,13 +168,14 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
    * \param os The stream to print the ctype into
    */
   virtual void PrintType(const Type& type, std::ostream& os);  // NOLINT(*)
+  virtual void PrintSpecialType(const VarNode* buffer, DataType t, std::ostream& os); 
   /*!
    * \brief Print expr representing the thread tag
    * \param IterVar iv The thread index to be binded;
    */
   virtual void BindThreadIndex(const IterVar& iv);                             // NOLINT(*)
   virtual void PrintStorageScope(const std::string& scope, std::ostream& os);  // NOLINT(*)
-  virtual void PrintSpeicalStorage(
+  virtual void PrintSpecialStorage(
     const VarNode* buffer, const std::string& dtype, const std::string& scope,
     int32_t constant_size, const std::string& vid, std::ostream& os);  // NOLINT(*)
   virtual void PrintStorageSync(const CallNode* op);                           // NOLINT(*)
@@ -273,6 +274,8 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
       runtime::Registry::Get("auto_tensorize.get_header");
   const tvm::runtime::PackedFunc* assemble_instruction =
       runtime::Registry::Get("auto_tensorize.assemble_instruction");
+  const tvm::runtime::PackedFunc* get_special_dtype =
+      runtime::Registry::Get("auto_tensorize.get_special_dtype");
   // cache commonly used ops
   const Op& builtin_call_extern_ = builtin::call_extern();
   const Op& builtin_call_pure_extern_ = builtin::call_pure_extern();

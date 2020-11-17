@@ -692,4 +692,5 @@ evaluator_trans = func_trans.time_evaluator(
     func_trans.entry_name, ctx, number=400)
 time_conv = evaluator_conv(a_tvm, w_tvm, output_tvm).mean * 1e3
 time_trans = evaluator_trans(output_tvm, c_tvm).mean * 1e3
-print("Ideal time cost of this operator: %f" % (time_conv + time_trans))
+# print("Ideal time cost of this operator: %f" % (time_conv + time_trans))
+print("Ideal time cost of this operator: %f" % (time_conv))

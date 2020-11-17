@@ -62,7 +62,8 @@ class MemoryScopeGetter : public StmtExprVisitor {
         if (raw.find(kv.first) == raw.end()) {
           raw.Set(kv.first, kv.second);
         } else {
-          CHECK(raw.at(kv.first)->value == kv.second->value);
+          CHECK(raw.at(kv.first)->value == kv.second->value)
+            << "key=" << kv.first << ": " << raw.at(kv.first)->value << " vs. " << kv.second->value;
         }
       }
       return *this;

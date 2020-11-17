@@ -353,7 +353,7 @@ void CodeGenC::PrintStorageScope(const std::string& scope, std::ostream& os) {  
   CHECK_EQ(scope, "global");
 }
 
-void CodeGenC::PrintSpeicalStorage(const VarNode* buffer,
+void CodeGenC::PrintSpecialStorage(const VarNode* buffer,
                                    const std::string& dtype,
                                    const std::string& scope,
                                    int32_t constant_size,
@@ -444,6 +444,34 @@ void CodeGenC::PrintType(const Type& type, std::ostream& os) {  // NOLINT(*)
     os << "void";
   } else {
     LOG(FATAL) << "Type " << type << " does not have a corresponding C Type";
+  }
+}
+
+void CodeGenC::PrintSpecialType(const VarNode* buffer, DataType t, std::ostream& os) {
+  CHECK(get_special_dtype) << "Can't find function auto_tensorize.get_special_dtype.";
+  
+  CHECK(special_storage_attributes_.count(buffer));
+  Map<String, String> attributes;
+  auto buffer_attributes = special_storage_attributes_.at(buffer);
+  int total = (int)buffer_attributes.size();
+  CHECK(total % 2 == 0) << "Key-value can't match.";
+  for (int i = 0; i < total; i += 2) {
+    attributes.Set(buffer_attributes[i], buffer_attributes[i + 1]);
+  }
+
+  CHECK(attributes.count(String("target")));
+  StringImm target = attributes.at(String("target"));
+  CHECK(attributes.count(String("recipe_mnemonic")));
+  StringImm recipe_mnemonic = attributes.at(String("recipe_mnemonic"));
+
+  StringImm orig_dtype = StringImm(runtime::DLDataType2String(DLDataType(t)));
+  std::string dtype_string = (*get_special_dtype)(target, recipe_mnemonic, orig_dtype);
+
+  if (dtype_string.empty()) {
+    // Fallback to PrintType
+    PrintType(t, os);
+  } else {
+    os << dtype_string;
   }
 }
 
@@ -906,9 +934,10 @@ void CodeGenC::VisitStmt_(const AllocateNode* op) {
   } else {
     // special scope brought by auto-tensorize
     std::stringstream oss;
-    PrintType(op->dtype, oss);
+    // PrintType(op->dtype, oss);
+    PrintSpecialType(buffer, op->dtype, oss);
     std::string type_string = oss.str();
-    PrintSpeicalStorage(
+    PrintSpecialStorage(
       buffer, type_string, scope, constant_size, vid, stream);
   }
 

@@ -9,7 +9,7 @@ to test if tensorize works. This file just provides some experience,
 but not good performance.
 ---
 NCHW:
-1. directly use tensorize, write speical intrin: fail
+1. directly use tensorize, write special intrin: fail
     NCHW_NCHWnc
 2. use layout transform: success
     NCHW

@@ -1,0 +1,185 @@
+#[version = "0.0.5"]
+primfn(A_1: handle, W_1: handle, B_1: handle) -> ()
+  attr = {"global_symbol": "main", "tir.noalias": True}
+  buffers = {B: Buffer(B_2: Pointer(int8), int8, [1, 14, 14, 512], []),
+             A: Buffer(A_2: Pointer(int8), int8, [1, 14, 14, 256], []),
+             W: Buffer(W_2: Pointer(int8), int8, [3, 3, 512, 256], [])}
+  buffer_map = {A_1: A, W_1: W, B_1: B} {
+  attr [IterVar(blockIdx.z: int32, (nullptr), "ThreadIndex", "blockIdx.z")] "thread_extent" = 196;
+  attr [B.local: Pointer(int8)] "storage_scope" = "local";
+  allocate(B.local, int8, [64]);
+  attr [Apad.shared: Pointer(int8)] "storage_scope" = "shared";
+  allocate(Apad.shared, int8, [488]);
+  attr [W.shared: Pointer(int8)] "storage_scope" = "shared";
+  allocate(W.shared, int8, [512]);
+  attr [Apad.shared.local: Pointer(int8)] "storage_scope" = "local";
+  allocate(Apad.shared.local, int8, [16]);
+  attr [W.shared.local: Pointer(int8)] "storage_scope" = "local";
+  allocate(W.shared.local, int8, [16]);
+  attr [IterVar(blockIdx.y: int32, (nullptr), "ThreadIndex", "blockIdx.y")] "thread_extent" = 8;
+  attr [IterVar(blockIdx.x: int32, (nullptr), "ThreadIndex", "blockIdx.x")] "thread_extent" = 1;
+  attr [IterVar(threadIdx.y: int32, [0:8], "ThreadIndex", "threadIdx.y")] "thread_extent" = 8;
+  attr [IterVar(threadIdx.x: int32, [0:8], "ThreadIndex", "threadIdx.x")] "thread_extent" = 8 {
+    for (nn.c: int32, 0, 4) {
+      for (ff.c.init: int32, 0, 4) {
+        @tir.call_extern("arm_dot_reset_local", @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), B.local, ((nn.c*4) + ff.c.init), 1, 2, dtype=handle), dtype=int32)
+        @tir.call_extern("arm_dot_reset_local", @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), B.local, (((nn.c*4) + ff.c.init) + 32), 1, 2, dtype=handle), dtype=int32)
+        @tir.call_extern("arm_dot_reset_local", @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), B.local, (((nn.c*4) + ff.c.init) + 16), 1, 2, dtype=handle), dtype=int32)
+        @tir.call_extern("arm_dot_reset_local", @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), B.local, (((nn.c*4) + ff.c.init) + 48), 1, 2, dtype=handle), dtype=int32)
+      }
+      for (rc.outer: int32, 0, 32) {
+        for (ry: int32, 0, 3) {
+          for (rx: int32, 0, 3) {
+            for (ax0.inner: int32, 0, 8) {
+              if (((threadIdx.x*8) + ax0.inner) < 61) {
+                if ((((threadIdx.x*8) + ax0.inner) + nn.c) < 1) {
+                  Apad.shared[(((threadIdx.x*64) + (ax0.inner*8)) + threadIdx.y)] = @tir.if_then_else(((((1 <= (floordiv(blockIdx.z, 14) + ry)) && ((floordiv(blockIdx.z, 14) + ry) < 15)) && (1 <= (rx + floormod(blockIdx.z, 14)))) && ((rx + floormod(blockIdx.z, 14)) < 15)), (int8*)A_2[(((((((((threadIdx.x*401408) + (ax0.inner*50176)) + (nn.c*50176)) + (ry*3584)) + (blockIdx.z*256)) + (rx*256)) + (rc.outer*8)) + threadIdx.y) - 3840)], 0i8, dtype=int8)
+                }
+              }
+            }
+            for (ax2.inner: int32, 0, 8) {
+              W.shared[(((threadIdx.x*64) + (ax2.inner*8)) + threadIdx.y)] = (int8*)W_2[(((((((ry*393216) + (rx*131072)) + (blockIdx.y*16384)) + (threadIdx.x*2048)) + (ax2.inner*256)) + (rc.outer*8)) + threadIdx.y)]
+            }
+            for (ff.c: int32, 0, 4) {
+              for (ax3: int32, 0, 8) {
+                if (((threadIdx.x*4) + nn.c) < 1) {
+                  Apad.shared.local[ax3] = (int8*)Apad.shared[((threadIdx.x*32) + ax3)]
+                }
+              }
+              for (ax3_1: int32, 0, 8) {
+                W.shared.local[ax3_1] = (int8*)W.shared[(((threadIdx.y*32) + (ff.c*8)) + ax3_1)]
+                W.shared.local[(ax3_1 + 8)] = (int8*)W.shared[((((threadIdx.y*32) + (ff.c*8)) + ax3_1) + 256)]
+              }
+              if (((threadIdx.x*4) + nn.c) < 1) {
+                @tir.call_extern("arm_dot_vlen_local", @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), Apad.shared.local, 0, 8, 1, dtype=handle), @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), W.shared.local, 0, 8, 1, dtype=handle), @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), B.local, ((nn.c*4) + ff.c), 1, 2, dtype=handle), 8, dtype=int32)
+                @tir.call_extern("arm_dot_vlen_local", @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), Apad.shared.local, 0, 8, 1, dtype=handle), @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), W.shared.local, 8, 8, 1, dtype=handle), @tir.tvm_access_ptr(@tir.type_annotation(, dtype=int8), B.local, (((nn.c*4) + ff.c) + 32), 1, 2, dtype=handle), 8, dtype=int32)
+              }
+            }
+          }
+        }
+      }
+    }
+    for (nn.inner.inner.inner: int32, 0, 4) {
+      for (ff.inner.inner.inner: int32, 0, 4) {
+        if (((threadIdx.x*4) + nn.inner.inner.inner) < 1) {
+          B_2[((((((threadIdx.x*401408) + (nn.inner.inner.inner*100352)) + (blockIdx.z*512)) + (blockIdx.y*64)) + (threadIdx.y*4)) + ff.inner.inner.inner)] = (int8*)B.local[((nn.inner.inner.inner*4) + ff.inner.inner.inner)]
+          B_2[(((((((threadIdx.x*401408) + (nn.inner.inner.inner*100352)) + (blockIdx.z*512)) + (blockIdx.y*64)) + (threadIdx.y*4)) + ff.inner.inner.inner) + 32)] = (int8*)B.local[(((nn.inner.inner.inner*4) + ff.inner.inner.inner) + 32)]
+        }
+      }
+    }
+  }
+}
+
+#[metadata]
+{
+  "root": 1, 
+  "nodes": [
+    {
+      "type_key": ""
+    }, 
+    {
+      "type_key": "Map", 
+      "keys": [
+        "IntImm"
+      ], 
+      "data": [2]
+    }, 
+    {
+      "type_key": "Array", 
+      "data": [3]
+    }, 
+    {
+      "type_key": "IntImm", 
+      "attrs": {
+        "dtype": "bool", 
+        "value": "1"
+      }
+    }
+  ], 
+  "b64ndarrays": [], 
+  "attrs": {"tvm_version": "0.8.dev0"}
+}
+Connecting...
+Allocating...
+Building...
+#ifdef cl_arm_integer_dot_product_int8
+#pragma OPENCL EXTENSION cl_arm_integer_dot_product_int8 : enable
+#else
+#error "ARM int8 product not supported by OpenCL implementation on your device"
+#endif
+inline void arm_dot_vlen_global(__global char *A, __global char *B, __global char *C, int L) {
+  int acc = 0;
+  for (__global char *end = A + L; A != end; A += 4, B += 4)
+    acc += arm_dot(*(__global char4 *)A, *(__global char4 *)B);
+  *C += acc;
+}
+inline void arm_dot_vlen_local(char *A, char *B, char *C, int L) {
+  int acc = 0;
+  for (char *end = A + L; A != end; A += 4, B += 4)
+    acc += arm_dot(*(char4 *)A, *(char4 *)B);
+  *C += acc;
+}
+inline void arm_dot_reset_local(char *C) {
+  *C = 0;
+}
+__kernel void main_kernel0(__global char* restrict A, __global char* restrict W, __global char* restrict B) {
+  char B_local[64];
+  __local char Apad_shared[488];
+  __local char W_shared[512];
+  char Apad_shared_local[16];
+  char W_shared_local[16];
+  for (int nn_c = 0; nn_c < 4; ++nn_c) {
+    for (int ff_c_init = 0; ff_c_init < 4; ++ff_c_init) {
+      (void)arm_dot_reset_local(((char *)B_local + ((nn_c * 4) + ff_c_init)));
+      (void)arm_dot_reset_local(((char *)B_local + (((nn_c * 4) + ff_c_init) + 32)));
+      (void)arm_dot_reset_local(((char *)B_local + (((nn_c * 4) + ff_c_init) + 16)));
+      (void)arm_dot_reset_local(((char *)B_local + (((nn_c * 4) + ff_c_init) + 48)));
+    }
+    for (int rc_outer = 0; rc_outer < 32; ++rc_outer) {
+      for (int ry = 0; ry < 3; ++ry) {
+        for (int rx = 0; rx < 3; ++rx) {
+          barrier(CLK_LOCAL_MEM_FENCE);
+          for (int ax0_inner = 0; ax0_inner < 8; ++ax0_inner) {
+            if (((((int)get_local_id(0)) * 8) + ax0_inner) < 61) {
+              if ((((((int)get_local_id(0)) * 8) + ax0_inner) + nn_c) < 1) {
+                Apad_shared[((((((int)get_local_id(0)) * 64) + (ax0_inner * 8)) + ((int)get_local_id(1))))] = (((((1 <= ((((int)get_group_id(2)) / 14) + ry)) && (((((int)get_group_id(2)) / 14) + ry) < 15)) && (1 <= (rx + (((int)get_group_id(2)) % 14)))) && ((rx + (((int)get_group_id(2)) % 14)) < 15)) ? A[((((((((((((int)get_local_id(0)) * 401408) + (ax0_inner * 50176)) + (nn_c * 50176)) + (ry * 3584)) + (((int)get_group_id(2)) * 256)) + (rx * 256)) + (rc_outer * 8)) + ((int)get_local_id(1))) - 3840))] : (char)0);
+              }
+            }
+          }
+          for (int ax2_inner = 0; ax2_inner < 8; ++ax2_inner) {
+            W_shared[((((((int)get_local_id(0)) * 64) + (ax2_inner * 8)) + ((int)get_local_id(1))))] = W[((((((((ry * 393216) + (rx * 131072)) + (((int)get_group_id(1)) * 16384)) + (((int)get_local_id(0)) * 2048)) + (ax2_inner * 256)) + (rc_outer * 8)) + ((int)get_local_id(1))))];
+          }
+          barrier(CLK_LOCAL_MEM_FENCE);
+          for (int ff_c = 0; ff_c < 4; ++ff_c) {
+            for (int ax3 = 0; ax3 < 8; ++ax3) {
+              if (((((int)get_local_id(0)) * 4) + nn_c) < 1) {
+                Apad_shared_local[(ax3)] = Apad_shared[(((((int)get_local_id(0)) * 32) + ax3))];
+              }
+            }
+            for (int ax31 = 0; ax31 < 8; ++ax31) {
+              W_shared_local[(ax31)] = W_shared[((((((int)get_local_id(1)) * 32) + (ff_c * 8)) + ax31))];
+              W_shared_local[((ax31 + 8))] = W_shared[(((((((int)get_local_id(1)) * 32) + (ff_c * 8)) + ax31) + 256))];
+            }
+            if (((((int)get_local_id(0)) * 4) + nn_c) < 1) {
+              (void)arm_dot_vlen_local(((char *)Apad_shared_local + 0), ((char *)W_shared_local + 0), ((char *)B_local + ((nn_c * 4) + ff_c)), 8);
+              (void)arm_dot_vlen_local(((char *)Apad_shared_local + 0), ((char *)W_shared_local + 8), ((char *)B_local + (((nn_c * 4) + ff_c) + 32)), 8);
+            }
+          }
+        }
+      }
+    }
+  }
+  for (int nn_inner_inner_inner = 0; nn_inner_inner_inner < 4; ++nn_inner_inner_inner) {
+    for (int ff_inner_inner_inner = 0; ff_inner_inner_inner < 4; ++ff_inner_inner_inner) {
+      if (((((int)get_local_id(0)) * 4) + nn_inner_inner_inner) < 1) {
+        B[(((((((((int)get_local_id(0)) * 401408) + (nn_inner_inner_inner * 100352)) + (((int)get_group_id(2)) * 512)) + (((int)get_group_id(1)) * 64)) + (((int)get_local_id(1)) * 4)) + ff_inner_inner_inner))] = B_local[(((nn_inner_inner_inner * 4) + ff_inner_inner_inner))];
+        B[((((((((((int)get_local_id(0)) * 401408) + (nn_inner_inner_inner * 100352)) + (((int)get_group_id(2)) * 512)) + (((int)get_group_id(1)) * 64)) + (((int)get_local_id(1)) * 4)) + ff_inner_inner_inner) + 32))] = B_local[((((nn_inner_inner_inner * 4) + ff_inner_inner_inner) + 32))];
+      }
+    }
+  }
+}
+
+
+Uploading...
+Evaluating...
+Convolution with intrinstic: 325.6689583 ms
