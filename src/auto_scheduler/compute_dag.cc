@@ -668,6 +668,18 @@ ComputeDAG::ComputeDAG(Array<te::Tensor> tensors) {
   data_ = std::move(node);
 }
 
+
+ComputeDAG::ComputeDAG(
+  Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe) {
+  auto node = make_object<ComputeDAGNode>();
+  node->tensors = std::move(tensors);
+  node->access_analyzer = AccessAnalyzer(node->tensors);
+  node->ops = node->access_analyzer->ops_topo_order;
+  node->flop_ct = FlopEstimator().EstimateFlop(node->ops);
+  node->init_state = State(node->ops, recipe);
+  data_ = std::move(node);
+}
+
 class IndexRewriter : public StmtExprMutator {
  public:
   IndexRewriter(const te::Operation& placeholder_op, const std::string& new_layout)
@@ -1118,7 +1130,9 @@ State ComputeDAG::InferBound(const State& state) const {
     }
 
     pstate->stages.Set(
-        i, Stage(stage->op, stage->op_type, new_iters, stage->compute_at, stage->attrs));
+        i, Stage(
+          stage->op, stage->op_type, new_iters,
+          stage->compute_at, stage->attrs, stage->belong_capsule));
   }
 
   return ret_state;
@@ -1261,6 +1275,11 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 
 TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAG").set_body_typed([](Array<te::Tensor> tensors) {
   return ComputeDAG(tensors);
+});
+
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGwithRecipe").set_body_typed([](
+  Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe) {
+  return ComputeDAG(tensors, recipe);
 });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGApplyStepsFromState")

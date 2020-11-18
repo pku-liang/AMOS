@@ -51,6 +51,8 @@
 #include <dmlc/common.h>
 #include <tvm/auto_scheduler/transform_step.h>
 #include <tvm/runtime/container.h>
+#include <tvm/auto_tensorize/capsule.h>
+#include <tvm/auto_tensorize/recipe.h>
 
 #include <functional>
 #include <unordered_map>
@@ -106,12 +108,15 @@ class StageNode : public Object {
   ComputeAtKind compute_at;
   /*! \brief Other stage-level attributes. */
   StageAttributes attrs;
+  /*! \brief The recipe stage this stage belongs to. */
+  auto_tensorize::CapsuleStage belong_capsule;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("op", &op);
     v->Visit("iters", &iters);
     v->Visit("op_type", &op_type);
     v->Visit("compute_at", &compute_at);
+    v->Visit("belong_capsule", &belong_capsule);
   }
 
   static constexpr const char* _type_key = "auto_scheduler.Stage";
@@ -131,6 +136,12 @@ class Stage : public ObjectRef {
   explicit Stage(te::Operation op);
   /*!
    * \brief The constructor.
+   * \param op A `te::Operation`.
+   * \param capsule
+   */
+  explicit Stage(te::Operation op, auto_tensorize::CapsuleStage capsule);
+  /*!
+   * \brief The constructor.
    * \param op The source operation
    * \param op_type The stage type of this op.
    * \param iters The iterators of this op.
@@ -139,6 +150,17 @@ class Stage : public ObjectRef {
    */
   Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters, ComputeAtKind compute_at,
         StageAttributes attrs);
+  /*!
+   * \brief The constructor.
+   * \param op The source operation
+   * \param op_type The stage type of this op.
+   * \param iters The iterators of this op.
+   * \param compute_at The compute at type of this op.
+   * \param attrs Other stage-level attributes.
+   * \param capsule
+   */
+  Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters, ComputeAtKind compute_at,
+        StageAttributes attrs, auto_tensorize::CapsuleStage capsule);
 
   TVM_DEFINE_OBJECT_REF_METHODS(Stage, ObjectRef, StageNode);
   TVM_DEFINE_OBJECT_REF_COW_METHOD(StageNode);
@@ -279,6 +301,13 @@ class State : public ObjectRef {
   explicit State(const Array<te::Operation>& ops);
 
   /*!
+   * \brief The constructor.
+   * \param ops `te::Operation`s for a compute declaration.
+   * \param recipe
+   */
+  explicit State(const Array<te::Operation>& ops, auto_tensorize::RecipeStage recipe);
+
+  /*!
    * \brief Pretty-print the state to a human readable string.
    * \param delete_trivial_loop True for skipping the trivial loops.
    * (undefined or extent == 1, default set to True)
@@ -377,6 +406,37 @@ class State : public ObjectRef {
   TVM_DLL Array<Iterator> follow_fused_split(int stage_id, const Iterator& it,
                                              const Array<Integer>& src_step_ids, int level,
                                              bool factor_or_nparts);
+  /*!
+   * \brief The schedule primitive similar to split with fixed inner factor
+   * fused previous steps.
+   * \param stage_id The index of the stage to be split.
+   * \param it The iterator to be split.
+   * \param lengths The multiple split factors. Can be None to be filled by search policy.
+   * \param factor True to use `factor` for split from inner to outer,
+      False to use `nparts` for split from outer to inner.
+   * \return The split new Iterators.
+   */
+  TVM_DLL Array<Iterator> fixed_split(int stage_id, const Iterator& it,
+                                const Array<Optional<Integer>>& lengths,
+                                int factor);
+  /*!
+   * \brief The schedule primitive corresponding to `te.Stage.storage_align`.
+   * \param stage_id The index of the stage to be aligned.
+   * \param scope_name The name of scope.
+   */
+  TVM_DLL void set_scope(int stage_id, String scope_name);
+
+  /*!
+   * \brief The schedule primitive corresponding to `te.Stage.storage_align`.
+   * \param stage_id The index of the stage to be aligned.
+   * \param it The iterator to be tensorized.
+   * \param recipe_key
+   * \param compute_key
+   * \param shape_key
+   * \param capsule_key
+   */
+  TVM_DLL void tensorize(int stage_id, const Iterator& it, String target,
+    String recipe_key, String compute_key, String shape_key, String capsule_key);
   /*!
    * \brief The schedule primitive corresponding to `te.Stage.storage_align`.
    * \param stage_id The index of the stage to be aligned.

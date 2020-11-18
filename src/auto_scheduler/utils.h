@@ -87,7 +87,7 @@ inline int GetIndex(const Array<T>& array, const T& to_locate) {
       return i;
     }
   }
-  LOG(FATAL) << "Cannot find the item";
+  LOG(FATAL) << "Cannot find the item: " << to_locate;
   return -1;
 }
 

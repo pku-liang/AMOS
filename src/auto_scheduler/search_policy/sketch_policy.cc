@@ -57,6 +57,10 @@ static RuleAddRfactor rule_add_rfactor;
 static RuleCrossThreadReduction rule_cross_thread_reduction;
 static RuleSimplifyComputeWithConstTensor rule_simplify_compute_with_const_tensor;
 static RuleSpecialComputeLocationGPU rule_special_compute_location_gpu;
+static RulePartialMultiLevelTiling rule_partial_multi_level_tiling;
+static RuleSetScope rule_set_scope;
+static RulePlaceMain rule_place_main;
+static RulePlaceOutput rule_place_output;
 
 /********** Init population rules **********/
 static InitFillTileSize init_fill_tile_size;
@@ -123,6 +127,10 @@ SketchPolicy::SketchPolicy(SearchTask task, CostModel program_cost_model,
     node->sketch_rules.push_back(&rule_add_cache_write_stage);
     node->sketch_rules.push_back(&rule_multi_level_tiling_with_fusion);
     node->sketch_rules.push_back(&rule_multi_level_tiling);
+    node->sketch_rules.push_back(&rule_partial_multi_level_tiling);
+    // node->sketch_rules.push_back(&rule_set_scope);
+    node->sketch_rules.push_back(&rule_place_main);
+    node->sketch_rules.push_back(&rule_place_output);
     node->sketch_rules.push_back(&rule_skip_stage);
 
     // Initial Population Generation Rules
@@ -294,6 +302,7 @@ Array<State> SketchPolicyNode::GenerateSketches() {
           for (const auto& pair : rule->Apply(*this, state, stage_id)) {
             cur_stage_id_map[pair.first] = pair.second;
             pnext->push_back(pair.first);
+            std::cout << pair.first << "\n";
           }
           // Skip the rest rules
           if (cond == SketchGenerationRule::ConditionKind::kApplyAndSkipRest) {

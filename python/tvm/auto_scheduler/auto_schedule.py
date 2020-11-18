@@ -159,7 +159,7 @@ class TuningOptions(Object):
         )
 
 
-def create_task(func, args, target, target_host=None, hardware_params=None):
+def create_task(func, args, target, target_host=None, hardware_params=None, recipe=None):
     """Create a search task
 
     Parameters
@@ -181,7 +181,7 @@ def create_task(func, args, target, target_host=None, hardware_params=None):
         SearchTask: the created task
     """
     workload_key = make_workload_key(func, args)
-    dag = ComputeDAG(workload_key)
+    dag = ComputeDAG(workload_key, recipe=recipe)
     return SearchTask(dag, workload_key, target, target_host, hardware_params)
 
 

@@ -472,7 +472,7 @@ class ProgramMeasurerNode : public Object {
                      Array<MeasureResult>* results);
 
   /*! \brief The default max continuous error setting. */
-  static const int DEFAULT_MAX_CONTINUOUS_ERROR = 150;
+  static const int DEFAULT_MAX_CONTINUOUS_ERROR = 1500;
 
   static constexpr const char* _type_key = "auto_scheduler.ProgramMeasurer";
   TVM_DECLARE_FINAL_OBJECT_INFO(ProgramMeasurerNode, Object);

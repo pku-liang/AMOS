@@ -121,10 +121,10 @@ class MemoryCapsule(CompilationCapsule):
         assert len(input_dtypes) == 1
         assert len(output_dtypes) == 1
         A = tvm.te.placeholder(
-            input_shapes[0], name="A", dtype=input_dtypes[0])
+            input_shapes[0], name="memcpy_src", dtype=input_dtypes[0])
         B = tvm.te.compute(
             output_shapes[0],
-            lambda *indices: A(*indices), name="B")
+            lambda *indices: A(*indices), name="memcpy_dst")
         return [A], [B]
 
 
@@ -296,7 +296,7 @@ class CompilationRecipe(object):
         """
         raise NotImplementedError()
 
-    def get_intrinsic(self, capsule_key):
+    def get_intrinsic(self, compute_key, shape_key, capsule_key):
         """
         ---
         Returns:
@@ -647,3 +647,11 @@ def get_special_dtype(target, recipe, dtype):
         target.value, recipe.value)()
     special_dtype = recipe.get_special_dtype(dtype.value)
     return special_dtype
+
+
+@tvm._ffi.register_func("auto_tensorize.get_tensor_intrin")
+def get_tensor_intrin(target, recipe_key, compute_key, shape_key, capsule_key):
+    recipe = COMPILATION_RECIPE_REGISTER_POOL.find(
+        str(target), str(recipe_key))()
+    intrin = recipe.get_intrinsic(str(compute_key), str(shape_key), str(capsule_key))
+    return intrin

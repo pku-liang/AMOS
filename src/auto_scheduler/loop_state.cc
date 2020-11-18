@@ -82,6 +82,33 @@ Stage::Stage(te::Operation op) {
   data_ = std::move(node);
 }
 
+Stage::Stage(te::Operation op, auto_tensorize::CapsuleStage capsule) {
+  auto node = make_object<StageNode>();
+  if (op->IsInstance<te::ComputeOpNode>()) {
+    node->op_type = StageKind::kCompute;
+    auto* pop = op.as<te::ComputeOpNode>();
+    for (const auto& axis : pop->axis) {
+      node->iters.push_back(Iterator(CleanName(axis->var->name_hint), axis->dom,
+                                     IteratorKind::kSpatial, IteratorAnnotation::kNone));
+    }
+    for (const auto& axis : pop->reduce_axis) {
+      node->iters.push_back(Iterator(CleanName(axis->var->name_hint), axis->dom,
+                                     IteratorKind::kReduction, IteratorAnnotation::kNone));
+    }
+  } else if (op->IsInstance<te::PlaceholderOpNode>()) {
+    node->op_type = StageKind::kPlaceholder;
+  } else {
+    LOG(FATAL) << "Unsupported operator type" << op->_type_key;
+  }
+
+  node->compute_at = ComputeAtKind::kRoot;
+  node->op = std::move(op);
+  node->attrs.auto_unroll_max_step = 0;
+  node->attrs.storage_offset = 0;
+  node->belong_capsule = capsule;
+  data_ = std::move(node);
+}
+
 Stage::Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters,
              ComputeAtKind compute_at, StageAttributes attrs) {
   auto node = make_object<StageNode>();
@@ -90,6 +117,18 @@ Stage::Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters,
   node->iters = iters;
   node->compute_at = compute_at;
   node->attrs = attrs;
+  data_ = std::move(node);
+}
+
+Stage::Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters,
+             ComputeAtKind compute_at, StageAttributes attrs, auto_tensorize::CapsuleStage capsule) {
+  auto node = make_object<StageNode>();
+  node->op = std::move(op);
+  node->op_type = op_type;
+  node->iters = iters;
+  node->compute_at = compute_at;
+  node->attrs = attrs;
+  node->belong_capsule = capsule;
   data_ = std::move(node);
 }
 
@@ -201,6 +240,40 @@ State::State(const Array<te::Operation>& ops) {
   data_ = std::move(node);
 }
 
+State::State(const Array<te::Operation>& ops, auto_tensorize::RecipeStage recipe) {
+  auto node = make_object<StateNode>();
+  std::unordered_set<te::Operation> in_recipe;
+  CHECK(recipe.defined() && recipe.valid());
+  for (auto& kv : recipe->operation_role) {
+    in_recipe.insert(kv.first);
+  }
+  for (const auto& op : ops) {
+    if (in_recipe.count(op)) {
+      node->stages.push_back(Stage(op, auto_tensorize::CapsuleStage(
+        recipe->operation_role.at(op),
+        recipe->target,
+        recipe->recipe_key,
+        recipe->compute_key,
+        recipe->shape_key,
+        recipe->capsule_key.at(op),
+        recipe->reserve_inner_axis_count.at(op)->value,
+        recipe->main_op_reserve_reduce_axis,
+        recipe->main_op_reserve_reduce_axis_factor,
+        (recipe->operation_role.at(op) == auto_tensorize::OperationRole::load_op
+          ? bool(recipe->load_from_shared.at(op)->value) : false),
+        (recipe->operation_role.at(op) == auto_tensorize::OperationRole::output_op
+          ? bool(recipe->store_to_shared.at(op)->value) : false),
+        recipe->instruction_scope
+      )));
+    } else {
+      node->stages.push_back(Stage(op));
+    }
+  }
+  node->attach_map = AttachMap(make_object<AttachMapNode>());
+  node->concrete = true;
+  data_ = std::move(node);
+}
+
 /********** Schedule primitives apis for state **********/
 Iterator State::bind(int stage_id, const Iterator& it, IteratorAnnotation thread_type) {
   const Stage& stage = operator->()->stages[stage_id];
@@ -299,6 +372,32 @@ Array<Iterator> State::follow_fused_split(int stage_id, const Iterator& it,
   const Stage& stage = operator->()->stages[stage_id];
   FollowFusedSplitStep step = FollowFusedSplitStep(stage_id, GetIndex(stage->iters, it),
                                                    src_step_ids, level, factor_or_nparts);
+  CopyOnWrite()->transform_steps.push_back(step);
+  return step->ApplyToState(this);
+}
+
+Array<Iterator> State::fixed_split(int stage_id, const Iterator& it,
+                             const Array<Optional<Integer>>& lengths, int factor) {
+  const Stage& stage = operator->()->stages[stage_id];
+  FixedSplitStep step =
+      FixedSplitStep(stage_id, GetIndex(stage->iters, it),
+                it->range.defined() ? it->range->extent : PrimExpr(), lengths, factor);
+  CopyOnWrite()->transform_steps.push_back(step);
+  return step->ApplyToState(this);
+}
+
+void State::set_scope(int stage_id, String scope_name) {
+  const Stage& stage = operator->()->stages[stage_id];
+  SetScopeStep step = SetScopeStep(stage_id, scope_name);
+  CopyOnWrite()->transform_steps.push_back(step);
+  return step->ApplyToState(this);
+}
+
+void State::tensorize(int stage_id, const Iterator& it, String target,
+    String recipe_key, String compute_key, String shape_key, String capsule_key) {
+  const Stage& stage = operator->()->stages[stage_id];
+  TensorizeStep step = TensorizeStep(
+    stage_id, GetIndex(stage->iters, it), target, recipe_key, compute_key, shape_key, capsule_key);
   CopyOnWrite()->transform_steps.push_back(step);
   return step->ApplyToState(this);
 }
@@ -402,7 +501,12 @@ void PrintStage(std::ostream* os, int stage_id, const State& state, size_t base_
   for (size_t j = 0; j < base_indent + indent; ++j) {
     *os << " ";
   }
-  *os << stage->op->name << " = ...\n";
+  if (stage->belong_capsule.defined()) {
+    *os << stage->op->name
+        << stage->belong_capsule->operation_role << " = ...\n";
+  } else {
+    *os << stage->op->name << " = ...\n";
+  }
 }
 
 // Print state to ostream

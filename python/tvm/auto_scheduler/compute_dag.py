@@ -22,6 +22,7 @@ import hashlib
 import tvm._ffi
 from tvm.runtime import Object
 from tvm.te import PlaceholderOp, ComputeOp
+from tvm import auto_tensorize as at
 
 from .loop_state import State, StateObject
 from .utils import get_const_tuple
@@ -51,7 +52,7 @@ class ComputeDAG(Object):
         Input/output tensors or workload key for a compute declaration.
     """
 
-    def __init__(self, compute):
+    def __init__(self, compute, recipe=None):
         if isinstance(compute, str):
             compute = workload_key_to_tensors(compute)
         elif isinstance(compute, list):
@@ -62,7 +63,12 @@ class ComputeDAG(Object):
             raise ValueError(
                 "Invalid compute: " + compute + " . ComputeDAG expects a string or list of Tensor"
             )
-        self.__init_handle_by_constructor__(_ffi_api.ComputeDAG, compute)
+        if recipe is not None:
+            assert isinstance(recipe, at.RecipeStage)
+            self.__init_handle_by_constructor__(
+                _ffi_api.ComputeDAGwithRecipe, compute, recipe)
+        else:
+            self.__init_handle_by_constructor__(_ffi_api.ComputeDAG, compute)
 
     def get_init_state(self):
         """Get the init state of this ComputeDAG.

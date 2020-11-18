@@ -504,6 +504,11 @@ inline Iterator GetLastReduceIteratorInOutermostReduceTile(const Stage& stage) {
   auto pop = stage->op.as<te::ComputeOpNode>();
   CHECK(pop != nullptr);
   std::set<std::string> original_names;
+  int reserved =
+    (stage->belong_capsule.defined()
+      && (stage->belong_capsule->operation_role
+          == auto_tensorize::OperationRole::main_op))
+      ? (int)stage->belong_capsule->main_op_reserve_reduce_axis.size() : 0;
 
   const std::set<std::string>& no_split_at_inner_name_set =
       stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)
@@ -519,7 +524,7 @@ inline Iterator GetLastReduceIteratorInOutermostReduceTile(const Stage& stage) {
     for (const auto& iter : stage->iters) {
       if (iter->iter_kind == IteratorKind::kReduction) {
         ExtractOriginalIterators(iter->name, &original_names);
-        if (original_names.size() == reduce_axis_size) {
+        if (original_names.size() == reduce_axis_size - reserved) {
           return iter;
         }
       }
@@ -528,6 +533,108 @@ inline Iterator GetLastReduceIteratorInOutermostReduceTile(const Stage& stage) {
     // Return the first reduce iterator
     for (const auto& iter : stage->iters) {
       if (iter->iter_kind == IteratorKind::kReduction) {
+        return iter;
+      }
+    }
+  }
+
+  std::cout << "$$$$$$$$$$$$$$$$ " << stage->iters.size() << "\n";
+  for (const auto& iter : stage->iters) {
+    std::cout << iter->name << " ";
+  }
+  std::cout << "\n";
+
+  LOG(FATAL) << "Cannot find the iterator.";
+  return stage->iters[0];
+}
+
+/*! \brief Get the last reduce iterator in the sub outermost reduce tile. */
+inline Iterator GetLastReduceIteratorInSubOutermostReduceTile(const Stage& stage) {
+  auto pop = stage->op.as<te::ComputeOpNode>();
+  CHECK(pop != nullptr);
+  std::set<std::string> original_names;
+  int reserved =
+    (stage->belong_capsule.defined()
+      && (stage->belong_capsule->operation_role
+          == auto_tensorize::OperationRole::main_op))
+      ? (int)stage->belong_capsule->main_op_reserve_reduce_axis.size() : 0;
+
+  const std::set<std::string>& no_split_at_inner_name_set =
+      stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)
+          ? GetIterNameSetParam(stage->op->attrs, SearchPolicyKey::no_split_at_inner)
+          : std::set<std::string>();
+  size_t reduce_axis_size = 0;
+  for (const auto axis : pop->reduce_axis) {
+    if (!no_split_at_inner_name_set.count(axis->var->name_hint)) {
+      reduce_axis_size++;
+    }
+  }
+  if (reduce_axis_size) {
+    bool pass_outer = false;
+    for (const auto& iter : stage->iters) {
+      if (iter->iter_kind == IteratorKind::kReduction) {
+        ExtractOriginalIterators(iter->name, &original_names);
+        if (original_names.size() == reduce_axis_size - reserved) {
+          if (pass_outer) {
+            return iter;
+          }
+          pass_outer = true;
+          original_names.clear();
+        }
+      }
+    }
+  } else {
+    // Return the first reduce iterator
+    for (const auto& iter : stage->iters) {
+      if (iter->iter_kind == IteratorKind::kReduction) {
+        return iter;
+      }
+    }
+  }
+
+  LOG(FATAL) << "Cannot find the iterator.";
+  return stage->iters[0];
+}
+
+/*! \brief Get the last spatial iterator in the sub sub innerermost spatial tile. */
+inline Iterator GetLastSpatialIteratorInSubSubInnermostSpatialTile(const Stage& stage) {
+  auto pop = stage->op.as<te::ComputeOpNode>();
+  CHECK(pop != nullptr);
+  std::set<std::string> original_names;
+  int reserved =
+    (stage->belong_capsule.defined()
+      && (stage->belong_capsule->operation_role
+          == auto_tensorize::OperationRole::output_op))
+      ? (int)stage->belong_capsule->reserve_inner_axis_count : 0;
+
+  const std::set<std::string>& no_split_at_inner_name_set =
+      stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)
+          ? GetIterNameSetParam(stage->op->attrs, SearchPolicyKey::no_split_at_inner)
+          : std::set<std::string>();
+  size_t axis_size = 0;
+  for (const auto axis : pop->axis) {
+    if (!no_split_at_inner_name_set.count(axis->var->name_hint)) {
+      axis_size++;
+    }
+  }
+  if (axis_size) {
+    for (int i = stage->iters.size() - 1 - reserved; i >= 0; --i) {
+      auto iter = stage->iters[i];
+      if (iter->iter_kind == IteratorKind::kSpatial) {
+        ExtractOriginalIterators(iter->name, &original_names);
+        if (original_names.size() == axis_size - reserved) {
+          if (i > 0) {
+            return stage->iters[i-1];
+          }
+          return iter;
+        }
+      }
+    }
+  } else {
+    // Return the first reduce iterator
+    for (int i = stage->iters.size() - 1 - reserved; i >= 0; --i) {
+      auto iter = stage->iters[i];
+      if (iter->iter_kind == IteratorKind::kSpatial) {
         return iter;
       }
     }
@@ -727,6 +834,9 @@ std::vector<std::pair<int, int>> GetComputeLocationCandidates(const SearchTask& 
 // we have space iterators i and j, reduce iterator k.
 // Then the tiling structure is : i0, j0, i1, j1, k0, i2, j2, k1, i3, j3
 State DoMultiLevelTiling(const State& state, int stage_id, const std::string& format,
+                         std::vector<int>* spatial_split_step_ids = nullptr);
+
+State DoPartialMultiLevelTiling(const State& state, int stage_id, const std::string& format,
                          std::vector<int>* spatial_split_step_ids = nullptr);
 
 // Apply tiling structure: space, space, space, ..., with tile sizes from other SplitStep

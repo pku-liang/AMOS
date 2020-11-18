@@ -44,6 +44,10 @@ SketchGenerationRule::ConditionKind RuleSkipStage::MeetCondition(const SketchPol
                                                                  const State& state,
                                                                  int stage_id) const {
   // This rule should be the last rule, always return true to decrease the stage index count
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   return ConditionKind::kApply;
 }
 
@@ -58,6 +62,9 @@ SketchGenerationRule::ConditionKind RuleAlwaysInline::MeetCondition(const Sketch
                                                                     const State& state,
                                                                     int stage_id) const {
   const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   // Check the inline limitation of TE first
   if (stage->op_type == StageKind::kPlaceholder ||
       IsOutputOp(policy.search_task, state, stage_id) || HasReduceIter(stage)) {
@@ -81,6 +88,10 @@ std::vector<std::pair<State, int>> RuleAlwaysInline::Apply(const SketchPolicyNod
 
 SketchGenerationRule::ConditionKind RuleMultiLevelTiling::MeetCondition(
     const SketchPolicyNode& policy, const State& state, int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   return NeedsMultilevelTiling(policy.search_task, state, stage_id)
              ? ConditionKind::kApplyAndSkipRest
              : ConditionKind::kSkip;
@@ -101,6 +112,10 @@ std::vector<std::pair<State, int>> RuleMultiLevelTiling::Apply(const SketchPolic
 
 SketchGenerationRule::ConditionKind RuleMultiLevelTilingWithFusion::MeetCondition(
     const SketchPolicyNode& policy, const State& state, int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   if (NeedsMultilevelTiling(policy.search_task, state, stage_id) &&
       HasSingleElementwiseMatchedConsumer(policy.search_task, state, stage_id)) {
     // Always do fusion for stage with cache_write or is in GPU policy
@@ -141,17 +156,220 @@ std::vector<std::pair<State, int>> RuleMultiLevelTilingWithFusion::Apply(
   return ret;
 }
 
+/********** RulePartialMultiLevelTiling **********/
+
+SketchGenerationRule::ConditionKind RulePartialMultiLevelTiling::MeetCondition(
+    const SketchPolicyNode& policy, const State& state, int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (!stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
+  return ((stage->belong_capsule->operation_role == auto_tensorize::OperationRole::main_op)
+          || (stage->belong_capsule->operation_role == auto_tensorize::OperationRole::output_op))
+             ? ConditionKind::kApply
+             : ConditionKind::kSkip;
+}
+
+std::vector<std::pair<State, int>> RulePartialMultiLevelTiling::Apply(const SketchPolicyNode& policy,
+                                                               const State& state,
+                                                               int stage_id) const {
+  const std::string& multi_level_tiling_structure =
+      IsGPUTask(policy.search_task)
+          ? GetStringParam(policy.params, SketchParamKey::MultiLevelTiling::gpu_structure)
+          : GetStringParam(policy.params, SketchParamKey::MultiLevelTiling::cpu_structure);
+  const Stage& stage = state->stages[stage_id];
+  State tmp_s = DoPartialMultiLevelTiling(state, stage_id, multi_level_tiling_structure);
+  RulePlaceOutput rule_place_output;
+  return rule_place_output.Apply(policy, tmp_s, stage_id);
+}
+
+/********** RuleSetScope **********/
+
+SketchGenerationRule::ConditionKind RuleSetScope::MeetCondition(const SketchPolicyNode& policy,
+                                                                     const State& state,
+                                                                     int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (!stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
+
+  return ConditionKind::kApply;
+}
+
+std::vector<std::pair<State, int>> RuleSetScope::Apply(const SketchPolicyNode& policy,
+                                                            const State& state,
+                                                            int stage_id) const {
+  State tmp_s = state;
+  tmp_s.set_scope(stage_id, "local");
+  return {std::make_pair(std::move(tmp_s), stage_id - 1)};
+}
+
+/********** RulePlaceMain **********/
+
+SketchGenerationRule::ConditionKind RulePlaceMain::MeetCondition(const SketchPolicyNode& policy,
+                                                                     const State& state,
+                                                                     int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    int main_id = 0;
+    for (auto& v : state->stages) {
+      if (v->belong_capsule.defined() &&
+          v->belong_capsule->operation_role == auto_tensorize::OperationRole::main_op) {
+        break;
+      }
+      main_id++;
+    }
+    CHECK(main_id < (int)state->stages.size());
+    if (stage_id < main_id) {
+      return ConditionKind::kApply;
+    }
+  }
+
+  return ConditionKind::kSkip;
+}
+
+std::vector<std::pair<State, int>> RulePlaceMain::Apply(const SketchPolicyNode& policy,
+                                                            const State& state,
+                                                            int stage_id) const {
+  State tmp_s = state;
+  const Stage& stage = state->stages[stage_id];
+  CHECK(stage->belong_capsule.defined());
+  int main_id = 0;
+  for (auto& v : state->stages) {
+    if (v->belong_capsule.defined() &&
+        v->belong_capsule->operation_role == auto_tensorize::OperationRole::main_op) {
+      break;
+    }
+    main_id++;
+  }
+  CHECK(main_id < (int)state->stages.size());
+  CHECK(stage_id < main_id);
+  const auto& local_read_pos =
+      GetLastReduceIteratorInSubOutermostReduceTile(tmp_s->stages[main_id]);
+  tmp_s.set_scope(stage_id, "local");
+  tmp_s.compute_at(stage_id, main_id, local_read_pos);
+  int total_iters = (int)tmp_s->stages[stage_id]->iters.size();
+  int tensorize_reserve = tmp_s->stages[stage_id]->belong_capsule->reserve_inner_axis_count;
+  CHECK(total_iters >= tensorize_reserve);
+  tmp_s.tensorize(
+    stage_id,
+    tmp_s->stages[stage_id]->iters[total_iters - tensorize_reserve],
+    tmp_s->stages[stage_id]->belong_capsule->target,
+    tmp_s->stages[stage_id]->belong_capsule->recipe_key,
+    tmp_s->stages[stage_id]->belong_capsule->compute_key,
+    tmp_s->stages[stage_id]->belong_capsule->shape_key,
+    tmp_s->stages[stage_id]->belong_capsule->capsule_key);
+  return {std::make_pair(std::move(tmp_s), stage_id - 1)};
+}
+
+/********** RulePlaceOutput **********/
+
+SketchGenerationRule::ConditionKind RulePlaceOutput::MeetCondition(const SketchPolicyNode& policy,
+                                                                     const State& state,
+                                                                     int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    int main_id = 0;
+    for (auto& v : state->stages) {
+      if (v->belong_capsule.defined() &&
+          v->belong_capsule->operation_role == auto_tensorize::OperationRole::main_op) {
+        break;
+      }
+      main_id++;
+    }
+    CHECK(main_id < (int)state->stages.size());
+    int output_id = 0;
+    for (auto& v : state->stages) {
+      if (v->belong_capsule.defined() &&
+          v->belong_capsule->operation_role == auto_tensorize::OperationRole::output_op) {
+        break;
+      }
+      output_id++;
+    }
+    CHECK(output_id < (int)state->stages.size());
+    if (stage_id > main_id && stage_id < output_id) {
+      return ConditionKind::kApply;
+    }
+  }
+
+  return ConditionKind::kSkip;
+}
+
+std::vector<std::pair<State, int>> RulePlaceOutput::Apply(const SketchPolicyNode& policy,
+                                                            const State& state,
+                                                            int stage_id) const {
+  State tmp_s = state;
+  const Stage& stage = state->stages[stage_id];
+  CHECK(stage->belong_capsule.defined());
+  int main_id = 0;
+  for (auto& v : state->stages) {
+    if (v->belong_capsule.defined() &&
+        v->belong_capsule->operation_role == auto_tensorize::OperationRole::main_op) {
+      break;
+    }
+    main_id++;
+  }
+  CHECK(main_id < (int)state->stages.size());
+  int output_id = 0;
+  for (auto& v : state->stages) {
+    if (v->belong_capsule.defined() &&
+        v->belong_capsule->operation_role == auto_tensorize::OperationRole::output_op) {
+      break;
+    }
+    output_id++;
+  }
+  CHECK(output_id < (int)state->stages.size());
+  CHECK(stage_id >= main_id && stage_id <= output_id);
+  if (stage_id < output_id) {
+    const auto& local_read_pos =
+      GetLastSpatialIteratorInSubSubInnermostSpatialTile(tmp_s->stages[output_id]);
+    tmp_s.set_scope(stage_id, "local");
+    tmp_s.compute_at(stage_id, output_id, local_read_pos);
+  }
+  int total_iters = (int)tmp_s->stages[stage_id]->iters.size();
+  int tensorize_reserve = tmp_s->stages[stage_id]->belong_capsule->reserve_inner_axis_count;
+  if (stage_id == main_id) {
+    int reduce_reserve = (int)tmp_s->stages[stage_id]->belong_capsule->main_op_reserve_reduce_axis.size();
+    tensorize_reserve += reduce_reserve;
+  }
+  CHECK(total_iters >= tensorize_reserve);
+  tmp_s.tensorize(
+    stage_id,
+    tmp_s->stages[stage_id]->iters[total_iters - tensorize_reserve],
+    tmp_s->stages[stage_id]->belong_capsule->target,
+    tmp_s->stages[stage_id]->belong_capsule->recipe_key,
+    tmp_s->stages[stage_id]->belong_capsule->compute_key,
+    tmp_s->stages[stage_id]->belong_capsule->shape_key,
+    tmp_s->stages[stage_id]->belong_capsule->capsule_key);
+  return {std::make_pair(std::move(tmp_s), stage_id - 1)};
+}
+
 /********** RuleAddCacheRead **********/
 
 SketchGenerationRule::ConditionKind RuleAddCacheRead::MeetCondition(const SketchPolicyNode& policy,
                                                                     const State& state,
                                                                     int stage_id) const {
   const SearchTask& task = policy.search_task;
-
+  const Stage& stage = state->stages[stage_id];
   // Don't cache_read a stage if it has multiple consumers
   const std::set<int>& consumers = GetConsumers(task, state, stage_id);
   if (consumers.size() != 1) {
     return ConditionKind::kSkip;
+  }
+
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
+
+  Stage cstage = state->stages[*consumers.begin()];
+  if (cstage->belong_capsule.defined()) {
+    if (cstage->belong_capsule->operation_role != auto_tensorize::OperationRole::load_op) {
+      return ConditionKind::kSkip;
+    }
+    if (!cstage->belong_capsule->load_from_shared) {
+      return ConditionKind::kSkip;
+    }
+    return ConditionKind::kApplyAndSkipRest;
   }
 
   // Don't cache_read a stage if its consumer does not need multi-level tiling
@@ -180,14 +398,31 @@ std::vector<std::pair<State, int>> RuleAddCacheRead::Apply(const SketchPolicyNod
   const std::set<int>& consumers = GetConsumers(task, state, stage_id);
   CHECK_EQ(consumers.size(), 1);
   int target_stage_id = *consumers.begin();
+  int compute_at_id = target_stage_id;
   State tmp_s = state;
+  const Stage& stage = state->stages[stage_id];
+  const Stage& cstage = state->stages[target_stage_id];
+  if (cstage->belong_capsule.defined()
+      && cstage->belong_capsule->operation_role == auto_tensorize::OperationRole::load_op) {
+    int main_id = 0;
+    for (auto& st : state->stages) {
+      if (st->belong_capsule.defined()
+        && st->belong_capsule->operation_role == auto_tensorize::OperationRole::main_op) {
+          break;
+      }
+      ++main_id;
+    }
+    CHECK(main_id < (int)state->stages.size());
+    CHECK(stage_id < main_id);
+    compute_at_id = main_id;
+  }
 
   // Cache read add shared memory
   int added_stage_id = tmp_s.cache_read(stage_id, "shared", {target_stage_id}, task->compute_dag);
-  target_stage_id++;
+  compute_at_id++;
   const auto& share_read_pos =
-      GetLastReduceIteratorInOutermostReduceTile(tmp_s->stages[target_stage_id]);
-  tmp_s.compute_at(added_stage_id, target_stage_id, share_read_pos);
+      GetLastReduceIteratorInOutermostReduceTile(tmp_s->stages[compute_at_id]);
+  tmp_s.compute_at(added_stage_id, compute_at_id, share_read_pos);
   return {std::make_pair(tmp_s, stage_id)};
 }
 
@@ -196,6 +431,10 @@ std::vector<std::pair<State, int>> RuleAddCacheRead::Apply(const SketchPolicyNod
 SketchGenerationRule::ConditionKind RuleAddCacheWrite::MeetCondition(const SketchPolicyNode& policy,
                                                                      const State& state,
                                                                      int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   // Add cache write if a stage needs multi-level tiling, but does not have a element-wise
   // matched consumer
   if (NeedsMultilevelTiling(policy.search_task, state, stage_id) &&
@@ -220,6 +459,10 @@ std::vector<std::pair<State, int>> RuleAddCacheWrite::Apply(const SketchPolicyNo
 SketchGenerationRule::ConditionKind RuleAddRfactor::MeetCondition(const SketchPolicyNode& policy,
                                                                   const State& state,
                                                                   int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   return (NeedsRfactor(policy.search_task, state, stage_id) && !HasCacheWriteStage(state, stage_id))
              ? ConditionKind::kApply
              : ConditionKind::kSkip;
@@ -269,6 +512,10 @@ std::vector<std::pair<State, int>> RuleAddRfactor::Apply(const SketchPolicyNode&
 
 SketchGenerationRule::ConditionKind RuleSimplifyComputeWithConstTensor::MeetCondition(
     const SketchPolicyNode& policy, const State& state, int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   return state->stages[stage_id]->op->attrs.count(SearchPolicyKey::simplify_const_tensor_indices)
              ? ConditionKind::kApplyAndSkipRest
              : ConditionKind::kSkip;
@@ -316,6 +563,10 @@ std::vector<std::pair<State, int>> RuleSimplifyComputeWithConstTensor::Apply(
 SketchGenerationRule::ConditionKind RuleCrossThreadReduction::MeetCondition(
     const SketchPolicyNode& policy, const State& state, int stage_id) const {
   CHECK(IsGPUTask(policy.search_task));
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
 
   // If it is an intermidiate state created by RuleAddCacheWrite,
   // we just skip it.
@@ -404,6 +655,10 @@ std::vector<std::pair<State, int>> RuleCrossThreadReduction::Apply(const SketchP
 
 SketchGenerationRule::ConditionKind RuleSpecialComputeLocationGPU::MeetCondition(
     const SketchPolicyNode& policy, const State& state, int stage_id) const {
+  const Stage& stage = state->stages[stage_id];
+  if (stage->belong_capsule.defined()) {
+    return ConditionKind::kSkip;
+  }
   if (GetProducers(policy.search_task, state, stage_id).empty()) {
     return ConditionKind::kSkip;
   }
@@ -743,9 +998,24 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
     }
 
     if (stage->compute_at == ComputeAtKind::kRoot) {
+      auto thread_binding = IteratorAnnotation::kThreadX;
+      bool is_warp_level_tensorize = false;
+      bool is_tensorize_output = false;
+      if (stage->belong_capsule.defined()) {
+        auto capsule = stage->belong_capsule;
+        if (capsule->operation_role == auto_tensorize::OperationRole::output_op) {
+          if (capsule->instruction_scope == auto_tensorize::InstructionScope::warp) {
+            // avoid binding to thread x
+            // thread x fixed to warp size
+            thread_binding = IteratorAnnotation::kThreadY;
+            is_warp_level_tensorize = true;
+          }
+          is_tensorize_output = true;
+        }
+      }
       // This stage has not been tiled, but in GPU schedule, we must tile the root stage
       // to do thread binding
-      if (!multi_level_tiling_root_set.count(stage_id)) {
+      if (!is_tensorize_output && !multi_level_tiling_root_set.count(stage_id)) {
         Iterator fused_it;
         *state = FuseAllOuterSpaceIterators(*state, stage_id, &fused_it);
 
@@ -777,6 +1047,8 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
 
       // Check if the total space extent is too small for multi-level thread binding
       if (total_space_extent <= policy->search_task->hardware_params->warp_size) {
+        // the auto_tensorize should guarantee space extent >= warp size
+        CHECK(!is_warp_level_tensorize);
         Iterator fused_it;
         *state = FuseAllOuterSpaceIterators(*state, stage_id, &fused_it);
         state->bind(stage_id, fused_it, IteratorAnnotation::kThreadX);
@@ -825,17 +1097,42 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
         to_fuse.push_back((*state)->stages[stage_id]->iters[i]);
       }
       const auto& threadidx_it = state->fuse(stage_id, to_fuse);
-      if (GetExtent(threadidx_it) < policy->search_task->hardware_params->warp_size) {
+      if (!is_warp_level_tensorize
+          && GetExtent(threadidx_it) < policy->search_task->hardware_params->warp_size) {
         return ResultKind::kInvalid;
       }
-      state->bind(stage_id, threadidx_it, IteratorAnnotation::kThreadX);
+      // for tensorize, thread binding is thread y
+      state->bind(stage_id, threadidx_it, thread_binding);
     } else if (stage->compute_at == ComputeAtKind::kIter &&
                StrEndsWith(stage->op->name, ".shared")) {
       // Do cooperative fetching for the cache read stage.
       // Get spatial_split_step_ids from the root stage
       const auto& it = (*state)->attach_map->stage_to_attach_iter.find(stage_id);
       CHECK(it != (*state)->attach_map->stage_to_attach_iter.end());
-      Array<Integer> spatial_split_step_ids = GetSpatialSplitStepIds(*state, it->second.first);
+      int target_stage_id = it->second.first;
+      Stage target_stage = (*state)->stages[target_stage_id];
+      bool reserve_warp = false;
+      if (target_stage->belong_capsule.defined()) {
+        auto capsule = target_stage->belong_capsule;
+        if (capsule->operation_role == auto_tensorize::OperationRole::main_op) {
+          if (capsule->instruction_scope == auto_tensorize::InstructionScope::warp) {
+            reserve_warp = true;
+          }
+        }
+      }
+
+      int output_stage_id = 0;
+      for (auto& v : (*state)->stages) {
+        if (v->belong_capsule.defined()) {
+          auto capsule = v->belong_capsule;
+          if (capsule->operation_role == auto_tensorize::OperationRole::output_op) {
+            break;
+          }
+        }
+        output_stage_id++;
+      }
+      CHECK(output_stage_id < (int)(*state)->stages.size());
+      Array<Integer> spatial_split_step_ids = GetSpatialSplitStepIds(*state, output_stage_id);
 
       // Fuse all iterators to do cooperative fetching
       Iterator fused = state->fuse(stage_id, (*state)->stages[stage_id]->iters);
@@ -843,10 +1140,23 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
       // The later EvolutionarySearch will try more possibility
       const auto& iters0 = state->split(stage_id, fused, {Integer(1)});
       state->vectorize(stage_id, iters0[1]);
-      // Follow split to keep a same thread extent with the root stage
-      const auto& iters1 =
-          state->follow_fused_split(stage_id, iters0[0], spatial_split_step_ids, 1, true);
-      state->bind(stage_id, iters1[1], IteratorAnnotation::kThreadX);
+
+      if (reserve_warp) {
+        // use fixed split, so that no tuning on this factor
+        const auto& iters1 = state->fixed_split(
+          stage_id, iters0[0], {}, policy->search_task->hardware_params->warp_size);
+        CHECK(iters1.size() == 2U) << iters1.size();
+        state->bind(stage_id, iters1[1], IteratorAnnotation::kThreadX);
+
+        const auto& iters2 =
+            state->follow_fused_split(stage_id, iters1[0], spatial_split_step_ids, 1, true);
+        state->bind(stage_id, iters2[1], IteratorAnnotation::kThreadY);
+      } else {
+        // Follow split to keep a same thread extent with the root stage
+        const auto& iters1 =
+            state->follow_fused_split(stage_id, iters0[0], spatial_split_step_ids, 1, true);
+        state->bind(stage_id, iters1[1], IteratorAnnotation::kThreadX);
+      }
     }
   }
   return ResultKind::kValid;

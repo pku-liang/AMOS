@@ -207,6 +207,7 @@ assign_source_group("Include" ${GROUP_INCLUDE})
 # Source file lists
 file(GLOB_RECURSE COMPILER_SRCS
     src/auto_scheduler/*.cc
+    src/auto_tensorize/*.cc
     src/node/*.cc
     src/ir/*.cc
     src/arith/*.cc

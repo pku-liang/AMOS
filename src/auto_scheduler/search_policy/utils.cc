@@ -264,6 +264,162 @@ State DoMultiLevelTiling(const State& state, int stage_id, const std::string& fo
   return tmp_s;
 }
 
+State DoPartialMultiLevelTiling(const State& state, int stage_id, const std::string& format,
+                         std::vector<int>* spatial_split_step_ids) {
+  // Temporal object to be used if the input pointer is nullptr
+  std::vector<int> temp_split_step_ids;
+  if (spatial_split_step_ids == nullptr) {
+    spatial_split_step_ids = &temp_split_step_ids;
+  }
+  std::vector<std::vector<Iterator>> space_levels;
+  std::vector<std::vector<Iterator>> reduce_levels;
+  std::vector<Iterator> space_outer, space_sub_inner, space_inner, reduce_outer, reduce_inner;
+  Array<Iterator> split_res;
+
+  for (const auto c : format) {
+    if (tolower(c) == 's') {
+      space_levels.emplace_back();
+    } else if (tolower(c) == 'r') {
+      reduce_levels.emplace_back();
+    } else {
+      LOG(FATAL) << "Invalid multi-level tiling format: " << format;
+    }
+  }
+  size_t n_space = space_levels.size();
+  size_t n_reduce = reduce_levels.size();
+
+  spatial_split_step_ids->clear();
+
+  State tmp_s = state;
+  const Stage& stage = state->stages[stage_id];
+  const std::set<std::string>& no_split_at_inner_name_set =
+      stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)
+          ? GetIterNameSetParam(stage->op->attrs, SearchPolicyKey::no_split_at_inner)
+          : std::set<std::string>();
+
+  std::unordered_map<int, int> fix_factor;
+  CHECK(stage->belong_capsule.defined());
+  int count_fix = 0;
+  for (auto v : stage->belong_capsule->main_op_reserve_reduce_axis) {
+    fix_factor[v->value] =
+      stage->belong_capsule->main_op_reserve_reduce_axis_factor[count_fix]->value;
+    count_fix++;
+  }
+  auto cop = stage->op.as<te::ComputeOpNode>();
+  CHECK(cop);
+  int reserve_pos = (int)cop->axis.size() - stage->belong_capsule->reserve_inner_axis_count;
+
+  int count_spatial = 0, count_reduce = 0;
+  for (const auto& iter : state->stages[stage_id]->iters) {
+    if (!no_split_at_inner_name_set.count(iter->name)) {
+      if (iter->iter_kind == IteratorKind::kSpatial) {
+        // no split for spatial inner
+        if (count_spatial >= reserve_pos) {
+          space_inner.push_back(iter);
+        } else {
+          if ((stage->belong_capsule->operation_role
+            != auto_tensorize::OperationRole::main_op)) {
+            if (n_space <= 2) {
+              space_levels[0].push_back(iter);
+            } else {
+              split_res = tmp_s.split(
+                stage_id, iter, Array<Optional<Integer>>(n_space - 2, NullOpt));
+              for (size_t i = 0; i < n_space - 1; i++) {
+                space_levels[i].push_back(split_res[i]);
+              }
+              spatial_split_step_ids->push_back(tmp_s->transform_steps.size() - 1);
+            }
+          } else {
+            space_sub_inner.push_back(iter);
+          }
+        }
+        count_spatial++;
+      } else if (iter->iter_kind == IteratorKind::kReduction) {
+        CHECK_GE(n_reduce, 1);
+        if ((stage->belong_capsule->operation_role
+          != auto_tensorize::OperationRole::main_op) || !fix_factor.count(count_reduce)) {
+          if (n_reduce <= 2) {
+            reduce_levels[0].push_back(iter);
+          } else {
+            split_res = tmp_s.split(
+              stage_id, iter, Array<Optional<Integer>>(n_reduce - 2, NullOpt));
+            for (size_t i = 0; i < n_reduce - 1; i++) {
+              reduce_levels[i].push_back(split_res[i]);
+            }
+          }
+        } else {
+          reduce_inner.push_back(iter);
+        }
+        count_reduce++;
+      } else {
+        LOG(FATAL) << "Invalid iter type: " << int(iter->iter_kind);
+      }
+    } else {
+      if (iter->iter_kind == IteratorKind::kSpatial) {
+        space_inner.push_back(iter);
+        count_spatial++;
+      } else if (iter->iter_kind == IteratorKind::kReduction) {
+        reduce_inner.push_back(iter);
+        count_reduce++;
+      } else {
+        LOG(FATAL) << "Invalid iter type: " << int(iter->iter_kind);
+      }
+    }
+  }
+
+  if (!space_outer.empty()) {
+    CHECK(!space_levels.empty());
+    space_levels.front().insert(space_levels.front().begin(),
+                                std::make_move_iterator(space_outer.begin()),
+                                std::make_move_iterator(space_outer.end()));
+  }
+  if (!space_sub_inner.empty()) {
+    CHECK(!space_levels.empty());
+    CHECK(n_space >= 2);
+    space_levels[n_space-2].insert(space_levels[n_space-2].begin(),
+                                std::make_move_iterator(space_sub_inner.begin()),
+                                std::make_move_iterator(space_sub_inner.end()));
+  }
+  if (!space_inner.empty()) {
+    CHECK(!space_levels.empty());
+    space_levels.back().insert(space_levels.back().begin(),
+                               std::make_move_iterator(space_inner.begin()),
+                               std::make_move_iterator(space_inner.end()));
+  }
+
+  if (!reduce_outer.empty()) {
+    CHECK(!reduce_levels.empty());
+    reduce_levels.front().insert(reduce_levels.front().begin(),
+                                 std::make_move_iterator(reduce_outer.begin()),
+                                 std::make_move_iterator(reduce_outer.end()));
+  }
+  if (!reduce_inner.empty()) {
+    CHECK(!reduce_levels.empty());
+    reduce_levels.back().insert(reduce_levels.back().begin(),
+                                std::make_move_iterator(reduce_inner.begin()),
+                                std::make_move_iterator(reduce_inner.end()));
+  }
+
+  Array<Iterator> order;
+  int space_ct = 0, reduce_ct = 0;
+  for (const auto c : format) {
+    if (tolower(c) == 's') {
+      order.insert(order.end(), std::make_move_iterator(space_levels[space_ct].begin()),
+                   std::make_move_iterator(space_levels[space_ct].end()));
+      space_ct++;
+    } else if (tolower(c) == 'r') {
+      order.insert(order.end(), std::make_move_iterator(reduce_levels[reduce_ct].begin()),
+                   std::make_move_iterator(reduce_levels[reduce_ct].end()));
+      reduce_ct++;
+    } else {
+      LOG(FATAL) << "Invalid multi level tiling format: " << format;
+    }
+  }
+
+  tmp_s.reorder(stage_id, order);
+  return tmp_s;
+}
+
 State FollowTiling(const State& state, int stage_id, const std::vector<int>& split_step_ids,
                    int n_split) {
   if (n_split < 1 || n_split > 3) {

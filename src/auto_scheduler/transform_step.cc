@@ -141,6 +141,12 @@ Step StepReadFromRecord(dmlc::JSONReader* reader) {
     return FollowSplitStep(reader);
   } else if (name == FollowFusedSplitStepNode::record_prefix_str) {
     return FollowFusedSplitStep(reader);
+  } else if (name == FixedSplitStepNode::record_prefix_str) {
+    return FixedSplitStep(reader);
+  } else if (name == SetScopeStepNode::record_prefix_str) {
+    return SetScopeStep(reader);
+  } else if (name == TensorizeStepNode::record_prefix_str) {
+    return TensorizeStep(reader);
   } else if (name == StorageAlignStepNode::record_prefix_str) {
     return StorageAlignStep(reader);
   } else if (name == ComputeAtStepNode::record_prefix_str) {
@@ -177,6 +183,12 @@ void StepApplyToState(const Step& step, State* state, const ComputeDAG& dag) {
     ps->ApplyToState(state);
   } else if (auto ps = step.as<FollowFusedSplitStepNode>()) {
     ps->ApplyToState(state);
+  } else if (auto ps = step.as<FixedSplitStepNode>()) {
+    ps->ApplyToState(state);
+  } else if (auto ps = step.as<SetScopeStepNode>()) {
+    ps->ApplyToState(state);
+  } else if (auto ps = step.as<TensorizeStepNode>()) {
+    ps->ApplyToState(state);
   } else if (auto ps = step.as<StorageAlignStepNode>()) {
     ps->ApplyToState(state);
   } else if (auto ps = step.as<ComputeAtStepNode>()) {
@@ -212,6 +224,12 @@ void StepApplyToSchedule(const Step& step, Array<te::Stage>* stages, StageToAxes
     ps->ApplyToSchedule(stages, stage_to_axes, transform_steps);
   } else if (auto ps = step.as<FollowFusedSplitStepNode>()) {
     ps->ApplyToSchedule(stages, stage_to_axes, transform_steps);
+  } else if (auto ps = step.as<FixedSplitStepNode>()) {
+    ps->ApplyToSchedule(stages, stage_to_axes);
+  } else if (auto ps = step.as<SetScopeStepNode>()) {
+    ps->ApplyToSchedule(stages, stage_to_axes);
+  } else if (auto ps = step.as<TensorizeStepNode>()) {
+    ps->ApplyToSchedule(stages, stage_to_axes);
   } else if (auto ps = step.as<StorageAlignStepNode>()) {
     ps->ApplyToSchedule(stages, stage_to_axes);
   } else if (auto ps = step.as<ComputeAtStepNode>()) {
@@ -248,6 +266,12 @@ String StepPrintAsPythonAPI(const Step& step, Array<te::Stage>* stages,
     return ps->PrintAsPythonAPI(stages, stage_to_axes, transform_steps);
   } else if (auto ps = step.as<FollowFusedSplitStepNode>()) {
     return ps->PrintAsPythonAPI(stages, stage_to_axes, transform_steps);
+  } else if (auto ps = step.as<FixedSplitStepNode>()) {
+    return ps->PrintAsPythonAPI(stages, stage_to_axes);
+  } else if (auto ps = step.as<SetScopeStepNode>()) {
+    return ps->PrintAsPythonAPI(stages, stage_to_axes);
+  } else if (auto ps = step.as<TensorizeStepNode>()) {
+    return ps->PrintAsPythonAPI(stages, stage_to_axes);
   } else if (auto ps = step.as<StorageAlignStepNode>()) {
     return ps->PrintAsPythonAPI(stages, stage_to_axes);
   } else if (auto ps = step.as<ComputeAtStepNode>()) {
@@ -492,7 +516,9 @@ Iterator FuseStepNode::ApplyToState(State* state) const {
 
   StateNode* pstate = state->CopyOnWrite();
   pstate->stages.Set(stage_id,
-                     Stage(stage->op, stage->op_type, new_iters, stage->compute_at, stage->attrs));
+                     Stage(
+                       stage->op, stage->op_type, new_iters,
+                       stage->compute_at, stage->attrs, stage->belong_capsule));
 
   // Two vectors are used to represent the iterator relation before and after fuse
   // The original iterators in AttachMap will be updated with the new iterators
@@ -706,14 +732,16 @@ void ReorderStepNode::ApplyToState(State* state) const {
     iters.push_back(stage->iters[x]);
   }
   state->CopyOnWrite()->stages.Set(
-      stage_id, Stage(stage->op, stage->op_type, iters, stage->compute_at, stage->attrs));
+      stage_id, Stage(
+        stage->op, stage->op_type, iters,
+        stage->compute_at, stage->attrs, stage->belong_capsule));
 }
 
 void ReorderStepNode::ApplyToSchedule(Array<te::Stage>* stages,
                                       StageToAxesMap* stage_to_axes) const {
   auto stage = (*stages)[stage_id];
   const Array<IterVar>& axes = stage_to_axes->at(stage);
-  CHECK_EQ(after_ids.size(), axes.size());
+  CHECK_LE(after_ids.size(), axes.size());
 
   Array<IterVar> new_axes;
   new_axes.reserve(axes.size());
@@ -812,7 +840,9 @@ Array<Iterator> ApplySplitToState(State* state, int stage_id, int iter_id,
 
   StateNode* pstate = state->CopyOnWrite();
   pstate->stages.Set(stage_id,
-                     Stage(stage->op, stage->op_type, new_iters, stage->compute_at, stage->attrs));
+                     Stage(
+                       stage->op, stage->op_type, new_iters,
+                       stage->compute_at, stage->attrs, stage->belong_capsule));
   pstate->concrete &= concrete;
 
   // Two vectors are used to represent the iterator relation before and after split
@@ -1144,6 +1174,240 @@ String FollowFusedSplitStepNode::PrintAsPythonAPI(Array<te::Stage>* stages,
                                {ExtractSplitLength(transform_steps)}, factor_or_nparts);
 }
 
+/********** Fixed Split **********/
+FixedSplitStep::FixedSplitStep(int stage_id, int iter_id, Optional<PrimExpr> extent,
+                     const Array<Optional<Integer>>& lengths, int factor) {
+  auto node = make_object<FixedSplitStepNode>();
+  node->stage_id = stage_id;
+  // Extent can be a irreducible expression in some special cases
+  if (extent && extent.value()->IsInstance<IntImmNode>()) {
+    node->extent = tvm::Downcast<Integer>(extent.value());
+  }
+  node->iter_id = iter_id;
+  node->lengths = lengths;
+  node->factor = factor;
+  data_ = std::move(node);
+}
+
+FixedSplitStep::FixedSplitStep(dmlc::JSONReader* reader) {
+  auto node = make_object<FixedSplitStepNode>();
+  bool s;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->stage_id);
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->iter_id);
+  int int_val;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&int_val);
+  if (int_val) {
+    node->extent = Integer(int_val);
+  }
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->lengths);
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->factor);
+  data_ = std::move(node);
+}
+
+void FixedSplitStepNode::WriteToRecord(dmlc::JSONWriter* writer) const {
+  writer->WriteArraySeperator();
+  writer->WriteString(record_prefix_str);
+  writer->WriteArrayItem(stage_id);
+  writer->WriteArrayItem(iter_id);
+  writer->WriteArrayItem(extent ? GetIntImm(extent.value()) : 0);
+  writer->WriteArrayItem(lengths);
+  writer->WriteArrayItem(factor);
+}
+
+Array<Iterator> FixedSplitStepNode::ApplyToState(State* state) const {
+  Array<Optional<Integer>> full_lengths(lengths.begin(), lengths.end());
+  full_lengths.push_back(Integer(factor));
+  return ApplySplitToState(state, stage_id, iter_id, full_lengths, inner_to_outer);
+}
+
+Array<IterVar> FixedSplitStepNode::ApplyToSchedule(Array<te::Stage>* stages,
+                                              StageToAxesMap* stage_to_axes) const {
+  Array<Optional<Integer>> full_lengths(lengths.begin(), lengths.end());
+  full_lengths.push_back(Integer(factor));
+  return ApplySplitToSchedule(stages, stage_to_axes, stage_id, iter_id, full_lengths, inner_to_outer);
+}
+
+String FixedSplitStepNode::PrintAsPythonAPI(Array<te::Stage>* stages,
+                                       StageToAxesMap* stage_to_axes) const {
+  Array<Optional<Integer>> full_lengths(lengths.begin(), lengths.end());
+  full_lengths.push_back(Integer(factor));
+  return PrintSplitAsPythonAPI(stages, stage_to_axes, stage_id, iter_id, full_lengths, inner_to_outer);
+}
+
+/********** Set Scope **********/
+SetScopeStep::SetScopeStep(int stage_id, String scope_name) {
+  auto node = make_object<SetScopeStepNode>();
+  node->stage_id = stage_id;
+  node->scope_name = scope_name;
+  data_ = std::move(node);
+}
+
+SetScopeStep::SetScopeStep(dmlc::JSONReader* reader) {
+  auto node = make_object<SetScopeStepNode>();
+  bool s;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->stage_id);
+  s = reader->NextArrayItem();
+  CHECK(s);
+  std::string string_value;
+  reader->Read(&string_value);
+  node->scope_name = std::move(string_value);
+  data_ = std::move(node);
+}
+
+void SetScopeStepNode::WriteToRecord(dmlc::JSONWriter* writer) const {
+  writer->WriteArraySeperator();
+  writer->WriteString(record_prefix_str);
+  writer->WriteArrayItem(stage_id);
+  writer->WriteArraySeperator();
+  writer->WriteString(scope_name);
+}
+
+void SetScopeStepNode::ApplyToState(State* state) const {
+  return;
+}
+
+void SetScopeStepNode::ApplyToSchedule(Array<te::Stage>* stages,
+                                           StageToAxesMap* stage_to_axes) const {
+  te::Stage stage = (*stages)[stage_id];
+  const Array<IterVar>& axes = (*stage_to_axes)[stage];
+  stage.set_scope(scope_name);
+  stages->Set(stage_id, std::move(stage));
+}
+
+String SetScopeStepNode::PrintAsPythonAPI(Array<te::Stage>* stages,
+                                              StageToAxesMap* stage_to_axes) const {
+  std::stringstream ss;
+  const auto& stage = (*stages)[stage_id];
+  const auto& op_name = CleanName(stage->op->name);
+  ss << "s[" << op_name << "].set_scope("
+     << scope_name << ")\n";
+
+  ApplyToSchedule(stages, stage_to_axes);
+  return ss.str();
+}
+
+/********** Tensorize **********/
+TensorizeStep::TensorizeStep(int stage_id, int iter_id, String target,
+    String recipe_key, String compute_key, String shape_key, String capsule_key) {
+  auto node = make_object<TensorizeStepNode>();
+  node->stage_id = stage_id;
+  node->iter_id = iter_id;
+  node->target = target;
+  node->recipe_key = recipe_key;
+  node->compute_key = compute_key;
+  node->shape_key = shape_key;
+  node->capsule_key = capsule_key;
+  data_ = std::move(node);
+}
+
+TensorizeStep::TensorizeStep(dmlc::JSONReader* reader) {
+  auto node = make_object<TensorizeStepNode>();
+  bool s;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->stage_id);
+  s = reader->NextArrayItem();
+  CHECK(s);
+  reader->Read(&node->iter_id);
+  s = reader->NextArrayItem();
+  CHECK(s);
+  std::string target;
+  reader->Read(&target);
+  node->target = target;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  std::string recipe_key;
+  reader->Read(&recipe_key);
+  node->recipe_key = recipe_key;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  std::string compute_key;
+  reader->Read(&compute_key);
+  node->compute_key = compute_key;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  std::string shape_key;
+  reader->Read(&shape_key);
+  node->shape_key = shape_key;
+  s = reader->NextArrayItem();
+  CHECK(s);
+  std::string capsule_key;
+  reader->Read(&capsule_key);
+  node->capsule_key = capsule_key;
+  data_ = std::move(node);
+}
+
+void TensorizeStepNode::WriteToRecord(dmlc::JSONWriter* writer) const {
+  writer->WriteArraySeperator();
+  writer->WriteString(record_prefix_str);
+  writer->WriteArrayItem(stage_id);
+  writer->WriteArrayItem(iter_id);
+  writer->WriteArraySeperator();
+  writer->WriteString(target);
+  writer->WriteArraySeperator();
+  writer->WriteString(recipe_key);
+  writer->WriteArraySeperator();
+  writer->WriteString(compute_key);
+  writer->WriteArraySeperator();
+  writer->WriteString(shape_key);
+  writer->WriteArraySeperator();
+  writer->WriteString(capsule_key);
+}
+
+void TensorizeStepNode::ApplyToState(State* state) const {
+  const Stage& stage = (*state)->stages[stage_id];
+  Iterator it = stage->iters[iter_id];
+
+  Iterator new_it = Iterator(
+    it->name, it->range, it->iter_kind, IteratorAnnotation::kTensorize, &it->orig_iters);
+  Stage new_stage = stage;
+  new_stage.CopyOnWrite()->iters.Set(iter_id, new_it);
+  state->CopyOnWrite()->stages.Set(stage_id, std::move(new_stage));
+}
+
+void TensorizeStepNode::ApplyToSchedule(Array<te::Stage>* stages,
+                                           StageToAxesMap* stage_to_axes) const {
+  te::Stage stage = (*stages)[stage_id];
+  const Array<IterVar>& axes = (*stage_to_axes)[stage];
+  const tvm::runtime::PackedFunc* get_tensor_intrin =
+      runtime::Registry::Get("auto_tensorize.get_tensor_intrin");
+  CHECK(get_tensor_intrin) << "Can't find auto_tensorize.get_tensor_intrin.";
+
+  te::TensorIntrin intrin = (*get_tensor_intrin)(
+    target, recipe_key, compute_key, shape_key, capsule_key);
+  stage.tensorize(axes[iter_id], intrin);
+  stages->Set(stage_id, std::move(stage));
+}
+
+String TensorizeStepNode::PrintAsPythonAPI(Array<te::Stage>* stages,
+                                              StageToAxesMap* stage_to_axes) const {
+  std::stringstream ss;
+  const auto& stage = (*stages)[stage_id];
+  const auto& op_name = CleanName(stage->op->name);
+  ss << "from tvm import auto_tensorize as at\n";
+  ss << op_name + "_intrin = at.get_tensor_intrin("
+     << ", \"" << target << "\", \"" << recipe_key << "\", \"" << compute_key << "\", \"" << shape_key
+     << "\", \"" << capsule_key << "\")\n";
+  ss << "s[" << op_name << "].tensorize("
+     << CleanName((*stage_to_axes)[stage][iter_id]->var->name_hint, op_name)
+     << ", " << op_name + "_intrin)\n";
+
+  ApplyToSchedule(stages, stage_to_axes);
+  return ss.str();
+}
+
 /********** Storage Align **********/
 StorageAlignStep::StorageAlignStep(int stage_id, int iter_id, int factor, int offset) {
   auto node = make_object<StorageAlignStepNode>();
@@ -1254,8 +1518,9 @@ void ComputeAtStepNode::ApplyToState(State* state) const {
   }
 
   StateNode* pstate = state->CopyOnWrite();
-  pstate->stages.Set(stage_id, Stage(stage->op, stage->op_type, std::move(new_iters),
-                                     ComputeAtKind::kIter, stage->attrs));
+  pstate->stages.Set(stage_id, Stage(
+    stage->op, stage->op_type, std::move(new_iters),
+    ComputeAtKind::kIter, stage->attrs, stage->belong_capsule));
   // Update attach map
   pstate->attach_map.SetComputeAtIter(stage_id, target_stage_id, target_iter_id);
 }
@@ -1375,7 +1640,7 @@ void ComputeRootStepNode::ApplyToState(State* state) const {
 
   StateNode* pstate = state->CopyOnWrite();
   pstate->stages.Set(stage_id, Stage(stage->op, stage->op_type, std::move(new_iters),
-                                     ComputeAtKind::kRoot, stage->attrs));
+                                     ComputeAtKind::kRoot, stage->attrs, stage->belong_capsule));
   // Update attach map
   pstate->attach_map.DeleteStage(stage_id);
 }
@@ -1480,7 +1745,8 @@ int CacheReadStepNode::ApplyToState(State* state, const ComputeDAG& dag) const {
   // Update the op of the target stage, insert a new cache read stage behind, update the op of
   // later stages, then update the stage_id mapping in AttachMap
   int added_stage_id = stage_id + 1;
-  Stage tmp_stage = pstate->stages[stage_id];
+  Stage curr = pstate->stages[stage_id];
+  Stage tmp_stage = curr;
   tmp_stage.CopyOnWrite()->op = current_compute_dag->ops[stage_id];
   pstate->stages.Set(stage_id, std::move(tmp_stage));
   pstate->stages.insert(pstate->stages.begin() + added_stage_id,
@@ -1593,9 +1859,15 @@ int CacheWriteStepNode::ApplyToState(State* state, const ComputeDAG& dag) const 
   // Assume no step has been applied to the target stage before cache write.
   // Insert a new cache write stage ahead, update the op of the target stage and later stages, then
   // update the stage_id mapping in AttachMap
+  Stage curr = pstate->stages[stage_id];
+  if (curr->belong_capsule.defined()) {
+    std::cerr << "Warning: cache write may invalidate the original belong_capsule."
+              << "[op=" << curr->op << "]\n";
+  }
   pstate->stages.insert(pstate->stages.begin() + stage_id,
                         Stage(current_compute_dag->ops[stage_id]));
-  pstate->stages.Set(stage_id + 1, Stage(current_compute_dag->ops[stage_id + 1]));
+  pstate->stages.Set(stage_id + 1, Stage(
+    current_compute_dag->ops[stage_id + 1], curr->belong_capsule));
   int next_stage_id = stage_id + 2;
   // TODO(jc94): Fix the cache write bug in TVM and remove added_op == 2 support.
   // TVM's cache_write has a bug with multi outputs. See
@@ -1603,7 +1875,7 @@ int CacheWriteStepNode::ApplyToState(State* state, const ComputeDAG& dag) const 
   // for more details
   if (added_ops == 2) {
     pstate->stages.insert(pstate->stages.begin() + next_stage_id,
-                          Stage(current_compute_dag->ops[next_stage_id]));
+                          Stage(current_compute_dag->ops[next_stage_id], curr->belong_capsule));
     next_stage_id++;
   } else if (added_ops > 2) {
     LOG(ERROR) << "Unexpected behavior of CacheWrite.";
@@ -1719,10 +1991,15 @@ int RfactorStepNode::ApplyToState(State* state, const ComputeDAG& dag) const {
   // target_stage -> rfactor_compute + target_stage
   // Insert a new compute stage, update the target stage and later stage, then update the stage_id
   // mapping in AttachMap
+  Stage curr = pstate->stages[stage_id];
+  if (curr->belong_capsule.defined()) {
+    std::cerr << "Warning: cache write may invalidate the original belong_capsule."
+              << "[op=" << curr->op << "]\n";
+  }
   pstate->stages.insert(pstate->stages.begin() + stage_id,
                         Stage(current_compute_dag->ops[stage_id]));
   // Maintain the compute_at type of the target stage
-  Stage target_stage = Stage(current_compute_dag->ops[stage_id + 1]);
+  Stage target_stage = Stage(current_compute_dag->ops[stage_id + 1], curr->belong_capsule);
   target_stage.CopyOnWrite()->compute_at = compute_at_type;
   pstate->stages.Set(stage_id + 1, std::move(target_stage));
   for (size_t i = stage_id + 2; i < pstate->stages.size(); ++i) {

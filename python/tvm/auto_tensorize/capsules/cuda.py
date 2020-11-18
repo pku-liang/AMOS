@@ -591,9 +591,9 @@ class WMMAMmaSync(ComputeCapsule):
         B_shape = (k, n) if not trans_B else (n, k)
         C_shape = (m, n) if not trans_C else (n, m)
         A = tvm.te.placeholder(
-            A_shape, name="A", dtype=input_dtypes[0])
+            A_shape, name="wmma_A", dtype=input_dtypes[0])
         B = tvm.te.placeholder(
-            B_shape, name="B", dtype=input_dtypes[1])
+            B_shape, name="wmma_B", dtype=input_dtypes[1])
         rk = tvm.te.reduce_axis([0, k], name="rk")
 
         def get_indices(i, j, r, op):
@@ -618,7 +618,7 @@ class WMMAMmaSync(ComputeCapsule):
                     (A(*get_indices(i, j, rk, "A")) *
                      B(*get_indices(i, j, rk, "B"))).astype(output_dtypes[0]),
                     axis=rk),
-            name="C")
+            name="wmma_C")
         return [A, B], [C]
 
     def get_intrinsic(

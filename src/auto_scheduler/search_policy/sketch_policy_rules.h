@@ -27,6 +27,7 @@
 
 #include <tvm/auto_scheduler/loop_state.h>
 #include <tvm/auto_scheduler/search_task.h>
+#include <tvm/auto_tensorize/recipe.h>
 
 #include <string>
 #include <utility>
@@ -108,6 +109,21 @@ DEFINE_SKETCH_GENERATION_RULE(RuleMultiLevelTiling);
 
 /*! \brief The rule that performs multi-level tiling and fuses later consumers. */
 DEFINE_SKETCH_GENERATION_RULE(RuleMultiLevelTilingWithFusion);
+
+/*! \brief The rule that performs multi-level tiling with fixed inner factor. */
+DEFINE_SKETCH_GENERATION_RULE(RulePartialMultiLevelTiling);
+
+/*! \brief The rule that decide the scope of op. */
+DEFINE_SKETCH_GENERATION_RULE(RuleSetScope);
+
+/*! \brief The rule that compute_at op into main op. */
+DEFINE_SKETCH_GENERATION_RULE(RulePlaceMain);
+
+/*! \brief The rule that compute_at op into output op. */
+DEFINE_SKETCH_GENERATION_RULE(RulePlaceOutput);
+
+/*! \brief The rule that uses tensorize. */
+// DEFINE_SKETCH_GENERATION_RULE(RuleTensorize);
 
 /*! \brief The rule that adds a cache read stage. Mainly used for GPU cooperative fetching,
  * Currently only support 1 to 1 match cache read. */

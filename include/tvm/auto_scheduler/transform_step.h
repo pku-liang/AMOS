@@ -718,6 +718,214 @@ class FollowFusedSplitStep : public Step {
   TVM_DEFINE_OBJECT_REF_METHODS(FollowFusedSplitStep, Step, FollowFusedSplitStepNode);
 };
 
+class FixedSplitStepNode : public StepNode {
+ public:
+  /*! \brief The id of the iter to split. */
+  int iter_id;
+  /*! \brief The extent length of the axis to split. */
+  Optional<PrimExpr> extent;
+  /*! \brief The split factors. */
+  Array<Optional<Integer>> lengths;
+  /*!
+   * \brief If true, the `lengths` denote the lengths of iterators
+   * from inner level to outer level
+   */
+  bool inner_to_outer{true};
+  /*! \brief The inner split factor. */
+  int factor;
+
+  void WriteToRecord(dmlc::JSONWriter* writer) const final;
+
+  /*!
+   * \brief Apply the current step to State.
+   * \param state A mutable pointer to state, which will be updated.
+   * \return The iterator results after split.
+   * \note If we do split on an iterator which has stages attached at it(by compute_at), the inner
+   * most iterator of split results will become the new attach point.
+   */
+  Array<Iterator> ApplyToState(State* state) const;
+
+  /*!
+   * \brief Apply the current step to tvm.schedule.
+   * \param stages The list of current stages
+   * \param stage_to_axes A map that maps stage ot all its iterators.
+   * \return The iterator results after split.
+   */
+  Array<tir::IterVar> ApplyToSchedule(Array<te::Stage>* stages,
+                                      StageToAxesMap* stage_to_axes) const;
+
+  /*!
+   * \brief Print the current step as equivalent python schedule API.
+   * \param stages The list of current stages
+   * \param stage_to_axes A map that maps stage ot all its iterators.
+   * \return Python schedule code.
+   */
+  String PrintAsPythonAPI(Array<te::Stage>* stages, StageToAxesMap* stage_to_axes) const;
+
+  static constexpr const char* record_prefix_str = "FXSP";
+
+  static constexpr const char* _type_key = "auto_scheduler.FixedSplitStep";
+  TVM_DECLARE_FINAL_OBJECT_INFO(FixedSplitStepNode, Object);
+};
+
+/*!
+ * \brief Managed reference to SplitStepNode.
+ * \sa SplitStepNode
+ */
+class FixedSplitStep : public Step {
+ public:
+  /*!
+   * \brief The constructor.
+   * \param stage_id The index of the stage to be split.
+   * \param iter_id The index of the iterator to be split.
+   * \param extent The extent length of the axis to split.
+   * \param lengths The multiple split factors. Can be None to be filled by search policy.
+   * \param inner_to_outer The split direction.
+   */
+  FixedSplitStep(int stage_id, int iter_id, Optional<PrimExpr> extent,
+            const Array<Optional<Integer>>& lengths, int factor);
+
+  /*!
+   * \brief The constructor used to read a step record from JSONReader and create the
+   * corresponding step.
+   * \param reader The input JSONReader.
+   */
+  explicit FixedSplitStep(dmlc::JSONReader* reader);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(FixedSplitStep, Step, FixedSplitStepNode);
+};
+
+/*! \brief Storage align step that corresponds to te::Stage::storage_align */
+class SetScopeStepNode : public StepNode {
+ public:
+  /*! \brief The name of storage scope. */
+  String scope_name;
+
+  void WriteToRecord(dmlc::JSONWriter* writer) const final;
+
+  /*!
+   * \brief Apply the current step to State.
+   * \param state A mutable pointer to State, which will be updated.
+   */
+  void ApplyToState(State* state) const;
+
+  /*!
+   * \brief Apply the current step to tvm.schedule.
+   * \param stages The list of current stages
+   * \param stage_to_axes A map that maps stage ot all its iterators.
+   */
+  void ApplyToSchedule(Array<te::Stage>* stages, StageToAxesMap* stage_to_axes) const;
+
+  /*!
+   * \brief Print the current step as equivalent python schedule API.
+   * \param stages The list of current stages
+   * \param stage_to_axes A map that maps stage ot all its iterators.
+   * \return Python schedule code.
+   */
+  String PrintAsPythonAPI(Array<te::Stage>* stages, StageToAxesMap* stage_to_axes) const;
+
+  static constexpr const char* record_prefix_str = "SS";
+
+  static constexpr const char* _type_key = "auto_scheduler.SetScopeStep";
+  TVM_DECLARE_FINAL_OBJECT_INFO(SetScopeStepNode, Object);
+};
+
+/*!
+ * \brief Managed reference to StorageAlignStepNode.
+ * \sa StorageAlignStepNode
+ */
+class SetScopeStep : public Step {
+ public:
+  /*!
+   * \brief The constructor.
+   * \param scope_name The name of storage socpe.
+   */
+  SetScopeStep(int stage_id, String scope_name);
+
+  /*!
+   * \brief The constructor used to read a step record from JSONReader and create the
+   * corresponding step.
+   * \param reader The input JSONReader.
+   */
+  explicit SetScopeStep(dmlc::JSONReader* reader);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(SetScopeStep, Step, SetScopeStepNode);
+};
+
+/*! \brief Storage align step that corresponds to te::Stage::storage_align */
+class TensorizeStepNode : public StepNode {
+ public:
+  /*! \brief The iterator to be tensorized. */
+  int iter_id;
+  /*! \brief The target. */
+  String target;
+  /*! \brief The tensorize recipe. */
+  String recipe_key;
+  /*! \brief The tensorize compute. */
+  String compute_key;
+  /*! \brief The tensorize shape. */
+  String shape_key;
+  /*! \brief The tensorize capsule. */
+  String capsule_key;
+
+  void WriteToRecord(dmlc::JSONWriter* writer) const final;
+
+  /*!
+   * \brief Apply the current step to State.
+   * \param state A mutable pointer to State, which will be updated.
+   */
+  void ApplyToState(State* state) const;
+
+  /*!
+   * \brief Apply the current step to tvm.schedule.
+   * \param stages The list of current stages
+   * \param stage_to_axes A map that maps stage ot all its iterators.
+   */
+  void ApplyToSchedule(Array<te::Stage>* stages, StageToAxesMap* stage_to_axes) const;
+
+  /*!
+   * \brief Print the current step as equivalent python schedule API.
+   * \param stages The list of current stages
+   * \param stage_to_axes A map that maps stage ot all its iterators.
+   * \return Python schedule code.
+   */
+  String PrintAsPythonAPI(Array<te::Stage>* stages, StageToAxesMap* stage_to_axes) const;
+
+  static constexpr const char* record_prefix_str = "TSR";
+
+  static constexpr const char* _type_key = "auto_scheduler.TensorizeStep";
+  TVM_DECLARE_FINAL_OBJECT_INFO(TensorizeStepNode, Object);
+};
+
+/*!
+ * \brief Managed reference to StorageAlignStepNode.
+ * \sa StorageAlignStepNode
+ */
+class TensorizeStep : public Step {
+ public:
+  /*!
+   * \brief The constructor.
+   * \param stage_id The index of the stage to be aligned.
+   * \param iter_id
+   * \param target
+   * \param recipe_key
+   * \param compute_key
+   * \param shape_key
+   * \param capsule_key
+   */
+  TensorizeStep(int stage_id, int iter_id, String target,
+                String recipe_key, String compute_key, String shape_key, String capsule_key);
+
+  /*!
+   * \brief The constructor used to read a step record from JSONReader and create the
+   * corresponding step.
+   * \param reader The input JSONReader.
+   */
+  explicit TensorizeStep(dmlc::JSONReader* reader);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(TensorizeStep, Step, TensorizeStepNode);
+};
+
 /*! \brief Storage align step that corresponds to te::Stage::storage_align */
 class StorageAlignStepNode : public StepNode {
  public:
