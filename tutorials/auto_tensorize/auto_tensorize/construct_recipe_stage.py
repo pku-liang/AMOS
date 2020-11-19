@@ -131,7 +131,11 @@ def main():
     # We can kick off the search and let the auto-scheduler do its magic.
     # After some measurement trials, it will return the best schedule it found.
 
-    sch, args = auto_scheduler.auto_schedule(task, tuning_options=tune_option)
+    from tvm.auto_scheduler.cost_model import RandomModel
+    from tvm.auto_scheduler.search_policy import SketchPolicy
+    cost_model = RandomModel()
+    search_policy = SketchPolicy(task, cost_model)
+    # sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
 
     ######################################################################
     # We can lower the schedule to see the IR after auto-scheduling.
@@ -146,8 +150,8 @@ def main():
 
     # Print equivalent python schedule API. This can be used for debugging and
     # learning the behavior of the auto-scheduler.
-    # print("Equivalent python schedule:")
-    # print(task.compute_dag.print_python_code_from_state(inp.state))
+    print("Equivalent python schedule:")
+    print(task.compute_dag.print_python_code_from_state(inp.state))
 
     ######################################################################
     # Check correctness and evaluate performance

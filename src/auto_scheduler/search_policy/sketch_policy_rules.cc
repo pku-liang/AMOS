@@ -1080,10 +1080,12 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
         to_fuse.push_back((*state)->stages[stage_id]->iters[i]);
       }
       const auto& vthread_it = state->fuse(stage_id, to_fuse);
-      if (GetExtent(vthread_it) > policy->search_task->hardware_params->max_vthread_extent) {
-        return ResultKind::kInvalid;
+      if (!is_warp_level_tensorize) {
+        if (GetExtent(vthread_it) > policy->search_task->hardware_params->max_vthread_extent) {
+          return ResultKind::kInvalid;
+        }
+        state->bind(stage_id, vthread_it, IteratorAnnotation::kVThread);
       }
-      state->bind(stage_id, vthread_it, IteratorAnnotation::kVThread);
 
       // Fuse the third outermost space tile as threadIdx
       to_fuse.clear();
