@@ -564,19 +564,11 @@ if __name__ == "__main__":
             N = batch
             print("\n\nProblem size:")
             print(N, C, H, W, K, R, S, stride, padding)
-            res = autotvm_run(
-                    N, C, H, W, K, R, S, stride, padding,
-                    dtype="int4",
-                    out_dtype="int32",
-                    log_name=tag_name+"_".join(
-                        [str(x) for x in (
-                            N, C, H, W, K, R, S, stride, padding)])+".log"
-                )
             try:
                 res = autotvm_run(
                     N, C, H, W, K, R, S, stride, padding,
-                    dtype="int4",
-                    out_dtype="int32",
+                    dtype="float16",
+                    out_dtype="float32",
                     log_name=tag_name+"_".join(
                         [str(x) for x in (
                             N, C, H, W, K, R, S, stride, padding)])+".log"
