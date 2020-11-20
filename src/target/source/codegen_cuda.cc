@@ -79,6 +79,8 @@ std::string CodeGenCUDA::Finish() {
     decl_stream << "#include <mma.h>\n";
   }
 
+  if (enable_bf16_) {}
+
   return CodeGenC::Finish();
 }
 
@@ -263,6 +265,10 @@ void CodeGenCUDA::PrintType(DataType t, std::ostream& os) {  // NOLINT(*)
       os << lanes;
       return;
     }
+  } else if (t.is_bfloat16()) {
+    enable_bf16_ = true;
+    os << "__nv_bfloat16";
+    return;
   }
   LOG(FATAL) << "Cannot convert type " << t << " to CUDA type";
 }
@@ -759,7 +765,11 @@ inline void PrintConst(const FloatImmNode* op, std::ostream& os, CodeGenCUDA* p)
       break;
     }
     case 16: {
-      os << "__float2half_rn";
+      if (op->dtype.code() == DataType::kBFloat) {
+        os << "(__nv_bfloat16)";
+      } else {
+        os << "__float2half_rn";
+      }
       os << '(' << std::scientific << op->value << 'f' << ')';
       break;
     }

@@ -30,6 +30,7 @@ from tvm.target import codegen
 from tvm.te import tensor
 from tvm.te import schedule
 from tvm.target import Target
+from tvm.contrib import nvcc
 
 
 def get_binds(args, compact=False, binds=None):
@@ -170,10 +171,18 @@ def lower(sch, args, name="main", binds=None, simple_mode=False):
     pass_list += [
         tvm.tir.transform.InjectPrefetch(),
         tvm.tir.transform.StorageFlatten(64, instrument_bound_checkers),
-        tvm.tir.transform.BF16Legalize(),
+    ]
+
+    # if enable_bf16:  # ampere: cuda core and tensor core support for bf16
+    #     pass_list += [
+    #         tvm.tir.transform.BF16Legalize(),
+    #     ]
+
+    pass_list += [
         tvm.tir.transform.NarrowDataType(32),
         tvm.tir.transform.Simplify(),
     ]
+
     pass_list += lower_phase1
 
     # Phase 2
@@ -236,6 +245,16 @@ def _build_for_device(input_mod, target, target_host):
     device_type = ndarray.context(target.kind.name, 0).device_type
 
     mod_mixed = input_mod
+
+    # cuda_path = nvcc.find_cuda_path()
+    # cuda_version = nvcc.get_cuda_version(cuda_path)
+    # cc = tvm.gpu(0).compute_version
+    # major, __ = nvcc.parse_compute_version(cc)
+    # enable_bf16 = major >= 8 and cuda_version >= 11
+
+    # if not enable_bf16:
+    #     mod_mixed = tvm.tir.transform.BF16Legalize()(input_mod)
+
     mod_mixed = tvm.tir.transform.Apply(lambda f: f.with_attr("target", target))(mod_mixed)
 
     opt_mixed = [tvm.tir.transform.VerifyMemory()]
@@ -373,6 +392,18 @@ def build(inputs, args=None, target=None, target_host=None, name="default_functi
     if isinstance(inputs, schedule.Schedule):
         if args is None:
             raise ValueError("args must be given for build from schedule")
+        
+        # if target == "cuda":
+        #    cuda_path = nvcc.find_cuda_path()
+        #    cuda_version = nvcc.get_cuda_version(cuda_path)
+        #    cc = tvm.gpu(0).compute_version
+        #    major, __ = nvcc.parse_compute_version(cc)
+        #    enable_bf16 = major >= 8 and cuda_version >= 11
+        #    if not enable_bf16:
+        #        print("Build for cuda target: BF16 disabled")
+        # else:
+        #    enable_bf16 = True
+
         input_mod = lower(inputs, args, name=name, binds=binds)
     elif isinstance(inputs, (list, tuple, container.Array)):
         merged_mod = tvm.IRModule({})

@@ -12,3 +12,4 @@ ourselves familiar with tensorize and tensorcore.
 - conv2d_nchw_tensorcore_transform.py
 #### 4. Performance test
 - autotvm_conv2d_tensorcore_nchw.py
+- conv2d_implicit_gemm_tensorcore.py
