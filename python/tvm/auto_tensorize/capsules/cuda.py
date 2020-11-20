@@ -113,6 +113,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
             ret["storage_layout"] = layout
             ret["target"] = "cuda"
             ret["recipe_mnemonic"] = self.belong_recipe_name
+            ret["data_type"] = ""
         return ret
 
     def get_instruction_prefix(self):
@@ -286,6 +287,7 @@ class WMMAAddBias(ElementwiseCapsule):
             ret["target"] = "cuda"
             ret["recipe_mnemonic"] = self.belong_recipe_name
             ret["storage_layout"]= layout
+            ret["data_type"] = ""
         return ret
 
     def get_instruction_prefix(self):
@@ -433,6 +435,7 @@ class WMMALoadMatrixSync(MemoryCapsule):
             ret["storage_layout"] = layout
             ret["target"] = "cuda"
             ret["recipe_mnemonic"] = self.belong_recipe_name
+            ret["data_type"] = ""
         return ret
 
     def get_instruction_prefix(self):
@@ -478,6 +481,213 @@ class WMMALoadMatrixSync(MemoryCapsule):
         return inst
 
 
+@register_capsule("cuda", "nvcuda::wmma::__float_to_tf32")
+class WMMACastFp32ToTf32(ElementwiseCapsule):
+    def get_params_usage(self):
+        """
+        ---
+        Returns:
+        usage string: str
+            help to understand the instruction this capsule contains
+        """
+        usage = "nvcuda::wmma::__float_to_tf32"
+        return usage
+
+    def get_compute_expression(
+            self, input_shapes, output_shapes,
+            input_dtypes, output_dtypes, problem_size):
+        """
+        input_shapes: list of tuple/list of int
+        output_shapes: list of tuple/list of int
+        input_dtypes: list of str, [float32]
+        output_dtypes: list of str, [float32]
+        problem_size: list of int
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert isinstance(input_shapes, (list, tuple))
+        assert isinstance(output_shapes, (list, tuple))
+        assert isinstance(input_dtypes, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert len(input_shapes) == 1
+        assert len(output_shapes) == 1
+        assert len(input_dtypes) == 1
+        assert len(output_dtypes) == 1
+        A = tvm.te.placeholder(
+            input_shapes[0], name="A", dtype=input_dtypes[0])
+        B = tvm.te.compute(
+            output_shapes[0],
+            lambda *indices:
+                A(*indices).astype(output_dtypes[0]), name="B")
+        return [A], [B]
+
+    def get_intrinsic(
+            self, input_shapes, output_shapes,
+                input_dtypes, output_dtypes, problem_size, ldm, layout):
+        """
+        input_shapes: list of tuple/list of int
+        output_shapes: list of tuple/list of int
+        input_dtypes: list of str
+        output_dtypes: list of str
+        problem_size: list of int
+        ldm: int
+        layout: str
+        ---
+        Returns:
+        intrin: tvm.te.TensorIntrin
+        """
+        assert isinstance(input_shapes, (list, tuple))
+        assert isinstance(output_shapes, (list, tuple))
+        assert isinstance(input_dtypes, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert isinstance(problem_size, (list, tuple))
+        assert len(input_shapes) == 1
+        assert len(output_shapes) == 1
+        assert len(input_dtypes) == 1
+        assert len(output_dtypes) == 1
+        assert len(problem_size) == 3
+        m, n, k = problem_size
+        inputs, outputs = self.get_compute_expression(
+            input_shapes, output_shapes,
+            input_dtypes, output_dtypes, problem_size
+        )
+        input_buffers = [
+            tvm.tir.decl_buffer(
+                x.shape, x.dtype, scope="local",
+                data_alignment=32, offset_factor=8)
+            for x in inputs]
+        output_buffers = [
+            tvm.tir.decl_buffer(
+                x.shape, x.dtype, scope="local",
+                data_alignment=32, offset_factor=8)
+            for x in outputs]
+        bind_map = {x:y for x, y in
+                        zip(inputs + outputs, input_buffers + output_buffers)}
+
+        def intrin_func(ins, outs):
+            ib = tvm.tir.ir_builder.create()
+            BA = ins[0]
+            BB = outs[0]
+            ib.emit(
+                tvm.tir.call_intrin(
+                    "handle",
+                    "tir.capsule_compile",
+                    "cuda",
+                    self.belong_recipe_name,
+                    "nvcuda::wmma::__float_to_tf32",
+                    BA.data,
+                    BA.elem_offset // 256,
+                    BB.data,
+                    BB.elem_offset // 256,
+                    layout
+                )
+            )
+            return ib.get()
+
+        return tvm.te.decl_tensor_intrin(
+            outputs[0].op, intrin_func, binds=bind_map)
+
+    def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
+        """
+        arg_pos: int
+            the position of argument which requires memory scope
+        args: optional list
+            the full args
+        ---
+        Returns:
+        memory scope info: dict of {tvm.runtime.String, tvm.tir.StringImm}
+            e.g., {storage_scope: wmma::matrix_a}
+        """
+        assert isinstance(arg_pos, int)
+        ret = {}
+        if arg_pos == 0 or arg_pos == 2:
+            assert isinstance(args, list) and len(args) == 5, len(args)
+            layout = str(args[4])[1:-1]
+            ret["storage_scope"] = "nvcuda::wmma::accumulator"
+            ret["target"] = "cuda"
+            ret["recipe_mnemonic"] = self.belong_recipe_name
+            ret["storage_layout"] = layout
+        if arg_pos == 0:
+            ret["data_type"] = "float32"
+        elif arg_pos == 2:
+            ret["data_type"] = "nvcuda::wmma::precision::tf32"
+        return ret
+
+    def get_instruction_prefix(self):
+        """
+        ---
+        Returns:
+        instruction prefix
+            e.g., nvcuda::wmma::load_matrix_sync
+        """
+        return "nvcuda::wmma::__float_to_tf32"
+
+    def assemble_instruction(self, args):
+        """
+        args: list of str
+            the arguments in string format
+            args[0]: a fragment
+            args[1]: a idx
+            args[2]: b fragment
+            args[3]: b idx
+        ---
+        Returns:
+        full instruction: str
+            the instruction string in full format
+        """
+        for v in args:
+            assert isinstance(v, str)
+        prefix = self.get_instruction_prefix()
+        inst = (
+            "0;{for (int _t=0; _t<%s[%s].num_elements; ++_t)"
+            " {%s[%s].x[_t] = %s(%s[%s].x[_t]);}}") % (
+            args[0], args[1], args[0], args[1], prefix, args[2], args[3])
+        return inst
+
+
+# deprecated, use WMMACastFp32ToTf32 instead.
+@register_capsule("cuda", "nvcuda::wmma::load_matrix_sync::tf32")
+class WMMALoadMatrixSyncTf32(CompilationCapsule):
+    def get_params_usage(self):
+        """
+        ---
+        Returns:
+        usage string: str
+            help to understand the instruction this capsule contains
+        """
+        usage = ("nvcuda::wmma::load_matrix_sync::tf32"
+                 "Args:",
+                 "---",
+                 "fragment: dst fragment",
+                 "ptr: src memory pointer",
+                 "ldm: leading dimension length",
+                 "optional layout: layout for accumulator")
+        return usage
+
+    get_buffer_memory_scope_info = WMMALoadMatrixSync.get_buffer_memory_scope_info
+    get_instruction_prefix = WMMALoadMatrixSync.get_instruction_prefix
+
+    def _assemble_epilogue(self, *args):
+        frag_arr_name, frag_index = args
+        frag = f"{frag_arr_name}[{frag_index}]"
+        return '\n'.join([
+            f"for (int t = 0; t < {frag}.num_elements; t++) {{",
+            f"    {frag}.x[t] = wmma::__float_to_tf32({frag}.x[t]);",
+            f"}}",
+        ])
+
+    _assemble_instruction_body = WMMALoadMatrixSync.assemble_instruction
+
+    def assemble_instruction(self, args):
+        inst = self._assemble_instruction_body(args)
+        epilogue = self._assemble_epilogue(args[0], args[4])
+        full_inst = '\n'.join([inst, epilogue])
+        return full_inst
+
+
 @register_capsule("cuda", "nvcuda::wmma::fill_fragment")
 class WMMAFillFragment(ComputeCapsule):
     def get_params_usage(self):
@@ -514,6 +724,7 @@ class WMMAFillFragment(ComputeCapsule):
             ret["storage_shape"] = ", ".join([str(x) for x in [m, n, k]])
             ret["target"] = "cuda"
             ret["recipe_mnemonic"] = self.belong_recipe_name
+            ret["data_type"] = ""
         return ret
 
     def get_instruction_prefix(self):
@@ -738,6 +949,9 @@ class WMMAMmaSync(ComputeCapsule):
             ret["storage_scope"] = "nvcuda::wmma::accumulator"
             ret["target"] = "cuda"
             ret["recipe_mnemonic"] = self.belong_recipe_name
+        else:
+            return ret
+        ret["data_type"] = ""
         return ret
 
     def get_instruction_prefix(self):
@@ -811,54 +1025,15 @@ class WMMABmmaSync(ComputeCapsule):
     assemble_instruction = WMMAMmaSync.assemble_instruction
 
 
-@register_recipe("cuda", "wmma_fp16_fp32")
-class WMMAFp16Fp32(CompilationRecipe):
-    def __init__(self):
-        self.capsules = {
-            "load_a": WMMALoadMatrixSync,
-            "load_b": WMMALoadMatrixSync,
-            "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
-        }
-        self.edges = {
-            "mma": ["load_a", "load_b"],
-            "store": ["mma"],
-            "load_a": ["a"],
-            "load_b": ["b"]
-        }
-        self.main_capsule_name = "mma"
-        self.anchor_point = "mma"
-        self.input_dtypes = {
-            "load_a": ["float16"],
-            "load_b": ["float16"],
-            "mma": ["float16", "float16"],
-            "store": ["float32"]
-        }
-        self.output_dtypes = {
-            "load_a": ["float16"],
-            "load_b": ["float16"],
-            "mma": ["float32"],
-            "store": ["float32"]
-        }
-    
+class WMMABaseRecipe(CompilationRecipe):
     def get_name(self):
-        return "wmma_fp16_fp32"
+        raise NotImplementedError
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
-        ret = []
-        choice = ["n", "t"]  # n: not transpose, t: transpose
-        for i in choice:
-            for j in choice:
-                for k in choice:
-                    ret.append(i+j+k)
-        return ret
+        raise NotImplementedError
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
-        return ["16x16x16", "32x8x16", "8x32x16"]
+        raise NotImplementedError
 
     def get_main_compute_expression(self, compute_key, shape_key):
         """
@@ -1098,8 +1273,58 @@ class WMMAFp16Fp32(CompilationRecipe):
         return "#include <mma.h>\n"
 
 
+@register_recipe("cuda", "wmma_fp16_fp32")
+class WMMAFp16Fp32(WMMABaseRecipe):
+    def __init__(self):
+        self.capsules = {
+            "load_a": WMMALoadMatrixSync,
+            "load_b": WMMALoadMatrixSync,
+            "mma": WMMAMmaSync,
+            "store": WMMAStoreMatrixSync
+        }
+        self.edges = {
+            "mma": ["load_a", "load_b"],
+            "store": ["mma"],
+            "load_a": ["a"],
+            "load_b": ["b"]
+        }
+        self.main_capsule_name = "mma"
+        self.anchor_point = "mma"
+        self.input_dtypes = {
+            "load_a": ["float16"],
+            "load_b": ["float16"],
+            "mma": ["float16", "float16"],
+            "store": ["float32"]
+        }
+        self.output_dtypes = {
+            "load_a": ["float16"],
+            "load_b": ["float16"],
+            "mma": ["float32"],
+            "store": ["float32"]
+        }
+
+    def get_name(self):
+        return "wmma_fp16_fp32"
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str
+        """
+        ret = []
+        choice = ["n", "t"]  # n: not transpose, t: transpose
+        for i in choice:
+            for j in choice:
+                for k in choice:
+                    ret.append(i+j+k)
+        return ret
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str
+        """
+        return ["16x16x16", "32x8x16", "8x32x16"]
+
+
 @register_recipe("cuda", "wmma_fp16_fp32_bias")
-class WMMAFp16Fp32Bias(CompilationRecipe):
+class WMMAFp16Fp32Bias(WMMABaseRecipe):
     def __init__(self):
         self.capsules = {
             "load_a": WMMALoadMatrixSync,
@@ -1138,12 +1363,6 @@ class WMMAFp16Fp32Bias(CompilationRecipe):
     
     def get_name(self):
         return "wmma_fp16_fp32_bias"
-
-    get_memory_scope_realize = WMMAFp16Fp32.get_memory_scope_realize
-    get_header = WMMAFp16Fp32.get_header
-    get_all_compute_keys = WMMAFp16Fp32.get_all_compute_keys
-    get_all_shape_keys = WMMAFp16Fp32.get_all_shape_keys
-    get_main_compute_expression = WMMAFp16Fp32.get_main_compute_expression
     
     def get_capsule_compute_expression(
             self, compute_key, shape_key, capsule_key):
@@ -1277,8 +1496,6 @@ class WMMAFp16Fp32Bias(CompilationRecipe):
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
-
-    get_problem_size = WMMAFp16Fp32.get_problem_size
     
     def get_intrinsic(self, compute_key, shape_key, capsule_key):
         """
@@ -1356,7 +1573,7 @@ class WMMAFp16Fp32Bias(CompilationRecipe):
 
 
 @register_recipe("cuda", "wmma_int4_int32")
-class WMMAInt4Int32(CompilationRecipe):
+class WMMAInt4Int32(WMMABaseRecipe):
     def __init__(self):
         self.capsules = {
             "load_a": WMMALoadMatrixSync,
@@ -1385,9 +1602,6 @@ class WMMAInt4Int32(CompilationRecipe):
             "store": ["int32"]
         }
 
-    get_memory_scope_realize = WMMAFp16Fp32.get_memory_scope_realize
-    get_header = WMMAFp16Fp32.get_header
-
     def get_name(self):
         return "wmma_int4_int32"
 
@@ -1401,14 +1615,6 @@ class WMMAInt4Int32(CompilationRecipe):
         """
         return ["8x8x32"]
 
-    get_main_compute_expression = WMMAFp16Fp32.get_main_compute_expression
-    get_capsule_compute_expression = \
-        WMMAFp16Fp32.get_capsule_compute_expression
-    get_capsule_compute_expression_with_shape = \
-        WMMAFp16Fp32.get_capsule_compute_expression_with_shape
-    get_problem_size = WMMAFp16Fp32.get_problem_size
-    get_intrinsic = WMMAFp16Fp32.get_intrinsic
-
     def get_special_dtype(self, dtype):
         return {
             "int4": "nvcuda::wmma::experimental::precision::s4",
@@ -1416,7 +1622,7 @@ class WMMAInt4Int32(CompilationRecipe):
 
 
 @register_recipe("cuda", "wmma_bin1_int32")
-class WMMABin1Int32(CompilationRecipe):
+class WMMABin1Int32(WMMABaseRecipe):
     def __init__(self):
         self.capsules = {
             "load_a": WMMALoadMatrixSync,
@@ -1445,9 +1651,6 @@ class WMMABin1Int32(CompilationRecipe):
             "store": ["int32"]
         }
 
-    get_memory_scope_realize = WMMAFp16Fp32.get_memory_scope_realize
-    get_header = WMMAFp16Fp32.get_header
-
     def get_name(self):
         return "wmma_bin1_int32"
 
@@ -1461,15 +1664,159 @@ class WMMABin1Int32(CompilationRecipe):
         """
         return ["8x8x128"]
 
-    get_main_compute_expression = WMMAFp16Fp32.get_main_compute_expression
-    get_capsule_compute_expression = \
-        WMMAFp16Fp32.get_capsule_compute_expression
-    get_capsule_compute_expression_with_shape = \
-        WMMAFp16Fp32.get_capsule_compute_expression_with_shape
-    get_problem_size = WMMAFp16Fp32.get_problem_size
-    get_intrinsic = WMMAFp16Fp32.get_intrinsic
-
     def get_special_dtype(self, dtype):
         return {
             "int1": "nvcuda::wmma::experimental::precision::b1",
         }.get(dtype, "")
+
+
+@register_recipe("cuda", "wmma_bf16_fp32")
+class WMMABf16Fp32(WMMABaseRecipe):
+    def __init__(self):
+        self.capsules = {
+            "load_a": WMMALoadMatrixSync,
+            "load_b": WMMALoadMatrixSync,
+            "mma": WMMAMmaSync,
+            "store": WMMAStoreMatrixSync
+        }
+        self.edges = {
+            "mma": ["load_a", "load_b"],
+            "store": ["mma"],
+            "load_a": ["a"],
+            "load_b": ["b"]
+        }
+        self.main_capsule_name = "mma"
+        self.anchor_point = "mma"
+        self.input_dtypes = {
+            "load_a": ["bfloat16"],
+            "load_b": ["bfloat16"],
+            "mma": ["bfloat16", "bfloat16"],
+            "store": ["float32"]
+        }
+        self.output_dtypes = {
+            "load_a": ["bfloat16"],
+            "load_b": ["bfloat16"],
+            "mma": ["float32"],
+            "store": ["float32"]
+        }
+
+    def get_name(self):
+        return "wmma_bf16_fp32"
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str
+        """
+        return ["nnn", "nnt"]
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str
+        """
+        return ["16x16x16", "8x32x16", "32x8x16"]
+
+    def get_special_dtype(self, dtype):
+        return {
+            "float16": "__nv_bfloat16",
+        }.get(dtype, "")
+
+    def get_header(self):
+        return ''.join([
+            "#include <mma.h>\n",
+            "#include <cuda_bf16.h>\n",
+        ])
+
+
+@register_recipe("cuda", "wmma_tf32_fp32")
+class WMMATf32Fp32(WMMABaseRecipe):
+    def __init__(self):
+        self.capsules = {
+            "load_a": WMMALoadMatrixSync,
+            "load_b": WMMALoadMatrixSync,
+            "cast_a": WMMACastFp32ToTf32,
+            "cast_b": WMMACastFp32ToTf32,
+            "mma": WMMAMmaSync,
+            "store": WMMAStoreMatrixSync
+        }
+        self.edges = {
+            "mma": ["cast_a", "cast_b"],
+            "store": ["mma"],
+            "cast_a": ["load_a"],
+            "cast_b": ["load_b"],
+            "load_a": ["a"],
+            "load_b": ["b"]
+        }
+        self.main_capsule_name = "mma"
+        self.anchor_point = "mma"
+        self.input_dtypes = {
+            "load_a": ["float32"],
+            "load_b": ["float32"],
+            "cast_a": ["float32"],
+            "cast_b": ["float32"],
+            "mma": ["tf32", "tf32"],
+            "store": ["float32"]
+        }
+        self.output_dtypes = {
+            "load_a": ["float32"],
+            "load_b": ["float32"],
+            "cast_a": ["tf32"],
+            "cast_b": ["tf32"],
+            "mma": ["float32"],
+            "store": ["float32"]
+        }
+
+    def get_name(self):
+        return "wmma_tf32_fp32"
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str
+        """
+        return ["nnn", "nnt"]
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str
+        """
+        return ["16x16x8"]
+
+
+@register_recipe("cuda", "wmma_fp64_fp64")
+class WMMAFp64Fp64(WMMABaseRecipe):
+    def __init__(self):
+        self.capsules = {
+            "load_a": WMMALoadMatrixSync,
+            "load_b": WMMALoadMatrixSync,
+            "mma": WMMAMmaSync,
+            "store": WMMAStoreMatrixSync
+        }
+        self.edges = {
+            "mma": ["load_a", "load_b"],
+            "store": ["mma"],
+            "load_a": ["a"],
+            "load_b": ["b"]
+        }
+        self.main_capsule_name = "mma"
+        self.anchor_point = "mma"
+        self.input_dtypes = {
+            "load_a": ["float64"],
+            "load_b": ["float64"],
+            "mma": ["float64", "float64"],
+            "store": ["float64"]
+        }
+        self.output_dtypes = {
+            "load_a": ["float64"],
+            "load_b": ["float64"],
+            "mma": ["float64"],
+            "store": ["float64"]
+        }
+
+    def get_name(self):
+        return "wmma_fp64_fp64"
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str
+        """
+        return ["nnn", "nnt"]
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str
+        """
+        return ["8x8x4"]
+
