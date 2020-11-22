@@ -13,6 +13,7 @@
 
 #include "cudnn_helper.h"
 #include "tensor.h"
+#include "configs.h"
 
 #ifndef PAD_KERNELS
 #define PAD_KERNELS 1
@@ -346,14 +347,16 @@ int main(int argc, char **argv) {
     curandSetPseudoRandomGeneratorSeed(curand_gen, 123ULL);
 
     std::cout
-        << "w,h,c,n,k,f_w,f_h,,pad_w,pad_h,stride_w,stride_h,fp32 time "
+        << "w,h,c,n,k,f_w,f_h,pad_w,pad_h,stride_w,stride_h,fp32 time "
            "(usec),fp16 time (usec),int8 time "
            "(usec),fp16 tensor core time (usec),int8 tensor core time (usec)"
         << std::endl;
 
     int pad_kernels_count = 0;
 
-    for (const auto &problem : inference_server_set) {
+    int batch = 16;
+
+    for (const auto &problem : yolo_v1) {
       // Filter parameters
       int k, c, r, s; // r - filter_h (f_h), s - filter_w (f_w)
       // Input parameters
@@ -363,7 +366,7 @@ int main(int argc, char **argv) {
       // Stride
       int wstride, hstride;
       std::tie(w, h, c, n, k, s, r, pad_w, pad_h, wstride, hstride) = problem;
-
+      n = batch;
       int fwd_time;
 
       std::cout << w << ",";

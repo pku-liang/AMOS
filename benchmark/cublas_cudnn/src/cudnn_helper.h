@@ -228,6 +228,8 @@ public:
         cudnnDataType_t type;
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
+        } else if (std::is_same<T, int>::value) {
+            type = CUDNN_DATA_INT32;
 #if CUDNN_MAJOR >= 6
         } else if (std::is_same<T, uint8_t>::value) {
             type = CUDNN_DATA_INT8;

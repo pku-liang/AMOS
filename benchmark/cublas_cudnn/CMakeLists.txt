@@ -17,6 +17,9 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 endif()
 
+# add include
+include_directories("include")
+
 # cublas_gemm_benchmark
 add_executable(cublas_gemm_benchmark
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_gemm_bench.cu
