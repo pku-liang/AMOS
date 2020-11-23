@@ -8,12 +8,14 @@ import numpy as np
 def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key):
     dtype = "float16"
     out_dtype = "float16"
+    OC = (C + k - 1) // k
+    IC = C - OC * k
     A = tvm.te.placeholder([N, C, H, W], dtype=dtype)
-    B = tvm.te.placeholder([K, R, S], dtype=dtype)
+    B = tvm.te.placeholder([K, C, R, S], dtype=dtype)
     pH = (H + 2 * padding - R) // stride + 1
     pW = (W + 2 * padding - S) // stride + 1
     GM = N * pH * pW
-    GK = R * S
+    GK = C * R * S
     GN = K
     TM = (GM + m - 1) // m
     TK = (GK + k - 1) // k
@@ -21,6 +23,10 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
 
     def get_n(val):
         return val // (pH * pW)
+
+    def get_c(val):
+        return val // (R * S)
+
 
     def get_h(val):
         n = get_n(val)
@@ -34,29 +40,34 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
         return hw - h * pW
 
     def get_r(val):
-        return val // S
+        c = get_c(val)
+        rs = val - c * (R * S)
+        return rs // S
 
     def get_s(val):
-        r = val // S
-        return val - r * S
+        c = get_c(val)
+        rs = val - c * (R * S)
+        r = rs // S
+        return rs - r * S
 
     A1 = tvm.te.compute(
-        [C, TM, TK, m, k],
-        lambda c, i, j, ii, jj:
+        [TM, TK, m, k],
+        lambda i, j, ii, jj:
             tvm.tir.if_then_else(
                 tvm.tir.all(i * m + ii < GM, j * k + jj < GK),
                 A[get_n(i * m + ii),
-                  c,
+                  get_c(j * k + jj),
                   get_h(i * m + ii) * stride + get_r(j * k + jj),
                   get_w(i * m + ii) * stride + get_s(j * k + jj)],
                 tvm.tir.const(0.0, dtype)),
             name="A1")
     B1 = tvm.te.compute(
         [TN, TK, n, k],
-        lambda c, i, j, ii, jj:
+        lambda i, j, ii, jj:
             tvm.tir.if_then_else(
                 tvm.tir.all(i * n + ii < GN, j * k + jj < GK),
                 B[i * n + ii,
+                  get_c(j * k + jj),
                   get_r(j * k + jj),
                   get_s(j * k + jj)],
                 tvm.tir.const(0.0, dtype)),
@@ -67,7 +78,7 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
         [TM, TN, m, n],
         lambda i, j, ii, jj:
             tvm.te.sum(
-                (A1[(j * k + jj) // (K // C), i, rk1, ii, rk2] * B1[j, rk1, jj, rk2]).astype(out_dtype),
+                (A1[i, rk1, ii, rk2] * B1[j, rk1, jj, rk2]).astype(out_dtype),
             axis=[rk1, rk2]))
     
     recipe = at.WMMAFp16Fp16()
@@ -78,16 +89,16 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
         lambda x, y: x + y, [nodes[x] for x in output_names], [])
     C1 = output_tensors[0]
 
-    def assemble(i, ph, pw):
-        return i * pH * pW + ph * pW + pw
-    C2 = tvm.te.compute([N, K, pH, pW],
-        lambda i, ok, ph, pw:
-            C1[assemble(i, ph, pw)// m,
-               ok // n,
-               assemble(i, ph, pw) % m,
-               ok % n],
-            name="C2")
-    return [A, B, C2]
+    # def assemble(i, ph, pw):
+    #     return i * pH * pW + ph * pW + pw
+    # C2 = tvm.te.compute([N, K, pH, pW],
+    #     lambda n, ok, ph, pw:
+    #         C1[assemble(n, ph, pw)// m,
+    #            ok // n,
+    #            assemble(n, ph, pw) % m,
+    #            ok % n],
+    #         name="C2")
+    return [A, B, C1]
 
 
 def run(N, C, H, W, K, R, S, stride, padding, log_file):
@@ -104,7 +115,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     A, B, C2 = conv2d_implicit_gemm_nchw(
         N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key)
 
-    store = C2.op.input_tensors[0]
+    store = C2  # .op.input_tensors[0]
     Mma = store.op.input_tensors[0]
     load_A, load_B = Mma.op.input_tensors
     A1 = load_A.op.input_tensors[0]
@@ -242,14 +253,32 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     return cost
 
 
-mobilev2_shapes_b1 = [
-    (1, 32, 112, 112, 32, 32, 3, 3, 1, 1, 1, 1, 32),
-    (1, 16, 112, 112, 16 * 6, 16, 3, 3, 1, 2, 1, 1, 16),
-    (1, 24, 56, 56, 24 * 6, 24, 3, 3, 1, 2, 1, 1, 24),
-    (1, 32, 28, 28, 32 * 6, 32, 3, 3, 1, 2, 1, 1, 32),
-    (1, 64, 14, 14, 64 * 6, 64, 3, 3, 1, 1, 1, 1, 64),
-    (1, 96, 14, 14, 96 * 6, 96, 3, 3, 1, 2, 1, 1, 96),
-    (1, 160, 7, 7, 160 * 6, 160, 3, 3, 1, 1, 1, 1, 160),
+yolo_shapes_b1 = [
+    # yolo
+    (1, 3, 448, 448, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
+    (1, 64, 112, 112, 192, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
+    (1, 192, 56, 56, 128, 192, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
+    (1, 128, 56, 56, 256, 128, 3, 3, 1, 1, 1, 1, 1),  # conv4   3
+    (1, 256, 56, 56, 256, 256, 1, 1, 1, 1, 0, 1, 1),  # conv5   4
+    (1, 256, 56, 56, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
+    (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv7   6
+    (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv8   7
+    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv9
+    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv10
+    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv11
+    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv12
+    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv13
+    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv14
+    (1, 512, 28, 28, 512, 512, 1, 1, 1, 1, 0, 1, 1),  # conv15      8
+    (1, 512, 28, 28, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv16     9
+    (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv17    10
+    (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv18     11
+    # # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv19
+    # # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv20
+    (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv21   12
+    (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 2, 1, 1, 1),  # conv22   13
+    (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv23     14
+    # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv24
 ]
 
 
@@ -259,8 +288,8 @@ if __name__ == "__main__":
     for batch in batches:
         results.append([])
         beg = 0
-        end = beg + 7
-        for i, shape in enumerate(mobilev2_shapes_b1[beg:end]):
+        end = beg + 15
+        for i, shape in enumerate(yolo_shapes_b1[beg:end]):
             _, C, H, W, K, _, R, S, _, stride, padding, _, _ = shape
             N = batch
             print("\n\nProblem size:")
@@ -268,7 +297,7 @@ if __name__ == "__main__":
             try:
                 res = run(
                     N, C, H, W, K, R, S, stride, padding,
-                    "Depthwise_batch_" + str(batch) + "_layer" + str(i+beg) + ".json")
+                    "Conv2d_batch_" + str(batch) + "_layer" + str(i+beg) + ".json")
                 results[-1].append(res)
             except Exception as e:
                 results[-1].append("inf")
