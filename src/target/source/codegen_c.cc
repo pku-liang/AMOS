@@ -364,9 +364,9 @@ void CodeGenC::PrintSpecialStorage(const VarNode* buffer,
     os << dtype << ' ' << vid << '[' << constant_size << "];\n";
     return;
   }
-  CHECK(assemble_storage_scope)
-    << "Can't find function auto_tensorize.assemble_storage_scope.";
-  CHECK(special_storage_attributes_.count(buffer));
+  // CHECK(assemble_storage_scope)
+  //   << "Can't find function auto_tensorize.assemble_storage_scope.";
+  // CHECK(special_storage_attributes_.count(buffer));
   Map<String, String> attributes;
   auto buffer_attributes = special_storage_attributes_.at(buffer);
   int total = (int)buffer_attributes.size();
@@ -448,9 +448,12 @@ void CodeGenC::PrintType(const Type& type, std::ostream& os) {  // NOLINT(*)
 }
 
 void CodeGenC::PrintSpecialType(const VarNode* buffer, DataType t, std::ostream& os) {
-  CHECK(get_special_dtype) << "Can't find function auto_tensorize.get_special_dtype.";
-  
-  CHECK(special_storage_attributes_.count(buffer));
+  if (!get_special_dtype || special_storage_attributes_.count(buffer) == 0) {
+    PrintType(t, os);
+    return;
+  }
+  // CHECK(get_special_dtype) << "Can't find function auto_tensorize.get_special_dtype.";  
+  // CHECK(special_storage_attributes_.count(buffer));
   Map<String, String> attributes;
   auto buffer_attributes = special_storage_attributes_.at(buffer);
   int total = (int)buffer_attributes.size();
