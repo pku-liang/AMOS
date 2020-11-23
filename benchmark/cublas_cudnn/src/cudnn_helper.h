@@ -310,74 +310,74 @@ public:
 
 };
 
-template <typename T>
-class RNNDescriptor {
-    std::shared_ptr<cudnnRNNDescriptor_t> desc_;
+// template <typename T>
+// class RNNDescriptor {
+//     std::shared_ptr<cudnnRNNDescriptor_t> desc_;
 
-    struct RNNDescriptorDeleter {
-        void operator()(cudnnRNNDescriptor_t * rnn_desc) {
-            cudnnDestroyRNNDescriptor(*rnn_desc);
-            delete rnn_desc;
-        }
-    };
+//     struct RNNDescriptorDeleter {
+//         void operator()(cudnnRNNDescriptor_t * rnn_desc) {
+//             cudnnDestroyRNNDescriptor(*rnn_desc);
+//             delete rnn_desc;
+//         }
+//     };
 
-public:
+// public:
 
-    RNNDescriptor() {}
-    RNNDescriptor(int hidden_size, int num_layers, cudnnDropoutDescriptor_t dropout_desc,
-                  cudnnRNNInputMode_t input_mode, cudnnDirectionMode_t direction,
-                  std::string rnn_type, cudnnHandle_t cudnn_handle) {
-        cudnnDataType_t type;
-        if (std::is_same<T, float>::value)
-            type = CUDNN_DATA_FLOAT;
-        else if (std::is_same<T, uint16_t>::value)
-            type = CUDNN_DATA_HALF;
-#if CUDNN_MAJOR >= 6
-        else if (std::is_same<T, uint8_t>::value)
-            type = CUDNN_DATA_INT8;
-#endif
-        else
-            throw std::runtime_error("Unknown type in RNNDescriptor");
+//     RNNDescriptor() {}
+//     RNNDescriptor(int hidden_size, int num_layers, cudnnDropoutDescriptor_t dropout_desc,
+//                   cudnnRNNInputMode_t input_mode, cudnnDirectionMode_t direction,
+//                   std::string rnn_type, cudnnHandle_t cudnn_handle) {
+//         cudnnDataType_t type;
+//         if (std::is_same<T, float>::value)
+//             type = CUDNN_DATA_FLOAT;
+//         else if (std::is_same<T, uint16_t>::value)
+//             type = CUDNN_DATA_HALF;
+// #if CUDNN_MAJOR >= 6
+//         else if (std::is_same<T, uint8_t>::value)
+//             type = CUDNN_DATA_INT8;
+// #endif
+//         else
+//             throw std::runtime_error("Unknown type in RNNDescriptor");
 
-        cudnnRNNMode_t rnn_mode;
-        if (rnn_type == "vanilla")
-            rnn_mode = CUDNN_RNN_RELU;
-        else if (rnn_type == "gru")
-            rnn_mode = CUDNN_GRU;
-        else if (rnn_type == "lstm")
-            rnn_mode = CUDNN_LSTM;
-        else
-            throw std::runtime_error("Unknown rnn type");
+//         cudnnRNNMode_t rnn_mode;
+//         if (rnn_type == "vanilla")
+//             rnn_mode = CUDNN_RNN_RELU;
+//         else if (rnn_type == "gru")
+//             rnn_mode = CUDNN_GRU;
+//         else if (rnn_type == "lstm")
+//             rnn_mode = CUDNN_LSTM;
+//         else
+//             throw std::runtime_error("Unknown rnn type");
 
-#if CUDNN_MAJOR >= 7
-        cudnnRNNAlgo_t rnn_algo = CUDNN_RNN_ALGO_STANDARD;
-#endif
+// #if CUDNN_MAJOR >= 7
+//         cudnnRNNAlgo_t rnn_algo = CUDNN_RNN_ALGO_STANDARD;
+// #endif
 
-        cudnnRNNDescriptor_t * desc = new cudnnRNNDescriptor_t;
+//         cudnnRNNDescriptor_t * desc = new cudnnRNNDescriptor_t;
 
-        CHECK_CUDNN_ERROR(cudnnCreateRNNDescriptor(desc));
+//         CHECK_CUDNN_ERROR(cudnnCreateRNNDescriptor(desc));
 
 
-#if CUDNN_MAJOR >= 7
-        CHECK_CUDNN_ERROR(cudnnSetRNNDescriptor(cudnn_handle,
-                                                *desc,
-#else
-        CHECK_CUDNN_ERROR(cudnnSetRNNDescriptor(*desc,
-#endif
-                                                hidden_size,
-                                                num_layers,
-                                                dropout_desc,
-                                                input_mode,
-                                                direction,
-                                                rnn_mode,
-#if CUDNN_MAJOR >= 7
-                                                rnn_algo,
-#endif
-                                                type));
+// #if CUDNN_MAJOR >= 7
+//         CHECK_CUDNN_ERROR(cudnnSetRNNDescriptor(cudnn_handle,
+//                                                 *desc,
+// #else
+//         CHECK_CUDNN_ERROR(cudnnSetRNNDescriptor(*desc,
+// #endif
+//                                                 hidden_size,
+//                                                 num_layers,
+//                                                 dropout_desc,
+//                                                 input_mode,
+//                                                 direction,
+//                                                 rnn_mode,
+// #if CUDNN_MAJOR >= 7
+//                                                 rnn_algo,
+// #endif
+//                                                 type));
 
-        desc_.reset(desc, RNNDescriptorDeleter());
-    }
+//         desc_.reset(desc, RNNDescriptorDeleter());
+//     }
 
-    cudnnRNNDescriptor_t desc() { return *desc_; }
+//     cudnnRNNDescriptor_t desc() { return *desc_; }
 
-};
+// };

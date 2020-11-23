@@ -3,9 +3,9 @@ cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 
 project(cublas_gemm_benchmark LANGUAGES CXX CUDA)
 
-# Use C++11
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CUDA_STANDARD 11)
+# Use C++14
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CUDA_STANDARD 14)
 
 # Enable all compile warnings
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-long-long -pedantic")

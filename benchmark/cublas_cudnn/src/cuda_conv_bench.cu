@@ -354,7 +354,7 @@ int main(int argc, char **argv) {
 
     int pad_kernels_count = 0;
 
-    int batch = 16;
+    int batch = 1;
 
     for (const auto &problem : yolo_v1) {
       // Filter parameters
