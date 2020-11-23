@@ -50,12 +50,23 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
         r = rs // S
         return rs - r * S
 
+    Pad = tvm.te.compute(
+        [N, C, H + 2 * padding, W + 2 * padding],
+        lambda i, c, h, w:
+            tvm.tir.if_then_else(
+                tvm.tir.all(h >= padding, h - padding < H, w >= padding, w - padding < W),
+                A[i, c, h - padding, w - padding],
+                tvm.tir.const(0.0, dtype)
+            ),
+        name="Pad"
+    )
+
     A1 = tvm.te.compute(
         [TM, TK, m, k],
         lambda i, j, ii, jj:
             tvm.tir.if_then_else(
                 tvm.tir.all(i * m + ii < GM, j * k + jj < GK),
-                A[get_n(i * m + ii),
+                Pad[get_n(i * m + ii),
                   get_c(j * k + jj),
                   get_h(i * m + ii) * stride + get_r(j * k + jj),
                   get_w(i * m + ii) * stride + get_s(j * k + jj)],

@@ -24,7 +24,8 @@ class WMMAStoreMatrixSync(MemoryCapsule):
 
     def get_intrinsic(
             self, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size, ldm, layout):
+                input_dtypes, output_dtypes, problem_size, ldm, layout,
+                transpose=False):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -52,16 +53,24 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size)
+        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in input_shapes]
+        offset_factor = 16 // elem_bytes
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
-                data_alignment=32, offset_factor=8)
-            for x in inputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(inputs, data_alignments)]
+        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in output_shapes]
+        offset_factor = 16 // elem_bytes
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="global",
-                data_alignment=32, offset_factor=8)
-            for x in outputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(outputs, data_alignments)]
         bind_map = {x:y for x, y in
                         zip(inputs + outputs, input_buffers + output_buffers)}
         def intrin_func(ins, outs):
@@ -228,16 +237,26 @@ class WMMAAddBias(ElementwiseCapsule):
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size
         )
+
+        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in input_shapes]
+        offset_factor = 16 // elem_bytes
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
-                data_alignment=32, offset_factor=8)
-            for x in inputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(inputs, data_alignments)]
+
+        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in output_shapes]
+        offset_factor = 16 // elem_bytes
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
-                data_alignment=32, offset_factor=8)
-            for x in outputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(outputs, data_alignments)]
         bind_map = {x:y for x, y in
                         zip(inputs + outputs, input_buffers + output_buffers)}
 
@@ -375,16 +394,24 @@ class WMMALoadMatrixSync(MemoryCapsule):
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size)
+        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in input_shapes]
+        offset_factor = 16 // elem_bytes
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope=scope,
-                data_alignment=32, offset_factor=8)
-            for x in inputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(inputs, data_alignments)]
+        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in output_shapes]
+        offset_factor = 16 // elem_bytes
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
-                data_alignment=32, offset_factor=8)
-            for x in outputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(outputs, data_alignments)]
         bind_map = {x:y for x, y in
                         zip(inputs + outputs, input_buffers + output_buffers)}
         def intrin_func(ins, outs):
@@ -554,16 +581,24 @@ class WMMACastFp32ToTf32(ElementwiseCapsule):
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size
         )
+        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in input_shapes]
+        offset_factor = 16 // elem_bytes
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
-                data_alignment=32, offset_factor=8)
-            for x in inputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(inputs, data_alignments)]
+        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * int(x[1]) for x in output_shapes]
+        offset_factor = 16 // elem_bytes
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
-                data_alignment=32, offset_factor=8)
-            for x in outputs]
+                data_alignment=y, offset_factor=offset_factor)
+            for x, y in zip(outputs, data_alignments)]
         bind_map = {x:y for x, y in
                         zip(inputs + outputs, input_buffers + output_buffers)}
 
@@ -848,6 +883,8 @@ class WMMAMmaSync(ComputeCapsule):
         """
         assert len(problem_size) == 3
         assert len(output_dtypes) == 1
+        assert len(input_dtypes) == 2
+        assert input_dtypes[0] == input_dtypes[1]
         m, n, k = [int(x) for x in problem_size]
         inputs, outputs = self.get_compute_expression(
             input_dtypes,
@@ -857,15 +894,25 @@ class WMMAMmaSync(ComputeCapsule):
             trans_B=trans_B,
             trans_C=trans_C
         )
+
+        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        data_alignments = [
+            elem_bytes * (m if trans_A else k),
+            elem_bytes * (k if trans_B else n)]
+        offset_factor = 16 // elem_bytes
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, name="buffer_" + x.name, scope="local",
-                data_alignment=32, offset_factor=8
-            ) for x in inputs]
+                data_alignment=y, offset_factor=offset_factor
+            ) for x, y in zip(inputs, data_alignments)]
+
+        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        data_alignment = elem_bytes * (m if trans_C else n)
+        offset_factor = 16 // elem_bytes
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, name="buffer_" + x.name, scope="local",
-                data_alignment=32, offset_factor=8
+                data_alignment=data_alignment, offset_factor=offset_factor
             ) for x in outputs]
         bind_map = {x:y for x, y in
                         zip(inputs + outputs, input_buffers + output_buffers)}

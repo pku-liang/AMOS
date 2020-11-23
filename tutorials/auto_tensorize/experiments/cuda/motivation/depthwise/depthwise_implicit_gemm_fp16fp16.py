@@ -8,13 +8,15 @@ import numpy as np
 def depthwise_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key):
     dtype = "float16"
     out_dtype = "float16"
+    O = K // C
+    assert K % C == 0
     A = tvm.te.placeholder([N, C, H, W], dtype=dtype)
-    B = tvm.te.placeholder([K, R, S], dtype=dtype)
+    B = tvm.te.placeholder([O, C, R, S], dtype=dtype)
     pH = (H + 2 * padding - R) // stride + 1
     pW = (W + 2 * padding - S) // stride + 1
     GM = N * pH * pW
     GK = R * S
-    GN = K
+    GN = O
     TM = (GM + m - 1) // m
     TK = (GK + k - 1) // k
     TN = (GN + n - 1) // n
@@ -52,11 +54,12 @@ def depthwise_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, 
                 tvm.tir.const(0.0, dtype)),
             name="A1")
     B1 = tvm.te.compute(
-        [TN, TK, n, k],
+        [C, TN, TK, n, k],
         lambda c, i, j, ii, jj:
             tvm.tir.if_then_else(
                 tvm.tir.all(i * n + ii < GN, j * k + jj < GK),
                 B[i * n + ii,
+                  c,
                   get_r(j * k + jj),
                   get_s(j * k + jj)],
                 tvm.tir.const(0.0, dtype)),
@@ -64,10 +67,10 @@ def depthwise_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, 
     rk1 = tvm.te.reduce_axis([0, TK], name="rk1")
     rk2 = tvm.te.reduce_axis([0, k], name="rk2")
     C1 = tvm.te.compute(
-        [TM, TN, m, n],
-        lambda i, j, ii, jj:
+        [C, TM, TN, m, n],
+        lambda c, i, j, ii, jj:
             tvm.te.sum(
-                (A1[(j * k + jj) // (K // C), i, rk1, ii, rk2] * B1[j, rk1, jj, rk2]).astype(out_dtype),
+                (A1[c, i, rk1, ii, rk2] * B1[c, j, rk1, jj, rk2]).astype(out_dtype),
             axis=[rk1, rk2]))
     
     recipe = at.WMMAFp16Fp16()
@@ -78,16 +81,17 @@ def depthwise_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, 
         lambda x, y: x + y, [nodes[x] for x in output_names], [])
     C1 = output_tensors[0]
 
-    def assemble(i, ph, pw):
-        return i * pH * pW + ph * pW + pw
-    C2 = tvm.te.compute([N, K, pH, pW],
-        lambda i, ok, ph, pw:
-            C1[assemble(i, ph, pw)// m,
-               ok // n,
-               assemble(i, ph, pw) % m,
-               ok % n],
-            name="C2")
-    return [A, B, C2]
+    # def assemble(i, ph, pw):
+    #     return i * pH * pW + ph * pW + pw
+    # C2 = tvm.te.compute([N, K, pH, pW],
+    #     lambda i, ok, ph, pw:
+    #         C1[ok % C,
+    #            assemble(i, ph, pw)// m,
+    #            ok // C // n,
+    #            assemble(i, ph, pw) % m,
+    #            ok // C % n],
+    #         name="C2")
+    return [A, B, C1]
 
 
 def run(N, C, H, W, K, R, S, stride, padding, log_file):
@@ -98,13 +102,13 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     # Map<te::Operation, IntImm> reserve_inner_axis_count_,
     # Array<IntImm> main_op_reserve_reduce_axis_,
     # Array<IntImm> main_op_reserve_reduce_axis_factor_
-    m, n, k = (16, 16, 16)
+    m, n, k = (32, 8, 16)
     compute_key = "ntn"
     shape_key = "x".join([str(x) for x in [m, n, k]])
     A, B, C2 = depthwise_implicit_gemm_nchw(
         N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key)
 
-    store = C2.op.input_tensors[0]
+    store = C2  # .op.input_tensors[0]
     Mma = store.op.input_tensors[0]
     load_A, load_B = Mma.op.input_tensors
     A1 = load_A.op.input_tensors[0]
@@ -190,7 +194,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     from tvm.auto_scheduler.search_policy import SketchPolicy
     cost_model = RandomModel()
     search_policy = SketchPolicy(task, cost_model)
-    sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
+    # sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
 
     ######################################################################
     # We can lower the schedule to see the IR after auto-scheduling.
@@ -238,7 +242,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
         "Execution time of this operator: %.3f ms"
         % cost
     )
-    print("GFLOPS=%f" % (N*C*H*W*K*R*S/stride/stride*2/cost*1e3/1e9))
+    print("GFLOPS=%f" % (N*H*W*K*R*S/stride/stride*2/cost*1e3/1e9))
     return cost
 
 
@@ -259,7 +263,7 @@ if __name__ == "__main__":
     for batch in batches:
         results.append([])
         beg = 0
-        end = beg + 7
+        end = beg + 1
         for i, shape in enumerate(mobilev2_shapes_b1[beg:end]):
             _, C, H, W, K, _, R, S, _, stride, padding, _, _ = shape
             N = batch
