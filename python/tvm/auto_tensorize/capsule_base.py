@@ -304,7 +304,7 @@ class CompilationRecipe(object):
         """
         raise NotImplementedError()
 
-    def get_main_compute_expression(self, compute_key, shpae_key):
+    def get_main_compute_expression(self, compute_key, shape_key):
         """
         ---
         Returns:

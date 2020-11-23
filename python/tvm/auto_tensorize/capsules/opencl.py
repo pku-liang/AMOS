@@ -1,9 +1,11 @@
+import tvm
 from ..capsule_base import (CompilationCapsule, register_capsule,
+                            MemoryCapsule, ComputeCapsule, ElementwiseCapsule,
                             CompilationRecipe, register_recipe)
 
 
 @register_capsule("opencl", "arm_dot_vlen_local")
-class arm_dot_vlen_local(CompilationCapsule):
+class arm_dot_vlen_local(ComputeCapsule):
     def get_params_usage(self):
         """
         ---
@@ -19,6 +21,69 @@ class arm_dot_vlen_local(CompilationCapsule):
                  "C: dst memory pointer C, type prefix char*",
                  "L: Reduction size, should be multiple of 4, type is int")
         return usage
+    
+    def get_compute_expression(self, L):
+        """
+        input_dtypes: list of str
+        output_dtypes: list of str
+        problem_size: list of int
+        trans_A, trans_B, tarns_C: bool
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert L % 4 == 0
+        A = tvm.te.placeholder((L,), name="A", dtype="int8")
+        B = tvm.te.placeholder((L,), name="B", dtype="int8")
+        k = tvm.te.reduce_axis((0, L), name="k")
+        C = tvm.te.compute((1,), lambda _: tvm.te.sum(A[k] * B[k], axis=[k]), name="C")
+        return [A, B], [C]
+
+    def get_intrinsic(self, L, scope="local"):
+        """
+        L: Reduction Size, multiple of 4
+        scope: default "local"
+        ---
+        Returns:
+        intrin: tvm.te.TensorIntrin
+        """
+        assert L % 4 == 0
+        inputs, outputs = self.get_compute_expression(L)
+
+        input_buffers = [tvm.tir.decl_buffer(X.shape, X.dtype, offset_factor=1,
+                                    data_alignment=4, scope=scope,
+                                    strides=[tvm.te.var(f"{X.name}s")]) for X in inputs]
+
+        output_buffers = [tvm.tir.decl_buffer(X.shape, X.dtype, offset_factor=1,
+                                    data_alignment=4, scope=scope,
+                                    strides=[tvm.te.var(f"{X.name}s")]) for X in outputs]
+        Ab, Bb = input_buffers
+        Cb, = output_buffers
+
+        bind_map = {x:y for x, y in
+                        zip(inputs + outputs, input_buffers + output_buffers)}
+
+        def intrin(inps, outs):
+            aa, bb = inps
+            cc, = outs
+
+            def _body():
+                builder = tvm.tir.ir_builder.create()
+                builder.emit(tvm.tir.call_intrin("handle", "tir.capsule_compile", "opencl", "arm_dot_vlen_local", f"arm_dot_vlen_{scope}",
+                                            aa.access_ptr("r"), bb.access_ptr("r"), cc.access_ptr("w"), L))
+                return builder.get()
+
+            def _reset():
+                builder = tvm.tir.ir_builder.create()
+                builder.emit(tvm.tir.call_intrin("handle", "tir.capsule_compile", "opencl",
+                                            "arm_dot_reset_local", f"arm_dot_reset_{scope}", cc.access_ptr("w")))
+                return builder.get()
+
+            return _body(), _reset(), _body()
+
+        return tvm.te.decl_tensor_intrin(outputs[0].op, intrin, binds=bind_map)
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
         """
@@ -131,8 +196,19 @@ class arm_dot_reset_local(CompilationCapsule):
     def get_header(self):
         return ""
 
+
 @register_recipe("opencl", "arm_dot_vlen_local")
 class arm_dot_vlen_local_char4(CompilationRecipe):
+    def __init__(self):
+        self.capsules = {
+            "arm_dot": arm_dot_vlen_local
+        }
+        self.main_capsule_name = "arm_dot"
+        self.anchor_point = "arm_dot"
+        self.edges = {}
+        self.input_dtypes = {}
+        self.output_dtypes = {}
+    
     def get_memory_scope_realize(
             self, dtype, scope, constant_size, attributes):
         """
@@ -147,7 +223,25 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
         ---
         """
         return ["", constant_size]
-        
+    
+    def get_capsule_compute_expression_with_shape(self, reduction_len):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        capsule = self.capsules["arm_dot"]
+        return capsule.get_compute_expression(reduction_len)
+
+    def get_name(self):
+        return "arm_dot"
+
+    def get_intrinsic(self, reduction_len, capsule_key="arm_dot"):
+        capsule_class = self.capsules[capsule_key]
+        capsule = capsule_class(self.get_name())
+        return capsule.get_intrinsic(L=reduction_len)
 
     def get_header(self):
         return ""
