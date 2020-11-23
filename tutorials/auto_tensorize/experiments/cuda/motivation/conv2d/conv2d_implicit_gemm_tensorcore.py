@@ -629,11 +629,11 @@ def autotvm_tune():
 
     # Begin tuning, log records to file `conv2d.log`
     tuner = autotvm.tuner.XGBTuner(task_conv)
-    # tuner.tune(
-    #     n_trial=1000,
-    #     measure_option=measure_option,
-    #     callbacks=[autotvm.callback.log_to_file(log_name)],
-    # )
+    tuner.tune(
+        n_trial=1000,
+        measure_option=measure_option,
+        callbacks=[autotvm.callback.log_to_file(log_name)],
+    )
 
     #########################################################################
     # Finally we can inspect the best config from log file, check correctness,
