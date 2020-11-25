@@ -40,3 +40,10 @@ add_executable(cudnn_grouped_conv
     )
 
 target_link_libraries(cudnn_grouped_conv -lcublas -lcurand -lcudnn)
+
+# cudnn_depth_conv_benchmark
+add_executable(cudnn_depth_conv_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_depth_conv_bench.cu
+    )
+
+target_link_libraries(cudnn_depth_conv_benchmark -lcublas -lcurand -lcudnn)
