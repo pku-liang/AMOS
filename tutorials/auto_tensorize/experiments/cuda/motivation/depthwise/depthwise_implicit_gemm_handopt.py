@@ -1,7 +1,6 @@
 import tvm
 from tvm import auto_tensorize as at
 from functools import reduce
-from tvm import auto_scheduler
 import numpy as np
 
 
@@ -44,12 +43,23 @@ def depthwise_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, 
         r = val // S
         return val - r * S
 
+    Pad = tvm.te.compute(
+        [N, C, H + 2 * padding, W + 2 * padding],
+        lambda i, c, h, w:
+            tvm.tir.if_then_else(
+                tvm.tir.all(h >= padding, h - padding < H, w >= padding, w - padding < W),
+                A[i, c, h - padding, w - padding],
+                tvm.tir.const(0.0, dtype)
+            ),
+        name="Pad"
+    )
+
     A1 = tvm.te.compute(
         [C, TM, TK, m, k],
         lambda c, i, j, ii, jj:
             tvm.tir.if_then_else(
                 tvm.tir.all(i * m + ii < GM, j * k + jj < GK),
-                A[get_n(i * m + ii),
+                Pad[get_n(i * m + ii),
                   c,
                   get_h(i * m + ii) * stride + get_r(j * k + jj),
                   get_w(i * m + ii) * stride + get_s(j * k + jj)],
@@ -130,6 +140,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     # Map<te::Operation, IntImm> reserve_inner_axis_count_,
     # Array<IntImm> main_op_reserve_reduce_axis_,
     # Array<IntImm> main_op_reserve_reduce_axis_factor_
+    recipe = at.WMMAFp16Fp16()
     m, n, k = (32, 8, 16)
     compute_key = "ntn"
     shape_key = "x".join([str(x) for x in [m, n, k]])
@@ -187,66 +198,95 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
         store_to_shared,
         at.InstructionScope.warp
     )
-    def task_func():
-        return [A, B, C2]
+    
+    sch = tvm.te.create_schedule(C2.op)
+    args = [A, B, C2]
+    target = "cuda"
+    AS = sch.cache_read(A1, "shared", [load_A])
+    BS = sch.cache_read(B1, "shared", [load_B])
+    Pad = A1.op.input_tensors[0]
+    sch[Pad].compute_inline()
+    sch[A1].compute_inline()
+    sch[B1].compute_inline()
+    sch[load_A].set_scope("local")
+    sch[load_B].set_scope("local")
+    sch[Mma].set_scope("local")
 
-    registered_func = auto_scheduler.register_workload(
-        log_file[:-5], f=task_func)
+    def split_3_parts(s, tensor, it, factors):
+        assert len(factors) == 2
+        ret = []
+        for f in factors:
+            it, inner = s[tensor].split(it, factor=f)
+            ret.append(inner)
+        ret.append(it)
+        return list(reversed(ret))
 
-    target = tvm.target.Target("cuda")
+    block_x = tvm.te.thread_axis("blockIdx.x")
+    thread_x = tvm.te.thread_axis("threadIdx.x")
+    thread_y = tvm.te.thread_axis("threadIdx.y")
 
-    # the last layer in resnet
-    task = auto_scheduler.create_task(
-        log_file[:-5], (), target, recipe=recipe_stage)
+    c_factors = [2, 2]  # c = 32
+    m_factors = [2, 2]  # m = 56 * 7
+    n_factors = [1, 1]  # n = 1
+    rk_factors = [1, 1]  # rk = 1
+    vecA_length = 4
+    vecB_length = 4
 
-    # Inspect the computational graph
-    print(task.compute_dag)
+    num_blocks = c_factors[0] * m_factors[0] * n_factors[0]  # per kernel
+    num_warps = c_factors[1] * m_factors[1] * n_factors[1]  # per block
+    num_threads =  32  # per warp
 
-    print(task.compute_dag.init_state)
+    c, m, n, mm, nn = sch[store].op.axis
+    co, ct, ci = split_3_parts(sch, store, c, c_factors)
+    mo, mt, mi = split_3_parts(sch, store, m, m_factors)
+    no, nt, ni = split_3_parts(sch, store, n, n_factors)
+    sch[store].reorder(co, mo, no, ct, mt, nt, ci, mi, ni, mm, nn)
+    block = sch[store].fuse(co, mo, no)
+    thread = sch[store].fuse(ct, mt, nt)
+    inner = sch[store].fuse(ci, mi, ni)
+    sch[store].bind(block, block_x)
+    sch[store].bind(thread, thread_y)
+    store_intrin = recipe.get_intrinsic(compute_key, shape_key, "store")
+    sch[store].tensorize(mm, store_intrin)
 
-    measure_ctx = auto_scheduler.LocalRPCMeasureContext(min_repeat_ms=300)
-    tune_option = auto_scheduler.TuningOptions(
-        num_measure_trials=2000,
-        runner=measure_ctx.runner,
-        measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
-    )
+    c, m, n, mm, nn = sch[Mma].op.axis
+    rk, rkk = sch[Mma].op.reduce_axis
+    sch[Mma].compute_at(sch[store], thread)
+    rko, rkt, rki = split_3_parts(sch, Mma, rk, rk_factors)
+    sch[Mma].reorder(rko, rkt, m, n, rki, mm, nn, rkk)
+    Mma_intrin = recipe.get_intrinsic(compute_key, shape_key, "mma")
+    sch[Mma].tensorize(mm, Mma_intrin)
 
-    ######################################################################
-    # Run the search
-    # ^^^^^^^^^^^^^^
-    # Now we get all inputs ready. Pretty simple, isn't it?
-    # We can kick off the search and let the auto-scheduler do its magic.
-    # After some measurement trials, it will return the best schedule it found.
+    sch[load_A].compute_at(sch[Mma], rkt)
+    sch[load_B].compute_at(sch[Mma], rkt)
+    load_A_intrin = recipe.get_intrinsic(compute_key, shape_key, "load_a")
+    load_B_intrin = recipe.get_intrinsic(compute_key, shape_key, "load_b")
+    sch[load_A].tensorize(sch[load_A].op.axis[-2], load_A_intrin)
+    sch[load_B].tensorize(sch[load_B].op.axis[-2], load_B_intrin)
 
-    from tvm.auto_scheduler.cost_model import RandomModel, XGBModel
-    from tvm.auto_scheduler.search_policy import SketchPolicy
-    cost_model = RandomModel()
-    search_policy = SketchPolicy(task, cost_model)
-    sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
+    sch[AS].compute_at(sch[Mma], rko)
+    sch[BS].compute_at(sch[Mma], rko)
 
-    ######################################################################
-    # We can lower the schedule to see the IR after auto-scheduling.
-    # The auto-scheduler correctly performs optimizations including multi-level tiling,
-    # cooperative fetching, unrolling and operator fusion.
+    def schedule_smem_load(s, mem, vec_len, warp_num):
+        fused = s[mem].fuse(*s[mem].op.axis)
+        fused, vec = s[mem].split(fused, factor=vec_len)
+        fused, fi = s[mem].split(fused, factor=32)
+        fused, ft = s[mem].split(fused, factor=warp_num)
+        s[mem].bind(fi, thread_x)
+        s[mem].bind(ft, thread_y)
+        s[mem].vectorize(vec)
 
-    # print(tvm.lower(sch, args, simple_mode=True))
-
-    inp, res = auto_scheduler.load_best(log_file, task.workload_key)
-    sch, args = task.compute_dag.apply_steps_from_state(inp.state)
-    print(tvm.lower(sch, args, simple_mode=True))
-
-    # Print equivalent python schedule API. This can be used for debugging and
-    # learning the behavior of the auto-scheduler.
-    print("Equivalent python schedule:")
-    print(task.compute_dag.print_python_code_from_state(inp.state))
+    schedule_smem_load(sch, AS, vecA_length, num_warps)
+    schedule_smem_load(sch, BS, vecB_length, num_warps)
+    
 
     ######################################################################
     # Check correctness and evaluate performance
     # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     # We build the binary and check its correctness and performance.
-
+    # print(tvm.lower(sch, args, simple_mode=True))
     func = tvm.build(sch, args, target)
-    print(func.imported_modules[0].get_source())
+    # print(func.imported_modules[0].get_source())
 
     # check correctness
     data_np = np.random.uniform(size=[int(x) for x in args[0].shape]).astype(np.float16)
@@ -332,15 +372,15 @@ if __name__ == "__main__":
     batches = [1]
     for batch in batches:
         results.append([])
-        beg = 1
-        end = beg + 6
+        beg = 0
+        end = beg + 7
         for i, shape in enumerate(mobilev2_shapes_b1[beg:end]):
             _, C, H, W, K, _, R, S, _, stride, padding, _, _ = shape
             N = batch
             print("\n\nProblem size:")
             print(N, C, H, W, K, R, S, stride, padding)
             try:
-                res = run(
+                res = run_output(
                     N, C, H, W, K, R, S, stride, padding,
                     "Depthwise_batch_" + str(batch) + "_layer" + str(i+beg) + ".json")
                 results[-1].append(res)
