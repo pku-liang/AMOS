@@ -1,0 +1,354 @@
+/*!
+ * \file auto_tensorize/matcher.h
+ * \brief The definition of the "matcher" in the auto_schedule.
+ *
+ * 
+ */
+
+#ifndef TVM_AUTO_TENSORIZE_MATCHER_H_
+#define TVM_AUTO_TENSORIZE_MATCHER_H_
+
+
+#include <tvm/runtime/container.h>
+#include <tvm/node/node.h>
+#include <tvm/te/operation.h>
+#include <tvm/auto_tensorize/capsule.h>
+
+
+namespace tvm {
+
+using namespace tvm::tir;
+using namespace tvm::te;
+
+namespace auto_tensorize {
+
+typedef Map<IterVar, IterVar> IterVarMap;
+typedef Map<Tensor, Tensor> BufferMap;
+typedef Map<Operation, Array<IterVarMap>> MatchResult;
+
+class RecipeDAGMatcher : public Object {
+  public:
+    RecipeDAGMatcher(): expr_matcher(buffer_map) {};
+    MatchResult match(Tensor target, Tensor intrin, Operation main_capsule);
+    bool _match(Tensor target, Tensor intrin, Operation main_capsule);
+  private:
+    CapsuleExprMatcher expr_matcher;
+    MatchResult results;
+    BufferMap buffer_map;
+};
+
+class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimExpr &)> {
+ public:
+  using ExprFunctor::VisitExpr;
+  CapsuleExprMatcher(BufferMap& bm): buffer_map(bm) {};
+  Array<IterVarMap> match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, 
+                          Array<IterVar> &intrin_axes);
+
+ private:
+  BufferMap& buffer_map;
+  IndexExprMatcher index_matcher;
+  Array<PrimExpr> target_indices;
+  Array<PrimExpr> intrin_indices;
+  // void ExtractIndexExpr(PrimExpr target, PrimExpr intrin, Array<PrimExpr>& target_indices,
+  //                       Array<PrimExpr>& intrin_indices);
+
+ protected:
+  using ExprFunctor::VisitExpr_;
+  #define MATCH(T)                            \
+    const T* another = expr.as<T>();          \
+    if (another == nullptr) {                 \
+      return false;                           \
+    }
+
+  bool VisitExpr_(const VarNode* op, const PrimExpr& expr) override {
+    MATCH(VarNode)
+    return true;
+  }
+
+  bool VisitExpr_(const SizeVarNode* op, const PrimExpr& expr) override {
+    MATCH(SizeVarNode) 
+    return op->name_hint == another->name_hint;
+  }
+
+  bool VisitExpr_(const LoadNode* op, const PrimExpr & expr) {
+    MATCH(LoadNode)
+    return VisitExpr(op->index, another->index) \
+          && VisitExpr(op->predicate, another->predicate) \
+          && VisitExpr(op->buffer_var, another->buffer_var);
+  }
+
+  bool VisitExpr_(const LetNode* op, const PrimExpr &expr) {
+    MATCH(LetNode)
+    return VisitExpr(op->var, another->var) \
+          && VisitExpr(op->value, another->value) \
+          && VisitExpr(op->body, another->body);
+  }
+
+  // Tensor *buffer = op->producer.as<TensorNode>();
+  // TODO: check and update buffer_map
+  // TODO: update target_indices and intrin_indices
+  bool VisitExpr_(const ProducerLoadNode* op, const PrimExpr& expr) override {
+    MATCH(ProducerLoadNode)
+    if (op->producer != another->producer) { 
+      return false; 
+    }
+    if (op->indices.size() != another->indices.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < op->indices.size(); ++i) {
+      if (!VisitExpr(op->indices[i], another->indices[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool VisitExpr_(const CallNode* op, const PrimExpr& expr) override {
+    MATCH(CallNode)
+    if (op->op != another->op) { 
+      return false; 
+    }
+    if (op->args.size() != another->args.size()) {
+      return false;
+    }
+    for (size_t i = 0; i < op->args.size(); ++i) {
+      if (!VisitExpr(op->args[i], another->args[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  template <typename T>
+  bool VisitBinary(const T* op, const PrimExpr &expr) {
+    MATCH(T)
+    return VisitExpr(op->a, another->a) && VisitExpr(op->b, another->b);
+  }
+
+  bool VisitExpr_(const AddNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const SubNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const MulNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const DivNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const ModNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const FloorDivNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const FloorModNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const MinNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const MaxNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const EQNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const NENode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const LTNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const LENode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const GTNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const GENode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const AndNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const OrNode* op, const PrimExpr &expr) {
+    return VisitBinary(op, expr);
+  }
+
+  bool VisitExpr_(const ReduceNode* op, const PrimExpr &expr) {
+    MATCH(ReduceNode)
+    int num_lhs = op->combiner->lhs.size();
+    if (num_lhs != (int)another->combiner->lhs.size()) {
+      return false;
+    }
+    for (int i = 0; i < num_lhs; ++i) {
+      if (!VisitExpr(op->combiner->lhs[i], another->combiner->lhs[i])) {
+        return false;
+      }
+    }
+
+    int num_rhs = op->combiner->rhs.size();
+    if (num_rhs != (int)another->combiner->rhs.size()) {
+      return false;
+    }
+    for (int i = 0; i < num_rhs; ++i) {
+      if (!VisitExpr(op->combiner->rhs[i], another->combiner->rhs[i])) {
+        return false;
+      }
+    }
+
+    int num_res = op->combiner->result.size();
+    if (num_res != (int)another->combiner->result.size()) {
+      return false;
+    }
+    for (int i = 0; i < num_res; ++i) {
+      if (!VisitExpr(op->combiner->result[i], another->combiner->result[i])) {
+        return false;
+      }
+    }
+
+    int num_src = op->source.size();
+    if (num_src != (int)another->source.size()) {
+      return false;
+    }
+    for (int i = 0; i < num_src; ++i) {
+      if (!VisitExpr(op->source[i], another->source[i])) {
+        return false;
+      }
+    }
+    // do not check axis
+    return VisitExpr(op->condition, another->condition) \
+          && op->value_index == another->value_index;
+  }
+
+  bool VisitExpr_(const CastNode* op, const PrimExpr &expr) {
+    MATCH(CastNode)
+    return VisitExpr(op->value, another->value);
+  }
+
+  bool VisitExpr_(const NotNode* op, const PrimExpr &expr) {
+    MATCH(NotNode)
+    return VisitExpr(op->a, another->a);
+  }
+
+  bool VisitExpr_(const SelectNode* op, const PrimExpr &expr) {
+    MATCH(SelectNode)
+    return VisitExpr(op->condition, another->condition) \
+          && VisitExpr(op->true_value, another->true_value) \
+          && VisitExpr(op->false_value, another->false_value);
+  }
+
+  bool VisitExpr_(const RampNode* op, const PrimExpr &expr) {
+    MATCH(RampNode)
+    return VisitExpr(op->base, another->base) \
+          && VisitExpr(op->stride, another->stride) \
+          && op->lanes == another->lanes;  
+  }
+
+  bool VisitExpr_(const BroadcastNode* op, const PrimExpr &expr) {
+    MATCH(BroadcastNode)
+    return VisitExpr(op->value, another->value) \
+          && op->lanes == another->lanes;
+  }
+
+  bool VisitExpr_(const ShuffleNode* op, const PrimExpr &expr) {
+    MATCH(ShuffleNode)
+    int num_vec = op->vectors.size();
+    if (num_vec != (int)another->vectors.size()) {
+      return false;
+    }
+    for (int i = 0; i < num_vec; ++i) {
+      if (!VisitExpr(op->vectors[i], another->vectors[i])) {
+        return false;
+      }
+    }
+
+    int num_ind = op->indices.size();
+    if (num_ind != (int)another->indices.size()) {
+      return false;
+    }
+    for (int i = 0; i < num_ind; ++i) {
+      if (!VisitExpr(op->indices[i], another->indices[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  bool VisitExpr_(const IntImmNode* op, const PrimExpr &expr) {
+    MATCH(IntImmNode)
+    return op->value == another->value;
+  }
+
+  bool VisitExpr_(const FloatImmNode* op, const PrimExpr &expr) {
+    MATCH(FloatImmNode)
+    return op->value == another->value;
+  }
+
+  bool VisitExpr_(const StringImmNode* op, const PrimExpr &expr) {
+    MATCH(StringImmNode)
+    return true;
+  }
+};
+
+class IndexExprMatcher : public ExprVisitor {
+  public:
+    IndexExprMatcher();
+    Array<IterVarMap> match(Array<PrimExpr> target_indices, Array<PrimExpr> intrin_indices, 
+                            Array<IterVar>& target_axes, Array<IterVar>& intrin_axes);
+};
+
+
+// TODO: rename me 
+class SubIndexExprExtractor final : public ExprMutator {
+ public:
+  using ExprMutator::VisitExpr;
+  SubIndexExprExtractor(std::unordered_set<const VarNode*> reserved_vars) : reserved_vars_(reserved_vars) {}
+ protected:
+  using ExprMutator::VisitExpr_;
+  PrimExpr VisitExpr_(const VarNode* op, const PrimExpr& e) {
+    if (reserved_vars_.find(op) != reserved_vars_.end()) {
+      return e;
+    } else {
+      return make_zero(e.type());
+    }
+  }
+ private:
+  std::unordered_set<const VarNode*> reserved_vars_;
+};
+
+
+PrimExpr SubIndexExpr(
+      PrimExpr expr,
+      Array<Var> reserved_vars) {
+  std::unordered_set<const VarNode*> reserved;
+  for (auto v : reserved_vars) {
+    reserved.insert(v.get());
+  }
+  SubIndexExprExtractor siee(reserved);
+  return arith::Analyzer().Simplify(siee.VisitExpr(expr));
+}
+
+}  // namespace auto_tensorize
+}  // namespace tvm
+
+#endif  // TVM_AUTO_TENSORIZE_MATCHER_H_
