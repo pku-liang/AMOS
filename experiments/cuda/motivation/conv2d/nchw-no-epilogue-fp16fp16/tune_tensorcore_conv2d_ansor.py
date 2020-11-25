@@ -212,7 +212,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     from tvm.auto_scheduler.search_policy import SketchPolicy
     cost_model = RandomModel()
     search_policy = SketchPolicy(task, cost_model)
-    sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
+    # sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
 
     ######################################################################
     # We can lower the schedule to see the IR after auto-scheduling.
@@ -298,8 +298,8 @@ if __name__ == "__main__":
     batches = [1]
     for batch in batches:
         results.append([])
-        beg = 2
-        end = beg + 15
+        beg = 0
+        end = beg + 2
         for i, shape in enumerate(yolo_shapes_b1[beg:end]):
             _, C, H, W, K, _, R, S, _, stride, padding, _, _ = shape
             N = batch

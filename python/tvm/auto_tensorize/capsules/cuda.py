@@ -207,6 +207,35 @@ class WMMAAddBias(ElementwiseCapsule):
                 A(*indices) + B(*indices).astype(output_dtypes[0]), name="C")
         return [A, B], [C]
 
+    def get_compute_expression_with_inputs(
+            self, inputs, input_shapes, output_shapes,
+                input_dtypes, output_dtypes, problem_size):
+        """
+        inputs: list of tvm.te.Tensor
+        output_shapes: list of tuple/list of int
+        output_dtypes: list of str
+        problem_size: list of int
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert isinstance(inputs, (list, tuple))
+        assert isinstance(output_shapes, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert len(inputs) == 1
+        assert len(output_shapes) == 1
+        assert len(output_dtypes) == 1
+        A, = inputs
+        B = tvm.te.placeholder(
+            input_shapes[1], name="B", dtype=input_dtypes[1])
+        C = tvm.te.compute(
+            output_shapes[0],
+            lambda *indices:
+                A(*indices) + B(*indices).astype(output_dtypes[0]), name="C")
+        return [A, B], [C]
+
     def get_intrinsic(
             self, input_shapes, output_shapes,
                 input_dtypes, output_dtypes, problem_size, ldm, layout):
@@ -551,6 +580,32 @@ class WMMACastFp32ToTf32(ElementwiseCapsule):
                 A(*indices).astype(output_dtypes[0]), name="B")
         return [A], [B]
 
+    def get_compute_expression_with_inputs(
+            self, inputs, input_shapes, output_shapes,
+                input_dtypes, output_dtypes, problem_size):
+        """
+        inputs: list of tvm.te.Tensor
+        output_shapes: list of tuple/list of int
+        output_dtypes: list of str
+        problem_size: list of int
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert isinstance(inputs, (list, tuple))
+        assert isinstance(output_shapes, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert len(inputs) == 1
+        assert len(output_shapes) == 1
+        assert len(output_dtypes) == 1
+        B = tvm.te.compute(
+            output_shapes[0],
+            lambda *indices:
+                inputs[0](*indices).astype(output_dtypes[0]), name="B")
+        return inputs, [B]
+
     def get_intrinsic(
             self, input_shapes, output_shapes,
                 input_dtypes, output_dtypes, problem_size, ldm, layout):
@@ -867,6 +922,55 @@ class WMMAMmaSync(ComputeCapsule):
             name="wmma_C")
         return [A, B], [C]
 
+    def get_compute_expression_with_inputs(
+            self, inputs, input_dtypes, output_dtypes, problem_size,
+                trans_A=False, trans_B=False, trans_C=False):
+        """
+        inputs: list of tvm.te.Tensor
+        output_dtypes: list of str
+        problem_size: list of int
+        trans_A, trans_B, tarns_C: bool
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert isinstance(inputs, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert len(inputs) == 2
+        assert len(output_dtypes) == 1
+        assert len(problem_size) == 3
+        m, n, k = [int(x) for x in problem_size]
+        C_shape = (m, n) if not trans_C else (n, m)
+        A, B = inputs
+        rk = tvm.te.reduce_axis([0, k], name="rk")
+
+        def get_indices(i, j, r, op):
+            aargs = (i, r)
+            bargs = (r, j)
+            if trans_C:
+                aargs = (j, r)
+                bargs = (r, i)
+            if trans_A:
+                aargs = (aargs[1], aargs[0])
+            if trans_B:
+                bargs = (bargs[1], bargs[0])
+            if op == "A":
+                return aargs
+            else:
+                return bargs
+
+        C = tvm.te.compute(
+            C_shape,
+            lambda i, j:
+                tvm.te.sum(
+                    (A(*get_indices(i, j, rk, "A")) *
+                     B(*get_indices(i, j, rk, "B"))).astype(output_dtypes[0]),
+                    axis=rk),
+            name="wmma_C")
+        return [A, B], [C]
+
     def get_intrinsic(
             self, input_dtypes, output_dtypes, problem_size,
                 trans_A=False, trans_B=False, trans_C=False):
@@ -1146,6 +1250,85 @@ class WMMABaseRecipe(CompilationRecipe):
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+    
+    def get_dag_compute_expression_with_inputs(
+            self, compute_key, shape_key, capsule_keys, read_graph):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert len(capsule_keys) > 0
+        tA, tB, tC = [x == 't' for x in compute_key]
+        problem_size = self.get_problem_size(shape_key)
+        m, n, k = problem_size
+        A_shape = (m, k) if not tA else (k, m)
+        B_shape = (k, n) if not tB else (n, k)
+        C_shape = (m, n) if not tC else (m, n)
+        cache = {
+            "a": tvm.te.placeholder(A_shape, name="A", dtype=self.input_dtypes["a"][0]),
+            "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0])
+        }
+        dag_inputs = []
+        dag_outputs = []
+        def helper(capsule_key):
+            if capsule_key in cache:
+                return
+            capsule_class = self.capsules[capsule_key]
+            capsule = capsule_class(self.get_name())
+
+            if capsule_key in read_graph:
+                inputs = []
+                for parent in read_graph[capsule_key]:
+                    helper(parent)
+                    assert parent in cache
+                    inputs.extend(cache[parent])
+                
+                if capsule_key == "mma":
+                        _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key], problem_size,
+                        trans_A=tA, trans_B=tB, trans_C=tC
+                        )
+                elif capsule_key == "load_a":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [A_shape], [A_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                elif capsule_key == "load_b":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [B_shape], [B_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                elif capsule_key == "store":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [C_shape], [C_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                else:
+                    raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+            else:
+                tmp, ret = self.get_capsule_compute_expression(
+                    compute_key, shape_key, capsule_key)
+                dag_inputs.extend(tmp)
+            
+            cache[capsule_key] = ret
+        
+        for capsule_key in capsule_keys:
+            helper(capsule_key)
+            assert capsule_key in cache
+            dag_outputs.extend(cache[capsule_key])
+        
+        return dag_inputs, dag_outputs, cache
 
     def get_capsule_compute_expression_with_shape(
             self, compute_key, shape_key, capsule_key,
@@ -1341,13 +1524,17 @@ class WMMAFp16Fp32(WMMABaseRecipe):
             "load_a": ["float16"],
             "load_b": ["float16"],
             "mma": ["float16", "float16"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["float16"],
+            "b": ["float16"]
         }
         self.output_dtypes = {
             "load_a": ["float16"],
             "load_b": ["float16"],
             "mma": ["float32"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["float16"],
+            "b": ["float16"]
         }
 
     def get_name(self):
@@ -1391,13 +1578,17 @@ class WMMAFp16Fp16(WMMABaseRecipe):
             "load_a": ["float16"],
             "load_b": ["float16"],
             "mma": ["float16", "float16"],
-            "store": ["float16"]
+            "store": ["float16"],
+            "a": ["float16"],
+            "b": ["float16"]
         }
         self.output_dtypes = {
             "load_a": ["float16"],
             "load_b": ["float16"],
             "mma": ["float16"],
-            "store": ["float16"]
+            "store": ["float16"],
+            "a": ["float16"],
+            "b": ["float16"]
         }
 
     def get_name(self):
@@ -1447,7 +1638,10 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             "load_bias": ["float16"],
             "mma": ["float16", "float16"],
             "bias": ["float32", "float16"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["float16"],
+            "b": ["float16"],
+            "c": ["float16"]
         }
         self.output_dtypes = {
             "load_a": ["float16"],
@@ -1455,7 +1649,10 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             "load_bias": ["float16"],
             "mma": ["float32"],
             "bias": ["float32"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["float16"],
+            "b": ["float16"],
+            "c": ["float16"]
         }
     
     def get_name(self):
@@ -1593,6 +1790,100 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+
+    def get_dag_compute_expression_with_inputs(
+            self, compute_key, shape_key, capsule_keys, read_graph):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert len(capsule_keys) > 0
+        tA, tB, tC = [x == 't' for x in compute_key]
+        problem_size = self.get_problem_size(shape_key)
+        m, n, k = problem_size
+        A_shape = (m, k) if not tA else (k, m)
+        B_shape = (k, n) if not tB else (n, k)
+        C_shape = (m, n) if not tC else (m, n)
+        cache = {
+            "a": tvm.te.placeholder(A_shape, name="A", dtype=self.input_dtypes["a"][0]),
+            "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0]),
+            "c": tvm.te.placeholder(B_shape, name="C", dtype=self.input_dtypes["c"][0])
+        }
+        dag_inputs = []
+        dag_outputs = []
+        def helper(capsule_key):
+            if capsule_key in cache:
+                return
+            capsule_class = self.capsules[capsule_key]
+            capsule = capsule_class(self.get_name())
+
+            if capsule_key in read_graph:
+                inputs = []
+                for parent in read_graph[capsule_key]:
+                    helper(parent)
+                    assert parent in cache
+                    inputs.extend(cache[parent])
+                
+                if capsule_key == "mma":
+                        _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key], problem_size,
+                        trans_A=tA, trans_B=tB, trans_C=tC
+                        )
+                elif capsule_key == "load_a":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [A_shape], [A_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                elif capsule_key == "load_b":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [B_shape], [B_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                elif capsule_key == "store":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [C_shape], [C_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                elif capsule_key == "load_bias":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [C_shape], [C_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                elif capsule_key == "bias":
+                    tmp, ret = capsule.get_compute_expression_with_inputs(
+                        inputs, [C_shape, C_shape], [C_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size
+                    )
+                    dag_inputs.append(tmp[-1])
+                else:
+                    raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+            else:
+                tmp, ret = self.get_capsule_compute_expression(
+                    compute_key, shape_key, capsule_key)
+                dag_inputs.extend(tmp)
+            
+            cache[capsule_key] = ret
+        
+        for capsule_key in capsule_keys:
+            helper(capsule_key)
+            assert capsule_key in cache
+            dag_outputs.extend(cache[capsule_key])
+        
+        return dag_inputs, dag_outputs, cache
     
     def get_intrinsic(self, compute_key, shape_key, capsule_key):
         """
@@ -1690,13 +1981,17 @@ class WMMAInt4Int32(WMMABaseRecipe):
             "load_a": ["int4"],
             "load_b": ["int4"],
             "mma": ["int4", "int4"],
-            "store": ["int32"]
+            "store": ["int32"],
+            "a": ["int4"],
+            "b": ["int4"]
         }
         self.output_dtypes = {
             "load_a": ["int4"],
             "load_b": ["int4"],
             "mma": ["int32"],
-            "store": ["int32"]
+            "store": ["int32"],
+            "a": ["int4"],
+            "b": ["int4"]
         }
 
     def get_name(self):
@@ -1739,13 +2034,17 @@ class WMMABin1Int32(WMMABaseRecipe):
             "load_a": ["int1"],
             "load_b": ["int1"],
             "mma": ["int1", "int1"],
-            "store": ["int32"]
+            "store": ["int32"],
+            "a": ["int1"],
+            "b": ["int1"]
         }
         self.output_dtypes = {
             "load_a": ["int1"],
             "load_b": ["int1"],
             "mma": ["int32"],
-            "store": ["int32"]
+            "store": ["int32"],
+            "a": ["int1"],
+            "b": ["int1"]
         }
 
     def get_name(self):
@@ -1788,13 +2087,17 @@ class WMMABf16Fp32(WMMABaseRecipe):
             "load_a": ["bfloat16"],
             "load_b": ["bfloat16"],
             "mma": ["bfloat16", "bfloat16"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["bfloat16"],
+            "b": ["bfloat16"]
         }
         self.output_dtypes = {
             "load_a": ["bfloat16"],
             "load_b": ["bfloat16"],
             "mma": ["float32"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["bfloat16"],
+            "b": ["bfloat16"]
         }
 
     def get_name(self):
@@ -1849,7 +2152,9 @@ class WMMATf32Fp32(WMMABaseRecipe):
             "cast_a": ["float32"],
             "cast_b": ["float32"],
             "mma": ["tf32", "tf32"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["float32"],
+            "b": ["float32"]
         }
         self.output_dtypes = {
             "load_a": ["float32"],
@@ -1857,7 +2162,9 @@ class WMMATf32Fp32(WMMABaseRecipe):
             "cast_a": ["tf32"],
             "cast_b": ["tf32"],
             "mma": ["float32"],
-            "store": ["float32"]
+            "store": ["float32"],
+            "a": ["float32"],
+            "b": ["float32"]
         }
 
     def get_name(self):
@@ -1895,13 +2202,17 @@ class WMMAFp64Fp64(WMMABaseRecipe):
             "load_a": ["float64"],
             "load_b": ["float64"],
             "mma": ["float64", "float64"],
-            "store": ["float64"]
+            "store": ["float64"],
+            "a": ["float64"],
+            "b": ["float64"]
         }
         self.output_dtypes = {
             "load_a": ["float64"],
             "load_b": ["float64"],
             "mma": ["float64"],
-            "store": ["float64"]
+            "store": ["float64"],
+            "a": ["float64"],
+            "b": ["float64"]
         }
 
     def get_name(self):

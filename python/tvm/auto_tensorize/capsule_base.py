@@ -1,5 +1,6 @@
 import tvm
 import tvm._ffi
+import queue
 
 
 class CompilationCapsule(object):
@@ -41,6 +42,18 @@ class CompilationCapsule(object):
     def get_capsule_compute_expression_with_shape(
         self, compute_key, shape_key, capsule_key,
             input_shapes, output_shapes):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
+    def get_compute_expression_with_inputs(
+        self, inputs, input_shapes, output_shapes,
+            input_dtypes, output_dtypes, problem_size):
         """
         ---
         Returns:
@@ -132,6 +145,31 @@ class MemoryCapsule(CompilationCapsule):
             output_shapes[0],
             lambda *indices: A(*indices), name="memcpy_dst")
         return [A], [B]
+
+    def get_compute_expression_with_inputs(
+            self, inputs, input_shapes, output_shapes,
+                input_dtypes, output_dtypes, problem_size):
+        """
+        inputs: list of tvm.te.Tensor
+        output_shapes: list of tuple/list of int
+        output_dtypes: list of str
+        problem_size: list of int
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert isinstance(inputs, (list, tuple))
+        assert isinstance(output_shapes, (list, tuple))
+        assert isinstance(output_dtypes, (list, tuple))
+        assert len(inputs) == 1
+        assert len(output_shapes) == 1
+        assert len(output_dtypes) == 1
+        B = tvm.te.compute(
+            output_shapes[0],
+            lambda *indices: inputs[0](*indices), name="memcpy_dst")
+        return inputs, [B]
 
 
 class ComputeCapsule(CompilationCapsule):
@@ -236,6 +274,9 @@ class CompilationRecipe(object):
         self.capsules = {}
         self.edges = {}
         self.main_capsule_name = ""
+        self.anchor_point = ""
+        self.input_dtypes = {}
+        self.output_dtypes = {}
 
     def get_name(self):
         raise NotImplementedError()
@@ -252,7 +293,71 @@ class CompilationRecipe(object):
             else:
                 if not issubclass(v, (MemoryCapsule, ElementwiseCapsule)):
                     return False
+
+        # anchor = self.anchor_point
+        # feed_graph = self.get_feed_graph()
+        # outputs = []
+        # for name, cap_class in self.capsules.items():
+        #     if name not in feed_graph:
+        #         outputs.append(name)
+        # if len(outputs) != 1:
+        #     return False
+        # if not (anchor in feed_graph and len(feed_graph[anchor]) == 1):
+        #     return False
+        # if feed_graph[anchor] != outputs[0]:
+        #     return False
         return True
+
+    def get_feed_graph(self):
+        read_graph = self.edges
+        feed_graph = {}
+        for k, inputs in read_graph.items():
+            for inp in inputs:
+                if inp not in feed_graph:
+                    feed_graph[inp] = []
+                feed_graph[inp].append(k)
+        return feed_graph
+
+    def serialize_dag(self, cond1=None, cond2=None):
+        if cond1 is not None:
+            assert callable(cond1)
+        else:
+            cond1 = lambda x: True
+        if cond2 is not None:
+            assert callable(cond2)
+        else:
+            cond2 = lambda x: True
+        read_graph = self.edges
+        sub_read_graph = {}
+        feed_graph = self.get_feed_graph()
+        sub_feed_graph = {}
+        outputs = []
+        for name, cap_class in self.capsules.items():
+            if name not in feed_graph:
+                outputs.append(name)
+        result = []
+        visited = set()
+        q = queue.Queue()
+        q.put(outputs[0])
+        visited.add(outputs[0])
+        while not q.empty():
+            cur = q.get()
+            if cond1(cur):
+                result.append(cur)
+            if cur in read_graph:
+                for p in read_graph[cur]:
+                    if p not in visited and cond2(p):
+                        q.put(p)
+                        visited.add(cur)
+                        if cond1(p) and cond1(cur):
+                            if cur not in sub_read_graph:
+                                sub_read_graph[cur] = []
+                            sub_read_graph[cur].append(p)
+                            if p not in sub_feed_graph:
+                                sub_feed_graph[p] = []
+                            sub_feed_graph[p].append(cur)
+                            
+        return list(reversed(result)), sub_read_graph, sub_feed_graph
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str
@@ -287,6 +392,17 @@ class CompilationRecipe(object):
 
     def get_capsule_compute_expression_with_shape(
             self, compute_key, shape_key, capsule_key):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        raise NotImplementedError()
+
+    def get_dag_compute_expression_with_inputs(
+            self, compute_key, shape_key, capsule_keys, read_graph):
         """
         ---
         Returns:
@@ -401,12 +517,7 @@ def construct_dag(
     constructed_input_names = []
     constructed_output_names = []
     read_graph = recipe.edges
-    feed_graph = {}
-    for k, inputs in read_graph.items():
-        for inp in inputs:
-            if inp not in feed_graph:
-                feed_graph[inp] = []
-            feed_graph[inp].append(k)
+    feed_graph = recipe.get_feed_graph()
 
     ptr_inputs = 0
 
