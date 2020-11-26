@@ -175,3 +175,21 @@ def get_graph_partition_mark(graph, max_subgraph_size=100, max_minigraph_size=10
   """
   ret = _ffi_api.get_graph_partition_mark(graph, max_subgraph_size, max_minigraph_size)
   return {x:[y.value for y in z] for x, z in ret.items()}
+
+
+def flatten_tir_graph(ops, output_first=False):
+  """Get the topo sort result of a dag.
+
+    Parameters
+    ----------
+    ops: list of Operation
+
+    output_first: put output Operations first
+
+    Returns
+    -------
+    topo_order, feed_graph
+      list of Operation, Map of Operation to list of Operation
+  """
+  ret = _ffi_api.flatten_tir_graph(ops, output_first)
+  return ret
