@@ -22,6 +22,8 @@ def gemm(M, N, K):
 
 
 def test1():
+    print("##########################")
+    print("Test 1")
     recipe = at.WMMAFp16Fp32Bias()
     compute_key = "nnn"
     shape_key = "16x16x16"
@@ -42,6 +44,8 @@ def test1():
 
 
 def test2():
+    print("##########################")
+    print("Test 2")
     recipe = at.WMMAFp16Fp32Bias()
     compute_key = "nnn"
     shape_key = "16x16x16"
@@ -69,11 +73,25 @@ def test2():
     ii, jj = main_intrin_op.axis
     kk, = main_intrin_op.reduce_axis
     result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key, C.op, {ii:i, jj:j, kk:k})
-    print("prologue_length:", result.get_prologue_length())
-    print("epilogue_length:", result.get_epilogue_length())
+        recipe, compute_key, shape_key, {0: 0}, {1: 1}, {ii:i, jj:j, kk:k},
+        at.compute_dag_from_tensors([E]),
+        at.compute_dag_from_tensors(outs))
+
+
+def test3():
+    print("##########################")
+    print("Test 3")
+    recipe = at.WMMAFp16Fp32Bias()
+    compute_key = "nnn"
+    shape_key = "16x16x16"
+    compute_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    
+    inputs = compute_dag.get_inputs()
+    sch = tvm.te.create_schedule([x.op for x in compute_dag.tensors])
+    print(tvm.lower(sch, inputs + list(compute_dag.tensors), simple_mode=True))
 
 
 if __name__ == "__main__":
     test1()
     test2()
+    test3()

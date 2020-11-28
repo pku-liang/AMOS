@@ -52,6 +52,51 @@ struct InstructionScope {
 };
 
 /*!
+ * \brief A compute DAG for compute transformation.
+ */
+class ComputeDAGNode : public Object {
+ public:
+ /*! \brief The root tensors */
+  Array<te::Tensor> tensors;
+  /*! \brief The serialized op list, from inputs to outputs */
+  Array<te::Operation> op_lst;
+  /*! \brief The map from op to its input ops */
+  Map<te::Operation, Array<te::Operation>> read_graph;
+  /*! \brief The map from op to its consumer ops */
+  Map<te::Operation, Array<te::Operation>> feed_graph;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("tensors", &tensors);
+    v->Visit("op_lst", &op_lst);
+    v->Visit("read_graph", &read_graph);
+    v->Visit("feed_graph", &feed_graph);
+  }
+
+  static constexpr const char* _type_key = "auto_tensorize.ComputeDAG";
+  TVM_DECLARE_FINAL_OBJECT_INFO(ComputeDAGNode, Object);
+};
+
+
+class ComputeDAG : public ObjectRef {
+ public:
+  /*!
+   * \brief The constructor.
+   * \param tensors The root tensors
+   * \param op_lst The serialized op list, from inputs to outputs
+   * \param read_graph The map from op to its input ops
+   * \param feed_graph The map from op to its consumer ops
+   */
+  TVM_DLL ComputeDAG(
+      Array<te::Tensor> tensors,
+      Array<te::Operation> op_lst,
+      Map<te::Operation, Array<te::Operation>> read_graph,
+      Map<te::Operation, Array<te::Operation>> feed_graph);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(ComputeDAG, ObjectRef, ComputeDAGNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ComputeDAGNode);
+};
+
+/*!
  * \brief A capsule stage, describes how tensorize is done.
  */
 class CapsuleStageNode : public Object {

@@ -1,5 +1,6 @@
 from .capsule_base import (register_capsule, register_recipe,
-                           construct_dag)
+                           construct_dag, ComputeDAG, compute_dag_from_tensors)
 from .recipe import OperationRole, RecipeStage, InstructionScope
 from .capsules import *
-from .compute_transform import IntrinMatchResult
+from .tensorization_phases import (IntrinMatchResult, SplitFactorGenerator,
+                                   VectorizeLengthGenerator)

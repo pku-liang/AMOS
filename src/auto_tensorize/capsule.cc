@@ -27,7 +27,22 @@
 namespace tvm {
 namespace auto_tensorize {
 
-TVM_REGISTER_OBJECT_TYPE(CapsuleStageNode);
+TVM_REGISTER_NODE_TYPE(ComputeDAGNode);
+TVM_REGISTER_NODE_TYPE(CapsuleStageNode);
+
+
+ComputeDAG::ComputeDAG(
+    Array<te::Tensor> tensors,
+    Array<te::Operation> op_lst,
+    Map<te::Operation, Array<te::Operation>> read_graph,
+    Map<te::Operation, Array<te::Operation>> feed_graph) {
+    auto node = make_object<ComputeDAGNode>();
+    node->tensors = tensors;
+    node->op_lst = op_lst;
+    node->read_graph = read_graph;
+    node->feed_graph = feed_graph;
+    data_ = node;
+}
 
 CapsuleStage::CapsuleStage(
     String operation_role_,
@@ -57,6 +72,22 @@ CapsuleStage::CapsuleStage(
     node->instruction_scope = instruction_scope;
     data_ = std::move(node);
 }
+
+
+TVM_REGISTER_GLOBAL("auto_tensorize.ComputeDAG").set_body_typed(
+    [](
+        Array<te::Tensor> tensors,
+        Array<te::Operation> op_lst,
+        Map<te::Operation, Array<te::Operation>> read_graph,
+        Map<te::Operation, Array<te::Operation>> feed_graph
+    ) {
+  return ComputeDAG(
+      tensors,
+      op_lst,
+      read_graph,
+      feed_graph
+  );
+});
 
 
 TVM_REGISTER_GLOBAL("auto_tensorize.CapsuleStage").set_body_typed(

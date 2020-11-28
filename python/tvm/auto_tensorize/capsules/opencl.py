@@ -1,6 +1,6 @@
 import tvm
 from ..capsule_base import (CompilationCapsule, register_capsule,
-                            MemoryCapsule, ComputeCapsule, ElementwiseCapsule,
+                            MemoryCapsule, ComputeCapsule,
                             CompilationRecipe, register_recipe)
 
 

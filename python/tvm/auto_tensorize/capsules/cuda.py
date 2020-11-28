@@ -1,6 +1,7 @@
 import tvm
 from ..capsule_base import (CompilationCapsule, register_capsule,
-                            MemoryCapsule, ComputeCapsule, ElementwiseCapsule,
+                            MemoryCapsule, ComputeCapsule, ElementwiseComputeCapsule,
+                            ElementwiseMemoryCapsule,
                             CompilationRecipe, register_recipe)
 
 
@@ -163,7 +164,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
 
 
 @register_capsule("cuda", "nvcuda::wmma::add_bias")
-class WMMAAddBias(ElementwiseCapsule):
+class WMMAAddBias(ElementwiseComputeCapsule):
     def get_params_usage(self):
         """
         ---
@@ -538,7 +539,7 @@ class WMMALoadMatrixSync(MemoryCapsule):
 
 
 @register_capsule("cuda", "nvcuda::wmma::__float_to_tf32")
-class WMMACastFp32ToTf32(ElementwiseCapsule):
+class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
     def get_params_usage(self):
         """
         ---

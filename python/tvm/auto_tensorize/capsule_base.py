@@ -1,6 +1,37 @@
 import tvm
 import tvm._ffi
 import queue
+from tvm import tg
+from tvm.runtime import Object
+from . import _ffi_api
+
+
+@tvm._ffi.register_object("auto_tensorize.ComputeDAG")
+class ComputeDAG(Object):
+    def __init__(self, tensors, op_lst, read_graph, feed_graph):
+        self.__init_handle_by_constructor__(
+            _ffi_api.ComputeDAG,
+            tensors,
+            op_lst,
+            read_graph,
+            feed_graph)
+
+    def get_inputs(self):
+        inputs = []
+        for op in self.op_lst:
+            for inp in op.input_tensors:
+                if isinstance(inp.op, tvm.te.PlaceholderOp):
+                    inputs.append(inp)
+        return inputs
+
+
+def compute_dag_from_tensors(tensors):
+    ops = [x.op for x in tensors]
+    op_lst, feed_graph = tg.flatten_tir_graph(ops)
+    read_graph = {}
+    for op in op_lst:
+        read_graph[op] = [x.op for x in op.input_tensors]
+    return ComputeDAG(tensors, op_lst, read_graph, feed_graph)
 
 
 class CompilationCapsule(object):
@@ -176,7 +207,11 @@ class ComputeCapsule(CompilationCapsule):
     pass
 
 
-class ElementwiseCapsule(ComputeCapsule):
+class ElementwiseMemoryCapsule(MemoryCapsule):
+    pass
+
+
+class ElementwiseComputeCapsule(ComputeCapsule):
     pass
 
 
@@ -291,7 +326,7 @@ class CompilationRecipe(object):
                 if not issubclass(v, ComputeCapsule):
                     return False
             else:
-                if not issubclass(v, (MemoryCapsule, ElementwiseCapsule)):
+                if not issubclass(v, (MemoryCapsule)):
                     return False
 
         # anchor = self.anchor_point
@@ -319,6 +354,8 @@ class CompilationRecipe(object):
         return feed_graph
 
     def serialize_dag(self, cond1=None, cond2=None):
+        """Get the serialized dag of capsule names
+        """
         if cond1 is not None:
             assert callable(cond1)
         else:
@@ -358,6 +395,25 @@ class CompilationRecipe(object):
                             sub_feed_graph[p].append(cur)
                             
         return list(reversed(result)), sub_read_graph, sub_feed_graph
+
+    def get_effective_compute_dag(self, compute_key, shape_key):
+        """Get the effective dag of real operations
+        """
+        def cond(cur):
+                return (
+                cur in self.capsules and
+                (cur in self.capsules and
+                        issubclass(self.capsules[cur], ComputeCapsule)))
+        op_list, read_graph, feed_graph = self.serialize_dag(cond1=cond)
+        outputs = []
+        for op in op_list:
+            if op not in feed_graph:
+                outputs.append(op)
+        # get the real compute dag
+        ins, outs, cache = self.get_dag_compute_expression_with_inputs(
+            compute_key, shape_key, outputs, read_graph)
+        return compute_dag_from_tensors(outs)
+            
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str
