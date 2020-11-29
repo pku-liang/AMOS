@@ -38,6 +38,8 @@ TVM_DLL Array<IntImm> count_input_occur(Array<Tensor> inputs, const Operation& o
 
 TVM_DLL Map<Operation, Operation> subgraph_partition(Map<Operation, IntImm> graph_mark, Array<Operation> outputs);
 
+std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
+  serialize_compute_dag(Array<Operation> root_ops, bool output_first=false);
 }  // namespace tg
 }  // namespace tvm
 

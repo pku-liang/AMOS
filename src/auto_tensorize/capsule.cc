@@ -74,6 +74,26 @@ CapsuleStage::CapsuleStage(
 }
 
 
+ComputeDAG compute_dag_from_tensor(Array<te::Tensor> tensors) {
+  Array<te::Operation> ops;
+  for (auto t : tensors) {
+    ops.push_back(t->op);
+  }
+  Array<te::Operation> op_lst;
+  Map<te::Operation, Array<te::Operation>> feed_graph;
+  std::tie(op_lst, feed_graph) = tg::serialize_compute_dag(ops);
+  Map<te::Operation, Array<te::Operation>> read_graph;
+  for (auto op : op_lst) {
+    Array<te::Operation> inp_ops;
+    for (auto inp : op->InputTensors()) {
+      inp_ops.push_back(inp->op);
+    }
+    read_graph.Set(op, inp_ops);
+  }
+  return ComputeDAG(tensors, op_lst, read_graph, feed_graph);
+}
+
+
 TVM_REGISTER_GLOBAL("auto_tensorize.ComputeDAG").set_body_typed(
     [](
         Array<te::Tensor> tensors,
@@ -119,6 +139,14 @@ TVM_REGISTER_GLOBAL("auto_tensorize.CapsuleStage").set_body_typed(
       store_to_shared,
       instruction_scope
   );
+});
+
+
+TVM_REGISTER_GLOBAL("auto_tensorize.compute_dag_from_tensors").set_body_typed(
+    [](
+        Array<te::Tensor> tensors
+    ) {
+  return compute_dag_from_tensor(tensors);
 });
 
 }  // namespace auto_tensorize

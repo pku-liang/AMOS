@@ -3,4 +3,6 @@ from .capsule_base import (register_capsule, register_recipe,
 from .recipe import OperationRole, RecipeStage, InstructionScope
 from .capsules import *
 from .tensorization_phases import (IntrinMatchResult, SplitFactorGenerator,
-                                   VectorizeLengthGenerator)
+                                   VectorizeLengthGenerator, infer_range,
+                                   transform_main_op, TransformState,
+                                   TransformRequest)

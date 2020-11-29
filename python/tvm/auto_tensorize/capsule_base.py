@@ -26,12 +26,7 @@ class ComputeDAG(Object):
 
 
 def compute_dag_from_tensors(tensors):
-    ops = [x.op for x in tensors]
-    op_lst, feed_graph = tg.flatten_tir_graph(ops)
-    read_graph = {}
-    for op in op_lst:
-        read_graph[op] = [x.op for x in op.input_tensors]
-    return ComputeDAG(tensors, op_lst, read_graph, feed_graph)
+    return _ffi_api.compute_dag_from_tensors(tensors)
 
 
 class CompilationCapsule(object):

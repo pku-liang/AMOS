@@ -31,6 +31,7 @@
 #include <tvm/runtime/container.h>
 #include <tvm/node/node.h>
 #include <tvm/te/operation.h>
+#include <tvm/tg/graph.h>
 
 
 namespace tvm {
@@ -174,6 +175,9 @@ class CapsuleStage : public ObjectRef {
   TVM_DEFINE_OBJECT_REF_METHODS(CapsuleStage, ObjectRef, CapsuleStageNode);
   TVM_DEFINE_OBJECT_REF_COW_METHOD(CapsuleStageNode);
 };
+
+
+ComputeDAG compute_dag_from_tensor(Array<te::Tensor> tensors);
 
 }  // namespace auto_tensorize
 

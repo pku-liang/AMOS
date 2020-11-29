@@ -252,7 +252,7 @@ void BaseComputeOpNode::GatherBound(const Operation& self,
     (*out_dom_map)[this->axis[i]] = r;
   }
   for (size_t i = 0; i < this->reduce_axis.size(); ++i) {
-    CHECK(!out_dom_map->count(this->reduce_axis[i]));
+    CHECK(!out_dom_map->count(this->reduce_axis[i])) << this->reduce_axis[i];
     (*out_dom_map)[this->reduce_axis[i]] = this->reduce_axis[i]->dom;
   }
 }

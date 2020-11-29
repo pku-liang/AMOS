@@ -169,10 +169,6 @@ class CountInputOccur : public ExprVisitor {
 };
 
 
-std::pair<Array<Operation>, Map<Operation, Array<Operation> > >
-  serialize_compute_dag(Array<Operation> root_ops, bool output_first=false);
-
-
 }  // namespace tg
 
 }  // namespace tvm
