@@ -92,6 +92,8 @@ class TransformState : public ObjectRef {
  */
 class TransformRequestNode : public Object {
  public:
+ /*! \brief Name of this transform */
+  String name;
   /*! \brief Map for axis */
   Map<te::IterVar, PrimExpr> axis_map;
   /*! \brief Reverse map for axis */
@@ -102,6 +104,7 @@ class TransformRequestNode : public Object {
   Array<te::IterVar> time_loops;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("name", &name);
     v->Visit("axis_map", &axis_map);
     v->Visit("reverse_axis_map", &reverse_axis_map);
     v->Visit("space_loops", &space_loops);
@@ -119,7 +122,8 @@ class TransformRequest : public ObjectRef {
    * \param axis_map Map for axis
    * \param reverse_axis_map Reverse map for axis
    */
-  TVM_DLL TransformRequest(Map<te::IterVar, PrimExpr> axis_map,
+  TVM_DLL TransformRequest(String name,
+                           Map<te::IterVar, PrimExpr> axis_map,
                            Map<te::IterVar, PrimExpr> reverse_axis_map,
                            Array<te::IterVar> space_loops,
                            Array<te::IterVar> time_loops);
@@ -218,18 +222,12 @@ class ExpandIntrinExpr : public tir::ExprMutator {
       for (auto arg : target_indices[0]) {
         PrimExpr new_arg = Substitute(arg, target_intrin_map_);
         new_arg = Substitute(new_arg, var_map_);
-        std::cout << "check new_arg=" << new_arg << "\n";
         cv.collect(new_arg);
       }
       Array<PrimExpr> new_indices;
-      std::cout << "check var set:\n";
-      for (auto v : var_set) {
-        std::cout << GetRef<Var>(v) << "\n";
-      }
       std::unordered_set<const VarNode*> new_var_set;
       Array<te::IterVar> added_reduce_axis;
       for (auto iv : time_loops_) {
-        std::cout << "compare iv=" << iv << "\n";
         if (var_set.count(iv->var.get())) {
           new_indices.push_back(iv->var);
           if (iv->iter_type == IterVarType::kCommReduce && !added_.count(iv->var.get())) {
@@ -241,17 +239,9 @@ class ExpandIntrinExpr : public tir::ExprMutator {
       }
       reduce_axis_.insert(
         reduce_axis_.begin(), added_reduce_axis.begin(), added_reduce_axis.end());
-      std::cout << new_tensor << " " << new_indices.size() << "\n";
-      for (auto id : new_indices) {
-        std::cout << id << " ";
-      }
-      std::cout << "\nend check new indices\n";
       new_indices.insert(new_indices.end(), op->indices.begin(), op->indices.end());
-      std::cout << "check before new load\n";
       PrimExpr new_load = new_tensor(new_indices);
-      std::cout << "check new load=" << new_load << "\n";
       new_load = Substitute(new_load, var_map_);
-      std::cout << "check after substittue new load=" << new_load << "\n";
       return new_load;
     }
     return VisitExpr_(op);
@@ -300,7 +290,7 @@ class MainOpTransformer {
   te::Operation transform_input(
     const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
     te::Tensor intrin_inp, te::Tensor target_inp,
-    TransformState init, TransformRequest request, TransformState next) {
+    TransformState init, TransformRequest request, TransformState& next) {
     // check conditions
     CHECK(intrin_cop->body.size() == 1U)
       << "Multiple intrinsic compute operation body is not supported.";
@@ -387,8 +377,8 @@ class MainOpTransformer {
     axis.insert(axis.end(), time_loops.begin(), time_loops.end());
     axis.insert(axis.end(), space_loops.begin(), space_loops.end());
     return te::ComputeOp(
-      target_inp->op->name + ".trans",
-      target_inp->op->tag + ".trans",
+      target_inp->op->name + request->name + ".input",
+      target_inp->op->tag + request->name + ".input",
       {}, axis, {load_data}, target_cop->requires_grad);
   }
 
@@ -396,7 +386,7 @@ class MainOpTransformer {
     const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
     Map<te::Tensor, te::Tensor> intrin_target_inp_map,
     Map<te::Tensor, te::Tensor> old_intrin_target_inp_map,
-    TransformState init, TransformRequest request, TransformState next) {
+    TransformState init, TransformRequest request, TransformState& next) {
     // check conditions
     CHECK(intrin_cop->body.size() == 1U)
       << "Multiple intrinsic compute operation body is not supported.";
@@ -488,8 +478,6 @@ class MainOpTransformer {
     ExpandIntrinExpr expander(
       reduce_loops, intrin_target_inp_map, old_intrin_target_inp_map,
       all_time_loops, remap_to_new_vars, target_intrin_map, target_cop);
-    
-    std::cout << "end expand\n";
 
     PrimExpr load_data = expander.expand(intrin_cop->body[0]);
     // construct new compute op
@@ -497,8 +485,8 @@ class MainOpTransformer {
     axis.insert(axis.end(), time_loops.begin(), time_loops.end());
     axis.insert(axis.end(), space_loops.begin(), space_loops.end());
     te::Operation new_op = te::ComputeOp(
-      target_cop->name + ".trans",
-      target_cop->tag + ".trans",
+      target_cop->name + request->name + ".main",
+      target_cop->tag + request->name + ".main",
       {}, axis, {load_data}, target_cop->requires_grad);
     // update transform state
     Map<te::Operation, te::Operation> main_op_map;
@@ -522,6 +510,7 @@ class MainOpTransformer {
       }
       CHECK(remap_to_new_iter_vars.count(kv.first->var));
       tmp.push_back(remap_to_new_iter_vars.at(kv.first->var));
+      new_axis_map.Set(kv.first, tmp);
     }
     next.CopyOnWrite()->axis_map = new_axis_map;
     return new_op;
@@ -530,7 +519,7 @@ class MainOpTransformer {
   te::Operation transform_output(
     const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
     te::Tensor target_main_output,
-    TransformState init, TransformRequest request, TransformState next) {
+    TransformState init, TransformRequest request, TransformState& next) {
     // the space loops and time loops should not be reconstructed
     Array<Var> indices;
     // get time loops
@@ -570,8 +559,8 @@ class MainOpTransformer {
     }
     store_data = Substitute(store_data, vmap);
     te::Operation new_op = te::ComputeOp(
-      target_cop->name + ".trans",
-      target_cop->tag + ".trans",
+      target_cop->name + request->name + ".output",
+      target_cop->tag + request->name + ".output",
       {}, axis, {store_data}, target_cop->requires_grad);
     // update transform state
     //// nothing to update
@@ -588,13 +577,9 @@ class MainOpTransformer {
       intrin_main_op = kv.first;
       target_main_op = kv.second;
     }
-    std::cout << "target main op: " << target_main_op << "\n"
-              << target_main_op.as<ComputeOpNode>()->body << "\n";
 
     int stage = 0;  // 0: before main, 1: is main, 2: past main
     for (auto op : init->target_dag->op_lst) {
-      std::cout << "init:\n" << op << "\n"
-                << op.as<te::ComputeOpNode>()->body << "\n";
       // shift stage
       if (op == target_main_op) {
         stage = 1;
@@ -603,7 +588,6 @@ class MainOpTransformer {
         new_op_lst.push_back(op);
         old_to_new.Set(op, op);
       } else if (stage == 1) {
-        std::cout << "main_op: " << op << "\n";
         auto intrin_inputs = intrin_main_op->InputTensors();
         auto target_inputs = target_main_op->InputTensors();
         int num_inputs = (int)target_inputs.size();
@@ -624,7 +608,6 @@ class MainOpTransformer {
             request,
             next
           );
-          std::cout << "check " << i << " " << new_inp_op.as<ComputeOpNode>()->body << "\n";
           new_op_lst.push_back(new_inp_op);
           //// the transform only has one output
           new_inputs.push_back(new_inp_op.output(0));
@@ -705,11 +688,6 @@ class MainOpTransformer {
       }
     }
     next.CopyOnWrite()->elem_op_map = new_elem_map;
-    std::cout << "new op lst\n";
-    for (auto op : new_op_lst) {
-      std::cout << op.as<te::ComputeOpNode>()->axis << " ";
-      std::cout << op.as<te::ComputeOpNode>()->body << "\n";
-    }
     return next;
   }
 

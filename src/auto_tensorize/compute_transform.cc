@@ -49,11 +49,13 @@ TransformState::TransformState(
 
 
 TransformRequest::TransformRequest(
+      String name,
       Map<te::IterVar, PrimExpr> axis_map,
       Map<te::IterVar, PrimExpr> reverse_axis_map,
       Array<te::IterVar> space_loops,
       Array<te::IterVar> time_loops) {
     auto node = make_object<TransformRequestNode>();
+    node->name = name;
     node->axis_map = axis_map;
     node->reverse_axis_map = reverse_axis_map;
     node->space_loops = space_loops;
@@ -121,12 +123,14 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformState").set_body_typed(
 
 TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
     [](
+        String name,
         Map<te::IterVar, PrimExpr> axis_map,
         Map<te::IterVar, PrimExpr> reverse_axis_map,
         Array<te::IterVar> space_loops,
         Array<te::IterVar> time_loops
     ) {
   return TransformRequest(
+      name,
       axis_map,
       reverse_axis_map,
       space_loops,

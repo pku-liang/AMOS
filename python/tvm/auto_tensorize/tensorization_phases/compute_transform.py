@@ -34,14 +34,16 @@ class TransformRequest(Object):
     """
     Args:
     ---
+    name:
     axis_map:
     reverse_axis_map:
     time_loops:
     """
 
-    def __init__(self, axis_map, reverse_axis_map, space_loops, time_loops):
+    def __init__(self, name, axis_map, reverse_axis_map, space_loops, time_loops):
         self.__init_handle_by_constructor__(
             _ffi_api.TransformRequest,
+            name,
             axis_map,
             reverse_axis_map,
             space_loops,
