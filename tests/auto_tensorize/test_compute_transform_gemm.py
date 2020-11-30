@@ -26,7 +26,8 @@ def gemm(M, N, K):
 def get_tvm_arrays(tensors, ctx):
     ret = []
     for t in tensors:
-        np_ary = np.random.uniform(-1, 1, [int(x) for x in t.shape]).astype(t.dtype)
+        np_ary = np.random.uniform(-1, 1, [int(x)
+                                           for x in t.shape]).astype(t.dtype)
         tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
@@ -119,7 +120,8 @@ def test4():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref +
+                         list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
@@ -171,7 +173,8 @@ def test5():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref +
+                         list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
@@ -223,7 +226,8 @@ def test6():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref +
+                         list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
@@ -287,7 +291,8 @@ def test7():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref +
+                         list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
@@ -326,7 +331,8 @@ def test7():
     request = at.TransformRequest(
         ".fuse",
         {ii: wi * 16 + hi, jj: wj * 16 + hj, kk: wk * 16 + hk},
-        {wi: ii // 16, hi: ii % 16, wj: jj // 16, hj: jj % 16, wk: kk // 16, hk: kk % 16},
+        {wi: ii // 16, hi: ii % 16, wj: jj // 16, hj: jj %
+            16, wk: kk // 16, hk: kk % 16},
         [wi, wj, hi, hj, wk, hk], [])
     new_state = at.transform_main_op(new_state, request)
 

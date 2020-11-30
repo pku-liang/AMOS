@@ -278,12 +278,6 @@ class ElemOpTransformer {
 };
 
 
-class PaddingTransformer {
- public:
-  
-};
-
-
 TransformState main_op_transform(TransformState init, TransformRequest request);
 
 }  // namespace auto_tensorize
