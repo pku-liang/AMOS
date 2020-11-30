@@ -40,14 +40,16 @@ class TransformRequest(Object):
     time_loops:
     """
 
-    def __init__(self, name, axis_map, reverse_axis_map, space_loops, time_loops):
+    def __init__(self, name, axis_map, reverse_axis_map,
+                space_loops, time_loops, padding={}):
         self.__init_handle_by_constructor__(
             _ffi_api.TransformRequest,
             name,
             axis_map,
             reverse_axis_map,
             space_loops,
-            time_loops)
+            time_loops,
+            padding)
 
 
 class TransformationStep(object):
