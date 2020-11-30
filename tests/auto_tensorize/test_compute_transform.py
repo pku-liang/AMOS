@@ -190,14 +190,13 @@ def test6():
     state = at.TransformState(
         main_op_map, elem_op_map, axis_map, target_dag, intrin_dag)
     io = tvm.tir.IterVar((0, 64), "io", 0)
-    ii_ = tvm.tir.IterVar((0, 16), "ii", 0)
     jo = tvm.tir.IterVar((0, 64), "jo", 0)
-    ji = tvm.tir.IterVar((0, 16), "ji", 0)
     ko = tvm.tir.IterVar((0, 64), "ko", 2)
-    ki = tvm.tir.IterVar((0, 16), "ki", 2)
     request = at.TransformRequest(
-        {ii: i.var % 16, jj: j.var % 16, kk: k.var % 16, io: i.var // 16, jo: j.var // 16, ko: k.var // 16},
-        {i: ii.var + io.var * 16, j: jj.var + jo.var * 16, k: kk.var + ko.var * 16},
+        {ii: i.var % 16, jj: j.var % 16, kk: k.var %
+            16, io: i.var // 16, jo: j.var // 16, ko: k.var // 16},
+        {i: ii.var + io.var * 16, j: jj.var + jo.var * 16,
+            k: kk.var + ko.var * 16},
         [i, j, k], [io, jo, ko])
     new_state = at.transform_main_op(state, request)
 

@@ -227,16 +227,20 @@ class ExpandIntrinExpr : public tir::ExprMutator {
         std::cout << GetRef<Var>(v) << "\n";
       }
       std::unordered_set<const VarNode*> new_var_set;
+      Array<te::IterVar> added_reduce_axis;
       for (auto iv : time_loops_) {
         std::cout << "compare iv=" << iv << "\n";
         if (var_set.count(iv->var.get())) {
           new_indices.push_back(iv->var);
           if (iv->iter_type == IterVarType::kCommReduce && !added_.count(iv->var.get())) {
-            reduce_axis_.push_back(iv);
+            
+            added_reduce_axis.push_back(iv);
             added_.insert(iv->var.get());
           }
         }
       }
+      reduce_axis_.insert(
+        reduce_axis_.begin(), added_reduce_axis.begin(), added_reduce_axis.end());
       std::cout << new_tensor << " " << new_indices.size() << "\n";
       for (auto id : new_indices) {
         std::cout << id << " ";
@@ -529,10 +533,6 @@ class MainOpTransformer {
     TransformState init, TransformRequest request, TransformState next) {
     // the space loops and time loops should not be reconstructed
     Array<Var> indices;
-    // get intrin spatial indices
-    for (auto arg : intrin_cop->axis) {
-      indices.push_back(arg->var);
-    }   
     // get time loops
     std::unordered_set<const VarNode*> var_set;
     CollectVars cv(var_set);
@@ -549,6 +549,10 @@ class MainOpTransformer {
         indices.push_back(iv->var);
       }
     }
+    // get intrin spatial indices
+    for (auto arg : intrin_cop->axis) {
+      indices.push_back(arg->var);
+    }   
     // rebuild compute body
     PrimExpr store_data = target_main_output(indices);
     Map<Var, PrimExpr> intrin_target_map;
