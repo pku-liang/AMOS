@@ -11,18 +11,19 @@ class IntrinMatchResult(object):
     compute_key: str
     shape_key: str
     main_op: dict of {int:int}
-    axis_map_list: list of dict of {IterVar:IterVar}
+    axis_map: dict of {IterVar: list of IterVar}
     target_dag: ComputeDAG
     intrin_dag: ComputeDAG
     """
-    def __init__(self, recipe, compute_key, shape_key, main_op_map, elem_op_map,
-                 axis_map_list, target_dag, intrin_dag):
+    def __init__(self, recipe, compute_key, shape_key,
+                 main_op_map, elem_op_map,
+                 axis_map, target_dag, intrin_dag):
         self.recipe = recipe
         self.compute_key = compute_key
         self.shape_key = shape_key
         self.main_op_map = main_op_map
         self.elem_op_map = elem_op_map
-        self.axis_map_list = axis_map_list
+        self.axis_map = axis_map
         self.target_dag = target_dag
         self.intrin_dag = intrin_dag
 

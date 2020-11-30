@@ -130,7 +130,7 @@ PrimExpr ExpandIntrinExpr::VisitExpr_(const ProducerLoadNode* op) {
     new_load = Substitute(new_load, var_map_);
     return new_load;
   }
-  return VisitExpr_(op);
+  return tir::ExprMutator::VisitExpr_(op);
 }
 
 
@@ -139,7 +139,7 @@ PrimExpr SubstituteInputs::VisitExpr_(const ProducerLoadNode* op) {
   if (tmap_.count(t)) {
     return tmap_.at(t)(op->indices);
   }
-  return VisitExpr_(op);
+  return tir::ExprMutator::VisitExpr_(op);
 }
 
 
@@ -648,6 +648,58 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformMainOp").set_body_typed(
         TransformState init, TransformRequest request
     ) {
   return main_op_transform(init, request);
+});
+
+
+TVM_REGISTER_GLOBAL("auto_tensorize.SubstituteInputs").set_body_typed(
+    [](
+        ComputeDAG org_dag, Map<te::Operation, te::Operation> map
+    ) {
+  Map<te::Operation, te::Operation> old_to_new;
+  for (auto kv : map) {
+    old_to_new.Set(kv.first, kv.second);
+  }
+  for (auto op : org_dag->op_lst) {
+    if (map.count(op)) {
+      continue;
+    }
+    const te::ComputeOpNode* cop = op.as<te::ComputeOpNode>();
+    if (!cop) {
+      old_to_new.Set(op, op);
+    } else {
+      Map<te::Tensor, te::Tensor> tmap;
+      for (auto inp : cop->InputTensors()) {
+        if (old_to_new.count(inp->op)) {
+          tmap.Set(inp, old_to_new.at(inp->op).output(0));
+        } else {
+          tmap.Set(inp, inp);
+        }
+      }
+      SubstituteInputs suber(tmap);
+      Array<PrimExpr> body;
+      for (auto b : cop->body) {
+        body.push_back(suber.substitute(b));
+      }
+      te::Operation new_op = te::ComputeOp(
+                        cop->name,
+                        cop->tag,
+                        cop->attrs,
+                        cop->axis,
+                        body,
+                        cop->requires_grad);
+      old_to_new.Set(op, new_op);
+    }
+  }
+
+  Array<te::Tensor> new_tensors;
+  for (auto t : org_dag->tensors) {
+    if (old_to_new.count(t->op)) {
+      new_tensors.push_back(old_to_new.at(t->op).output(0));
+    } else {
+      new_tensors.push_back(t);
+    }
+  }
+  return compute_dag_from_tensor(new_tensors);
 });
 
 

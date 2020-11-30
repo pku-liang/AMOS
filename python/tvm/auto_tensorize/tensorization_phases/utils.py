@@ -81,6 +81,10 @@ def get_directions(dim):
     return list(product([-1, 0, 1], repeat=dim))
 
 
+def bi_product(repeat):
+    return list(product([0, 1], repeat=repeat))
+
+
 def test_split():
     lst = any_factor_split(1024, 4)
     for v in lst:
@@ -102,7 +106,15 @@ def test_directions():
         print(v)
 
 
-if __name__ =="__main__":
+def test_bi_product():
+    ret = bi_product(7)
+    for v in ret:
+        print(v)
+    print(len(ret))
+
+
+if __name__ == "__main__":
     test_split()
     test_remap()
     test_directions()
+    test_bi_product()

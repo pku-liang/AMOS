@@ -300,6 +300,8 @@ def register_capsule(target, mnemonic, override=False):
 
 
 class CompilationRecipe(object):
+    target = None
+
     def __init__(self):
         self.capsules = {}
         self.edges = {}
@@ -319,9 +321,12 @@ class CompilationRecipe(object):
         for k, v in self.capsules.items():
             if k == self.main_capsule_name:
                 if not issubclass(v, ComputeCapsule):
+                    print("1", v, v.__class__)
                     return False
             else:
-                if not issubclass(v, (MemoryCapsule)):
+                if not issubclass(
+                        v, (MemoryCapsule, ElementwiseComputeCapsule)):
+                    print("2", v, v.__class__)
                     return False
 
         # anchor = self.anchor_point
@@ -580,7 +585,7 @@ def construct_dag(
             if curr == recipe.main_capsule_name:
                 constructed_nodes[curr] = entry_tensors
             else:
-                assert ptr_inputs < len(input_tensors + addition_inputs)
+                assert ptr_inputs < len(input_tensors + addition_inputs), (ptr_inputs, input_tensors, addition_inputs)
                 inp = (input_tensors + addition_inputs)[ptr_inputs]
                 ptr_inputs += 1
                 constructed_nodes[curr] = [inp]
@@ -591,6 +596,7 @@ def construct_dag(
             construct_inputs(inp_capsule_name)
             new_inputs.extend(constructed_nodes[inp_capsule_name])
         if curr == recipe.main_capsule_name:
+            print("check main:", entry_tensors[0].op.body)
             constructed_nodes[curr] = compute_like(
                 input_tensors,
                 entry_tensors,
@@ -711,6 +717,7 @@ def register_recipe(target, mnemonic, override=False):
     global COMPILATION_RECIPE_REGISTER_POOL
 
     def register(recipe_class):
+        recipe_class.target = target
         COMPILATION_RECIPE_REGISTER_POOL.add(
             target, mnemonic, recipe_class, override=override)
         return recipe_class

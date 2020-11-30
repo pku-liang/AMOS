@@ -5,4 +5,5 @@ from .capsules import *
 from .tensorization_phases import (IntrinMatchResult, SplitFactorGenerator,
                                    VectorizeLengthGenerator, infer_range,
                                    transform_main_op, TransformState,
-                                   TransformRequest)
+                                   TransformRequest, TransformGenerator,
+                                   substitute_inputs)
