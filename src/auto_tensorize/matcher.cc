@@ -194,7 +194,7 @@ namespace auto_tensorize {
   }
 
   Array<Array<PrimExpr>> IndexExprMatcher::_rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map) {
-    SubIndexExprExtractor itervar_rewriter(itervar_map);
+    IterVarRewriter itervar_rewriter(itervar_map);
     size_t n_indices = indices.size();
     auto simplify = [](const PrimExpr& x) { return arith::Analyzer().Simplify(x); };
 

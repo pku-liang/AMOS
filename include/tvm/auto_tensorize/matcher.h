@@ -337,11 +337,10 @@ class IndexExprMatcher : public ExprVisitor {
     Array<Array<PrimExpr>> _rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map);
 };
 
-// TODO: rename me 
-class SubIndexExprExtractor final : public ExprMutator {
+class IterVarRewriter final : public ExprMutator {
  public:
   using ExprMutator::VisitExpr;
-  SubIndexExprExtractor(IterVarMap &itervar_map) : itervar_map(itervar_map) {}
+  IterVarRewriter(IterVarMap &itervar_map) : itervar_map(itervar_map) {}
  protected:
   using ExprMutator::VisitExpr_;
   PrimExpr VisitExpr_(const VarNode* op) {
@@ -350,27 +349,10 @@ class SubIndexExprExtractor final : public ExprMutator {
       return item.second;
     }
     return make_zero(op->dtype);
-    // if (itervar_map.find(op) != itervar_map.end()) {
-    //   return e;
-    // } else {
-    //   return make_zero(e.type());
-    // }
   }
  private:
   IterVarMap &itervar_map;
 };
-
-
-// PrimExpr SubIndexExpr(
-//       PrimExpr expr,
-//       Array<Var> reserved_vars) {
-//   std::unordered_set<const VarNode*> reserved;
-//   for (auto v : reserved_vars) {
-//     reserved.insert(v.get());
-//   }
-//   SubIndexExprExtractor siee(reserved);
-//   return arith::Analyzer().Simplify(siee.VisitExpr(expr));
-// }
 
 }  // namespace auto_tensorize
 }  // namespace tvm
