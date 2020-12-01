@@ -103,7 +103,7 @@ class TransformRequestNode : public Object {
   /*! \brief IterVars that are not selected by intrinsic */
   Array<te::IterVar> time_loops;
   /*! \brief Padding info */
-  Map<te::Operation, Map<te::IterVar, IntImm>> padding;
+  bool need_padding;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("name", &name);
@@ -111,7 +111,7 @@ class TransformRequestNode : public Object {
     v->Visit("reverse_axis_map", &reverse_axis_map);
     v->Visit("space_loops", &space_loops);
     v->Visit("time_loops", &time_loops);
-    v->Visit("padding", &padding);
+    v->Visit("need_padding", &need_padding);
   }
 
   static constexpr const char* _type_key = "auto_tensorize.TransformRequest";
@@ -130,7 +130,7 @@ class TransformRequest : public ObjectRef {
                            Map<te::IterVar, PrimExpr> reverse_axis_map,
                            Array<te::IterVar> space_loops,
                            Array<te::IterVar> time_loops,
-                           Map<te::Operation, Map<te::IterVar, IntImm>> padding);
+                           bool need_padding);
 
   TVM_DEFINE_OBJECT_REF_METHODS(TransformRequest, ObjectRef, TransformRequestNode);
   TVM_DEFINE_OBJECT_REF_COW_METHOD(TransformRequestNode);

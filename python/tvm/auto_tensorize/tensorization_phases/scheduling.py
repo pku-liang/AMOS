@@ -2,8 +2,10 @@ import tvm
 import numpy as np
 from .utils import any_factor_split, remap_factors, get_directions, get_factor_lst
 from .target import *
-from .compute_transform import TransformGenerator
+from .compute_transform import TransformGenerator, substitute_inputs
 from ..search import QLearningParamGenerator
+from ..capsule_base import construct_dag
+from functools import reduce
 
 
 class State(object):
@@ -88,6 +90,21 @@ class UnrollStepGenerator(QLearningParamGenerator):
 
     def map_from_hidden(self, init):
         return self.length_map[init]
+
+
+def reconstruct_dag_as_intrin(
+        target_dag, main_op, recipe, compute_key, shape_key):
+    inputs = list(main_op.input_tensors)
+    outputs = [main_op.output(0)]
+    # TODO: consider elem op in dag construction
+    input_names, output_names, nodes, read_graph, feed_graph = \
+        construct_dag(
+            recipe, compute_key, shape_key, inputs, outputs, [], outputs)
+    output_tensors = reduce(
+        lambda x, y: x + y, [nodes[x] for x in output_names], [])
+    output = output_tensors[0]
+    replace_map = {main_op: output.op}
+    return substitute_inputs(target_dag, replace_map)
 
 
 class ScheduleGenerator(object):

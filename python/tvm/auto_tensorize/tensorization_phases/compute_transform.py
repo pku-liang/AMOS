@@ -46,7 +46,7 @@ class TransformRequest(Object):
     """
 
     def __init__(self, name, axis_map, reverse_axis_map,
-                 space_loops, time_loops, padding={}):
+                 space_loops, time_loops, padding=False):
         self.__init_handle_by_constructor__(
             _ffi_api.TransformRequest,
             name,
@@ -280,9 +280,6 @@ class TransformGenerator(object):
             if axis not in visited:
                 time_loops.append(axis)
 
-        print("unfold axis map:", fwd_axis_map)
-        print("unfold reverse axis map:", rvs_axis_map)
-
         request = TransformRequest(
             name,
             fwd_axis_map,
@@ -310,15 +307,14 @@ class TransformGenerator(object):
         tmp = []
         for axis in intrin_axis:
             tmp.append(state.axis_map[axis][-1])
-        print("check tmp:", tmp)
         choices = list(tmp)
-        print("check choices:", choices)
 
         name = ".fold"
         fwd_axis_map = {}
         rvs_axis_map = {}
         space_loops = []
         time_loops = []
+        need_padding = False
 
         for axis, choice in zip(intrin_axis, choices):
             factor = int(axis.dom.extent)
@@ -331,6 +327,8 @@ class TransformGenerator(object):
             rvs_axis_map[choice] = var * factor + axis
             space_loops.append(choice)
             time_loops.append(var)
+            if extent < factor:
+                need_padding = True
 
         visited = set()
         for axis in space_loops:
@@ -340,15 +338,13 @@ class TransformGenerator(object):
             if axis not in visited:
                 time_loops.append(axis)
 
-        print("fold axis map:", fwd_axis_map)
-        print("fold reverse axis map:", rvs_axis_map)
-
         request = TransformRequest(
             name,
             fwd_axis_map,
             rvs_axis_map,
             space_loops,
-            time_loops)
+            time_loops,
+            padding=need_padding)
         fold_state = transform_main_op(state, request)
         return fold_state
 

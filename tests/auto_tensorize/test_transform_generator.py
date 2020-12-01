@@ -2,7 +2,6 @@ import tvm
 import numpy as np
 from tvm import testing
 from tvm import auto_tensorize as at
-from functools import reduce
 
 
 def conv2d(N, C, H, W, K, R, S, stride, padding):
@@ -40,23 +39,6 @@ def get_tvm_arrays(tensors, ctx):
         tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
-
-
-def reconstruct_dag_as_intrin(
-        target_dag, main_op, recipe, compute_key, shape_key):
-    inputs = list(main_op.input_tensors)
-    outputs = [main_op.output(0)]
-    input_names, output_names, nodes, read_graph, feed_graph = \
-        at.construct_dag(
-            recipe, compute_key, shape_key, inputs, outputs, [], outputs)
-    output_tensors = reduce(
-        lambda x, y: x + y, [nodes[x] for x in output_names], [])
-    output = output_tensors[0]
-    print("check output: ")
-    print(output.op.body)
-    print(output.op.input_tensors[0].op.body)
-    replace_map = {main_op: output.op}
-    return at.substitute_inputs(target_dag, replace_map)
 
 
 def test1():
@@ -117,15 +99,22 @@ def test1():
         new_target_dag = new_state.target_dag
         new_inputs = new_target_dag.get_inputs()
         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
-        # print(tvm.lower(
-        #     sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
+
         func = tvm.build(sch, new_inputs +
                          list(new_target_dag.tensors), "llvm")
         outputs_arrays = get_tvm_arrays(list(new_target_dag.tensors), ctx)
         func(*inputs_arrays, *outputs_arrays)
         for a, b in zip(outputs_arrays_ref, outputs_arrays):
-            testing.assert_allclose(
-                a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+            try:
+                testing.assert_allclose(
+                    a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+            except Exception as e:
+                print(
+                    tvm.lower(
+                        sch,
+                        new_inputs + list(new_target_dag.tensors),
+                        simple_mode=True))
+                print(e)
 
         gen.feedback(record, np.random.random())
     print("Pass!\n")
@@ -192,11 +181,18 @@ def test2():
             new_target_main_op = v
         assert new_target_main_op is not None
 
-        new_target_dag = reconstruct_dag_as_intrin(
+        new_target_dag = at.reconstruct_dag_as_intrin(
             new_target_dag, new_target_main_op, recipe, compute_key, shape_key)
         print("new dag len:", len(new_target_dag.op_lst))
 
-        print("new dag main op:", new_target_dag.op_lst[6].body)
+        print("new dag load A op:",
+              new_target_dag.op_lst[2].axis, new_target_dag.op_lst[2].body)
+        print("new dag load B op:",
+              new_target_dag.op_lst[5].axis, new_target_dag.op_lst[5].body)
+        print("new dag main op:",
+              new_target_dag.op_lst[6].axis, new_target_dag.op_lst[6].body)
+        print("new dag store op:",
+              new_target_dag.op_lst[7].axis, new_target_dag.op_lst[7].body)
 
         new_inputs = new_target_dag.get_inputs()
         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
@@ -215,5 +211,5 @@ def test2():
 
 
 if __name__ == "__main__":
-    # test1()
+    test1()
     test2()

@@ -321,12 +321,10 @@ class CompilationRecipe(object):
         for k, v in self.capsules.items():
             if k == self.main_capsule_name:
                 if not issubclass(v, ComputeCapsule):
-                    print("1", v, v.__class__)
                     return False
             else:
                 if not issubclass(
                         v, (MemoryCapsule, ElementwiseComputeCapsule)):
-                    print("2", v, v.__class__)
                     return False
 
         # anchor = self.anchor_point
@@ -596,7 +594,6 @@ def construct_dag(
             construct_inputs(inp_capsule_name)
             new_inputs.extend(constructed_nodes[inp_capsule_name])
         if curr == recipe.main_capsule_name:
-            print("check main:", entry_tensors[0].op.body)
             constructed_nodes[curr] = compute_like(
                 input_tensors,
                 entry_tensors,

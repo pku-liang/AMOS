@@ -6,4 +6,4 @@ from .tensorization_phases import (IntrinMatchResult, SplitFactorGenerator,
                                    VectorizeLengthGenerator, infer_range,
                                    transform_main_op, TransformState,
                                    TransformRequest, TransformGenerator,
-                                   substitute_inputs)
+                                   substitute_inputs, reconstruct_dag_as_intrin)

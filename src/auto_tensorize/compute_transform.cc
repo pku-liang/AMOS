@@ -23,6 +23,7 @@
  */
 
 #include <tvm/auto_tensorize/compute_transform.h>
+#include <tvm/tir/builtin.h>
 
 namespace tvm {
 namespace auto_tensorize {
@@ -54,14 +55,14 @@ TransformRequest::TransformRequest(
       Map<te::IterVar, PrimExpr> reverse_axis_map,
       Array<te::IterVar> space_loops,
       Array<te::IterVar> time_loops,
-      Map<te::Operation, Map<te::IterVar, IntImm>> padding) {
+      bool need_padding) {
     auto node = make_object<TransformRequestNode>();
     node->name = name;
     node->axis_map = axis_map;
     node->reverse_axis_map = reverse_axis_map;
     node->space_loops = space_loops;
     node->time_loops = time_loops;
-    node->padding = padding;
+    node->need_padding = need_padding;
     data_ = node;
 }
 
@@ -209,8 +210,10 @@ te::Operation MainOpTransformer::transform_input(
     original_range_map.Set(iv->var, iv->dom);
   }
   Map<Var, PrimExpr> intrin_target_map;
+  Map<Var, Range> intrin_axis_dom;
   for (auto kv : request->axis_map) {
     intrin_target_map.Set(kv.first->var, kv.second);
+    intrin_axis_dom.Set(kv.first->var, kv.first->dom);
   }
   // remap intrin indices
   for (auto arg : intrin_args[0]) {
@@ -226,8 +229,13 @@ te::Operation MainOpTransformer::transform_input(
     Map<Var, Range> new_range = InferRange(var_to_infer, original_vars, original_range_map);
     //// new space loops
     //// the newly added transform compute does not contain reduce
+    Range new_var_range = new_range.at(new_var);
+    if (request->need_padding) {
+      CHECK(intrin_axis_dom.count(GetRef<Var>(as_var)));
+      new_var_range = intrin_axis_dom.at(GetRef<Var>(as_var));
+    }
     space_loops.push_back(
-      IterVar(new_range.at(new_var), new_var, IterVarType::kDataPar)
+      IterVar(new_var_range, new_var, IterVarType::kDataPar)
     );
     remap_to_new_vars.Set(GetRef<Var>(as_var), new_var);
   }
@@ -258,7 +266,19 @@ te::Operation MainOpTransformer::transform_input(
       remap_to_new_time_vars.Set(iv->var, new_var);
     }
   }
-  PrimExpr load_data = Substitute(target_inp(new_target_indices), remap_to_new_time_vars);
+  PrimExpr load_data = target_inp(new_target_indices);
+  // consider padding
+  Array<PrimExpr> args;
+  PrimExpr cond = tir::const_true();
+  size_t num_index = new_target_indices.size();
+  for (size_t i = 0; i < num_index; ++i) {
+    cond = And(cond, new_target_indices[i] < target_inp->shape[i]);
+  }
+  args.push_back(cond);
+  args.push_back(load_data);
+  args.push_back(tir::make_const(load_data.dtype(), 0.0));
+  load_data = Call(load_data.dtype(), builtin::if_then_else(), args);
+  load_data = Substitute(load_data, remap_to_new_time_vars);
   // update transform state
   //// no update
   // construct new compute op
@@ -313,7 +333,11 @@ te::Operation MainOpTransformer::transform_main_op(
     var_to_infer.Set(new_var, new_arg);
     Map<Var, Range> new_range = InferRange(var_to_infer, original_vars, original_range_map);
     //// new space loops
-    te::IterVar new_iter(new_range.at(new_var), new_var, IterVarType::kDataPar);
+    Range iter_range = new_range.at(new_var);
+    if (request->need_padding) {
+      iter_range = arg->dom;
+    }
+    te::IterVar new_iter(iter_range, new_var, IterVarType::kDataPar);
     space_loops.push_back(
       new_iter
     );
@@ -435,6 +459,15 @@ te::Operation MainOpTransformer::transform_output(
   }   
   // rebuild compute body
   PrimExpr store_data = target_main_output(indices);
+  if (request->need_padding) {
+    //// hack tvm bound inference for padding
+    Array<PrimExpr> extent_indices;
+    for (auto s : target_main_output->shape) {
+      extent_indices.push_back(s - 1);
+    }
+    //// this should be zero
+    store_data = store_data + target_main_output(extent_indices);
+  }
   Map<Var, PrimExpr> intrin_target_map;
   for (auto kv : request->axis_map) {
     intrin_target_map.Set(kv.first->var, kv.second);
@@ -616,7 +649,7 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
         Map<te::IterVar, PrimExpr> reverse_axis_map,
         Array<te::IterVar> space_loops,
         Array<te::IterVar> time_loops,
-        Map<te::Operation, Map<te::IterVar, IntImm>> padding
+        bool need_padding
     ) {
   return TransformRequest(
       name,
@@ -624,7 +657,7 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
       reverse_axis_map,
       space_loops,
       time_loops,
-      padding
+      need_padding
   );
 });
 
