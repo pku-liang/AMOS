@@ -23,18 +23,19 @@ using namespace tvm::te;
 namespace auto_tensorize {
 
 typedef Map<IterVar, IterVar> IterVarMap;
-typedef Map<Tensor, Tensor> BufferMap;
+typedef Map<DataProducer, DataProducer> BufferMap;
 typedef Map<Operation, Array<IterVarMap>> MatchResult;
 
 class RecipeDAGMatcher : public Object {
   public:
-    RecipeDAGMatcher(): expr_matcher(buffer_map) {};
+    RecipeDAGMatcher();
     MatchResult match(Tensor target, Tensor intrin, Operation main_capsule);
-    bool _match(Tensor target, Tensor intrin, Operation main_capsule);
   private:
-    CapsuleExprMatcher expr_matcher;
     MatchResult results;
     BufferMap buffer_map;
+    bool _match(Tensor target, Tensor intrin, Operation main_capsule);
+    Array<IterVar> _extract_axes_from_op(const ComputeOpNode* op);
+    bool _check_elemwise(const ComputeOpNode* op, Array<Array<PrimExpr>>& indices);
 };
 
 class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimExpr &)> {
@@ -43,12 +44,14 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
   CapsuleExprMatcher(BufferMap& bm): buffer_map(bm) {};
   Array<IterVarMap> match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, 
                           Array<IterVar> &intrin_axes);
+  void extract_indices(PrimExpr target, PrimExpr intrin, Array<Array<PrimExpr>>& target_indices,
+                       Array<Array<PrimExpr>>& intrin_indices);
 
  private:
   BufferMap& buffer_map;
   IndexExprMatcher index_matcher;
-  Array<PrimExpr> target_indices;
-  Array<PrimExpr> intrin_indices;
+  Array<Array<PrimExpr>> target_indices;
+  Array<Array<PrimExpr>> intrin_indices;
   // void ExtractIndexExpr(PrimExpr target, PrimExpr intrin, Array<PrimExpr>& target_indices,
   //                       Array<PrimExpr>& intrin_indices);
 
@@ -84,14 +87,22 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
           && VisitExpr(op->body, another->body);
   }
 
-  // Tensor *buffer = op->producer.as<TensorNode>();
-  // TODO: check and update buffer_map
-  // TODO: update target_indices and intrin_indices
   bool VisitExpr_(const ProducerLoadNode* op, const PrimExpr& expr) override {
     MATCH(ProducerLoadNode)
-    if (op->producer != another->producer) { 
-      return false; 
+    // if (op->producer != another->producer) { 
+    //   return false; 
+    // }
+
+    // check and update buffer map
+    CHECK(op->producer.as<TensorNode>() != nullptr);
+    CHECK(another->producer.as<TensorNode>() != nullptr);
+
+    if (!buffer_map.count(op->producer)) {
+      buffer_map.Set(op->producer, another->producer);
+    } else if (buffer_map[op->producer] != another->producer) {
+      return false;
     }
+
     if (op->indices.size() != another->indices.size()) {
       return false;
     }
@@ -100,6 +111,11 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
         return false;
       }
     }
+
+    // save indices
+    target_indices.push_back(op->indices);
+    intrin_indices.push_back(another->indices);
+
     return true;
   }
 
@@ -313,40 +329,48 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
 class IndexExprMatcher : public ExprVisitor {
   public:
     IndexExprMatcher();
-    Array<IterVarMap> match(Array<PrimExpr> target_indices, Array<PrimExpr> intrin_indices, 
+    Array<IterVarMap> match(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices, 
                             Array<IterVar>& target_axes, Array<IterVar>& intrin_axes);
+  private:
+    bool _match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx);
+    bool _match_indices(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices);
+    Array<Array<PrimExpr>> _rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map);
 };
-
 
 // TODO: rename me 
 class SubIndexExprExtractor final : public ExprMutator {
  public:
   using ExprMutator::VisitExpr;
-  SubIndexExprExtractor(std::unordered_set<const VarNode*> reserved_vars) : reserved_vars_(reserved_vars) {}
+  SubIndexExprExtractor(IterVarMap &itervar_map) : itervar_map(itervar_map) {}
  protected:
   using ExprMutator::VisitExpr_;
-  PrimExpr VisitExpr_(const VarNode* op, const PrimExpr& e) {
-    if (reserved_vars_.find(op) != reserved_vars_.end()) {
-      return e;
-    } else {
-      return make_zero(e.type());
+  PrimExpr VisitExpr_(const VarNode* op) {
+    for (auto item : itervar_map) {
+      if (op != item.first.get()->var.get()) continue;
+      return item.second;
     }
+    return make_zero(op->dtype);
+    // if (itervar_map.find(op) != itervar_map.end()) {
+    //   return e;
+    // } else {
+    //   return make_zero(e.type());
+    // }
   }
  private:
-  std::unordered_set<const VarNode*> reserved_vars_;
+  IterVarMap &itervar_map;
 };
 
 
-PrimExpr SubIndexExpr(
-      PrimExpr expr,
-      Array<Var> reserved_vars) {
-  std::unordered_set<const VarNode*> reserved;
-  for (auto v : reserved_vars) {
-    reserved.insert(v.get());
-  }
-  SubIndexExprExtractor siee(reserved);
-  return arith::Analyzer().Simplify(siee.VisitExpr(expr));
-}
+// PrimExpr SubIndexExpr(
+//       PrimExpr expr,
+//       Array<Var> reserved_vars) {
+//   std::unordered_set<const VarNode*> reserved;
+//   for (auto v : reserved_vars) {
+//     reserved.insert(v.get());
+//   }
+//   SubIndexExprExtractor siee(reserved);
+//   return arith::Analyzer().Simplify(siee.VisitExpr(expr));
+// }
 
 }  // namespace auto_tensorize
 }  // namespace tvm
