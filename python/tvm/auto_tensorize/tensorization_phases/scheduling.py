@@ -5,6 +5,7 @@ from .target import *
 from .compute_transform import TransformGenerator, substitute_inputs
 from ..search import QLearningParamGenerator
 from ..capsule_base import construct_dag
+from ..recipe import OperationRole, RecipeStage
 from functools import reduce
 
 
@@ -100,17 +101,93 @@ def reconstruct_dag_as_intrin(
     input_names, output_names, nodes, read_graph, feed_graph = \
         construct_dag(
             recipe, compute_key, shape_key, inputs, outputs, [], outputs)
+    print("input names:")
+    print(input_names)
+    print("output names:")
+    print(output_names)
+    print("nodes:")
+    print(nodes)
+    print("read graph:")
+    print(read_graph)
+    print("feed graph:")
+    print(feed_graph)
     output_tensors = reduce(
         lambda x, y: x + y, [nodes[x] for x in output_names], [])
     output = output_tensors[0]
     replace_map = {main_op: output.op}
-    return substitute_inputs(target_dag, replace_map)
+    result_dag = substitute_inputs(target_dag, replace_map)
+    return (result_dag,
+            (input_names, output_names, nodes, read_graph, feed_graph))
 
 
 class ScheduleGenerator(object):
     def __init__(self, intrin_match_result, transform_state):
-        self.target_dag = transform_state.target_dag
-        
+        recipe = intrin_match_result.recipe
+        compute_key = intrin_match_result.compute_key
+        shape_key = intrin_match_result.shape_key
+
+        target_main_op = None
+        for k, v in transform_state.main_op_map.items():
+            target_main_op = v
+        assert target_main_op is not None
+        self.target_dag, info = reconstruct_dag_as_intrin(
+            transform_state.target_dag,
+            target_main_op,
+            recipe,
+            compute_key,
+            shape_key)
+        (_, _, nodes, _, _) = info
+
+        def cond(cur):
+            if cur in recipe.capsules:
+                return True
+            return False
+        capsule_names, read_graph, feed_graph = recipe.serialize_dag(
+            cond1=cond)
+
+        operation_role = {}
+        capsule_map = {}
+        reserve_inner_axis_count = {}
+        main_op_reserve_reduce_axis = []
+        main_op_reserve_reduce_axis_factor = []
+        # These two are not useful for CPUs
+        load_from_shared = {}
+        store_to_shared = {}
+        for name in capsule_names:
+            op = nodes[name].op
+            capsule_map[op] = name
+            spatial_axis, reduce_axis = \
+                recipe.get_capsule_compute_reserve_axis(
+                    compute_key, shape_key, name)
+            reserve_inner_axis_count[op] = len(spatial_axis)
+            if name not in read_graph:
+                operation_role[op] = OperationRole.load_op
+                load_from_shared[op] = 1
+            elif name not in feed_graph:
+                operation_role[op] = OperationRole.output_op
+                store_to_shared[op] = 0
+            elif name == recipe.main_capsule_name:
+                operation_role[op] = OperationRole.main_op
+                for i, red in enumerate(reduce_axis):
+                    main_op_reserve_reduce_axis.append(
+                        len(op.reduce_axis) - len(reduce_axis) + i)
+                    main_op_reserve_reduce_axis_factor.append(
+                        int(red.dom.extent))
+
+        self.recipe_stage = RecipeStage(
+            operation_role,
+            recipe.target,
+            recipe.get_name(),
+            compute_key,
+            shape_key,
+            capsule_map,
+            reserve_inner_axis_count,
+            main_op_reserve_reduce_axis,
+            main_op_reserve_reduce_axis_factor,
+            load_from_shared,
+            store_to_shared,
+            recipe.scope
+        )
 
 
 class ScheduleResult(object):

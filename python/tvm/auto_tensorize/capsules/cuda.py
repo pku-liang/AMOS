@@ -3,6 +3,7 @@ from ..capsule_base import (CompilationCapsule, register_capsule,
                             MemoryCapsule, ComputeCapsule, ElementwiseComputeCapsule,
                             ElementwiseMemoryCapsule,
                             CompilationRecipe, register_recipe)
+from ..recipe import InstructionScope
 
 
 @register_capsule("cuda", "nvcuda::wmma::store_matrix_sync")
@@ -1178,6 +1179,8 @@ class WMMABmmaSync(ComputeCapsule):
 
 
 class WMMABaseRecipe(CompilationRecipe):
+    scope = InstructionScope.warp
+
     def get_name(self):
         raise NotImplementedError
 
@@ -1251,7 +1254,7 @@ class WMMABaseRecipe(CompilationRecipe):
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
-    
+
     def get_dag_compute_expression_with_inputs(
             self, compute_key, shape_key, capsule_keys, read_graph):
         """
@@ -1286,7 +1289,7 @@ class WMMABaseRecipe(CompilationRecipe):
                     helper(parent)
                     assert parent in cache
                     inputs.extend(cache[parent])
-                
+
                 if capsule_key == "mma":
                         _, ret = capsule.get_compute_expression_with_inputs(
                         inputs,
@@ -1321,14 +1324,14 @@ class WMMABaseRecipe(CompilationRecipe):
                 tmp, ret = self.get_capsule_compute_expression(
                     compute_key, shape_key, capsule_key)
                 dag_inputs.extend(tmp)
-            
+
             cache[capsule_key] = ret
-        
+
         for capsule_key in capsule_keys:
             helper(capsule_key)
             assert capsule_key in cache
             dag_outputs.extend(cache[capsule_key])
-        
+
         return dag_inputs, dag_outputs, cache
 
     def get_capsule_compute_expression_with_shape(

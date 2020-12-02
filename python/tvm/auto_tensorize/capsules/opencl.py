@@ -2,6 +2,7 @@ import tvm
 from ..capsule_base import (CompilationCapsule, register_capsule,
                             MemoryCapsule, ComputeCapsule,
                             CompilationRecipe, register_recipe)
+from ..recipe import InstructionScope
 
 
 @register_capsule("opencl", "arm_dot_vlen_local")
@@ -199,6 +200,8 @@ class arm_dot_reset_local(CompilationCapsule):
 
 @register_recipe("opencl", "arm_dot_vlen_local")
 class arm_dot_vlen_local_char4(CompilationRecipe):
+    scope = InstructionScope.thread
+
     def __init__(self):
         self.capsules = {
             "arm_dot": arm_dot_vlen_local
@@ -208,7 +211,7 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
         self.edges = {}
         self.input_dtypes = {}
         self.output_dtypes = {}
-    
+
     def get_memory_scope_realize(
             self, dtype, scope, constant_size, attributes):
         """
@@ -223,7 +226,7 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
         ---
         """
         return ["", constant_size]
-    
+
     def get_capsule_compute_expression_with_shape(self, reduction_len):
         """
         ---

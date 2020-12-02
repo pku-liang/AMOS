@@ -82,8 +82,9 @@ def test1():
     )
 
     gen = at.TransformGenerator(match_result)
-    for i in range(20):
-        record = gen.get()
+    policy = "random"
+    for i in range(100):
+        record = gen.get(policy=policy)
         print(record.to_json())
         new_state = gen.apply(record)
 
@@ -181,7 +182,7 @@ def test2():
             new_target_main_op = v
         assert new_target_main_op is not None
 
-        new_target_dag = at.reconstruct_dag_as_intrin(
+        new_target_dag, _ = at.reconstruct_dag_as_intrin(
             new_target_dag, new_target_main_op, recipe, compute_key, shape_key)
         print("new dag len:", len(new_target_dag.op_lst))
 
@@ -211,5 +212,5 @@ def test2():
 
 
 if __name__ == "__main__":
-    test1()
+    # test1()
     test2()

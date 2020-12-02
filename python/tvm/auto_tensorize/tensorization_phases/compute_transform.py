@@ -8,6 +8,7 @@ from .intrin_match import IntrinMatchResult
 from .. import _ffi_api
 from ..search import QLearningParamGenerator, Entry
 from .utils import bi_product
+from functools import reduce
 
 
 @tvm._ffi.register_object("auto_tensorize.TransformState")
@@ -113,8 +114,8 @@ class UnfoldChoiceGenerator(QLearningParamGenerator):
     def __init__(self, num_choices):
         self.choices = bi_product(num_choices)
         self.directions = []
-        d = [0 for _ in range(num_choices)]
-        self.directions.append(d)
+        # d = [0 for _ in range(num_choices)]
+        # self.directions.append(d)
         for i in range(num_choices):
             d = [0 for _ in range(num_choices)]
             d[i] = 1
@@ -134,7 +135,7 @@ class UnfoldChoiceGenerator(QLearningParamGenerator):
         return ret
 
     def valid(self, init):
-        return True
+        return reduce(lambda x, y: x + y, init, 0) > 0
 
 
 class TransformGenerator(object):
@@ -195,8 +196,8 @@ class TransformGenerator(object):
     def record_from_json(self, obj):
         return self.record_cls(obj["unfold"])
 
-    def get(self):
-        if not self.entries:
+    def get(self, policy="random"):
+        if policy == "random" or not self.entries:
             record = self.record_cls(
                 self.unfold_gen.get(policy="random"))
         else:

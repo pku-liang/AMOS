@@ -27,7 +27,6 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
     def get_c(val):
         return val // (R * S)
 
-
     def get_h(val):
         n = get_n(val)
         hw = val - n * (pH * pW)
@@ -80,7 +79,7 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
             tvm.te.sum(
                 (A1[i, rk1, ii, rk2] * B1[j, rk1, jj, rk2]).astype(out_dtype),
             axis=[rk1, rk2]))
-    
+
     recipe = at.WMMAFp16Fp16()
     input_names, output_names, nodes, read_graph, feed_graph = \
         at.construct_dag(
@@ -166,6 +165,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
         store_to_shared,
         at.InstructionScope.warp
     )
+
     def task_func():
         return [A, B, C2]
 
@@ -228,9 +228,12 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     print(func.imported_modules[0].get_source())
 
     # check correctness
-    data_np = np.random.uniform(size=[int(x) for x in args[0].shape]).astype(np.float16)
-    weight_np = np.random.uniform(size=[int(x) for x in args[1].shape]).astype(np.float16)
-    output_np = np.random.uniform(size=[int(x) for x in args[2].shape]).astype(np.float32)
+    data_np = np.random.uniform(size=[int(x)
+                                      for x in args[0].shape]).astype(np.float16)
+    weight_np = np.random.uniform(
+        size=[int(x) for x in args[1].shape]).astype(np.float16)
+    output_np = np.random.uniform(
+        size=[int(x) for x in args[2].shape]).astype(np.float32)
 
     ctx = tvm.gpu()
     data_tvm = tvm.nd.array(data_np, ctx=ctx)

@@ -301,6 +301,7 @@ def register_capsule(target, mnemonic, override=False):
 
 class CompilationRecipe(object):
     target = None
+    scope = None
 
     def __init__(self):
         self.capsules = {}
@@ -391,7 +392,7 @@ class CompilationRecipe(object):
                             if p not in sub_feed_graph:
                                 sub_feed_graph[p] = []
                             sub_feed_graph[p].append(cur)
-                            
+
         return list(reversed(result)), sub_read_graph, sub_feed_graph
 
     def get_effective_compute_dag(self, compute_key, shape_key):
@@ -411,7 +412,6 @@ class CompilationRecipe(object):
         ins, outs, cache = self.get_dag_compute_expression_with_inputs(
             compute_key, shape_key, outputs, read_graph)
         return compute_dag_from_tensors(outs)
-            
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str
@@ -443,6 +443,18 @@ class CompilationRecipe(object):
             through [output.op.body for output in outputs]
         """
         raise NotImplementedError()
+
+    def get_capsule_compute_reserve_axis(
+            self, compute_key, shape_key, capsule_key):
+        """
+        ---
+        Returns:
+        reserve spatial axis num, reserve reduce axis num
+        """
+        ins, outs = self.get_capsule_compute_expression(
+            compute_key, shape_key, capsule_key
+        )
+        return outs[0].op.axis, outs[0].op.reduce_axis
 
     def get_capsule_compute_expression_with_shape(
             self, compute_key, shape_key, capsule_key):
