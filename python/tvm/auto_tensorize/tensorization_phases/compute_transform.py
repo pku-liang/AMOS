@@ -98,12 +98,12 @@ def substitute_inputs(org_dag, op_map):
 
     Parameters
     ----------
-    org_dag:
-    op_map:
+    org_dag: ComputeDAG
+    op_map: dict of {Operation: Operation}
 
     Returns
     -------
-
+    ComputeDAG
     """
     n = _ffi_api.SubstituteInputs(
         org_dag, op_map)
