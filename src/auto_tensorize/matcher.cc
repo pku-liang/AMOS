@@ -12,6 +12,7 @@ namespace auto_tensorize {
     Array<IterVar> axes;
     for (IterVar axis : op->axis) axes.push_back(axis);
     for (IterVar axis : op->reduce_axis) axes.push_back(axis);
+    std::cout << __LINE__ << "RecipeDAGMatcher::_extract_axes_from_op " << axes << std::endl;
     return std::move(axes);
   }
 
@@ -36,6 +37,7 @@ namespace auto_tensorize {
   }
 
   bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsule) {
+    std::cout << __LINE__ << "RecipeDAGMatcher::_match " << target << " " << intrin << " " << std::endl;
     const ComputeOpNode* target_op = target->op.as<ComputeOpNode>();
     const ComputeOpNode* intrin_op = intrin->op.as<ComputeOpNode>();
     
@@ -51,6 +53,7 @@ namespace auto_tensorize {
     const PrimExpr intrin_expr = intrin_op->body[intrin->value_index];
 
     if (intrin->op.same_as(main_capsule)) {
+      std::cout << __LINE__ << "Matching main capsule..." << std::endl;
       Array<IterVar> intrin_axes = _extract_axes_from_op(intrin_op);
       Array<IterVar> target_axes = _extract_axes_from_op(target_op);
       CapsuleExprMatcher expr_matcher(buffer_map);
@@ -61,12 +64,14 @@ namespace auto_tensorize {
       }
       results.Set(intrin->op, possible_index_mappings);
     } else {
+      std::cout << __LINE__ << "Checking elementwise..." << std::endl;
       CapsuleExprMatcher expr_matcher(buffer_map);
       Array<Array<PrimExpr>> target_indices, intrin_indices;
       expr_matcher.extract_indices(target_expr, intrin_expr, target_indices, intrin_indices);
 
       CHECK(_check_elemwise(intrin_op, intrin_indices));
       if (!_check_elemwise(target_op, target_indices)) {
+        std::cout << __LINE__ << "Checking elementwise failed!" << std::endl;
         return false;
       }
     }
@@ -74,6 +79,7 @@ namespace auto_tensorize {
     Array<Tensor> target_input_tensors = target_op->InputTensors();
     Array<Tensor> intrin_input_tensors = intrin_op->InputTensors();
     if (target_input_tensors.size() != intrin_input_tensors.size()) {
+      std::cout << __LINE__ << "#Target input tensors != Intrin input tensors" << std::endl;
       return false;
     }
 
@@ -101,6 +107,8 @@ namespace auto_tensorize {
 
   Array<IterVarMap> CapsuleExprMatcher::match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, 
                                               Array<IterVar> &intrin_axes) {
+    std::cout << __LINE__ << "CapsuleExprMatcher::match " << target << " " << intrin << " ";
+    std::cout << target_axes << " " << intrin_axes << std::endl;
     bool structure_match = VisitExpr(target, intrin);  // buffer and op
     if (!structure_match) {
       return Array<IterVarMap>();
@@ -147,6 +155,7 @@ namespace auto_tensorize {
   }
 
   bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx) {
+    std::cout << __LINE__ << "IndexExprMatcher::_match_index " << target_idx << " " << intrin_idx << std::endl;
     tg::CheckExprEqual check_equal;
     size_t n_dim_target = target_idx.size();
     size_t n_dim_intrin = intrin_idx.size();
@@ -179,6 +188,7 @@ namespace auto_tensorize {
   }
 
   bool IndexExprMatcher::_match_indices(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices) {
+    std::cout << __LINE__ << "IndexExprMatcher::_match_indices " << target_indices << " " << intrin_indices << std::endl;
     size_t n_indices_intrin = intrin_indices.size();
 
     for (size_t i = 0; i < n_indices_intrin; ++i) {
@@ -194,6 +204,7 @@ namespace auto_tensorize {
   }
 
   Array<Array<PrimExpr>> IndexExprMatcher::_rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map) {
+    std::cout << __LINE__ << "IndexExprMatcher::_rewrite_indices " << indices << " " << itervar_map << std::endl;
     IterVarRewriter itervar_rewriter(itervar_map);
     size_t n_indices = indices.size();
     auto simplify = [](const PrimExpr& x) { return arith::Analyzer().Simplify(x); };
@@ -207,11 +218,14 @@ namespace auto_tensorize {
       }
       indices.Set(i, idx);
     }
+    std::cout << __LINE__ << "IndexExprMatcher::_rewrite_indices " << indices << std::endl;
     return std::move(indices);
   }
 
   Array<IterVarMap> IndexExprMatcher::match(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices,
                                             Array<IterVar>& target_axes, Array<IterVar>& intrin_axes) {
+    std::cout << __LINE__ << "IndexExprMatcher::match " << target_indices << " " << intrin_indices << " ";
+    std::cout << target_axes << " " << intrin_axes << std::endl;
     CHECK(target_indices.size() == intrin_indices.size());
     Array<IterVarMap> possible_itervar_mappings;
     Array<IterVarMap> all_itervar_mappings = enumerate_mappings(target_axes, intrin_axes);
