@@ -110,6 +110,7 @@ void ArgBinder::BindBuffer(const Buffer& arg, const Buffer& value, const std::st
       PrimExpr offset = value->elem_offset;
       PrimExpr factor = make_const(offset.dtype(), arg->offset_factor);
       PrimExpr zero = make_zero(offset.dtype());
+      PrimExpr scond = analyzer_.Simplify(truncmod(offset, factor) == zero);
       BinderAddAssert(&analyzer_, truncmod(offset, factor) == zero, arg_name + ".elem_offset",
                       &asserts_);
     }

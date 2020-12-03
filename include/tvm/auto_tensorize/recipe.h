@@ -83,7 +83,7 @@ class RecipeStageNode : public Object {
     v->Visit("main_op_reserve_reduce_axis_factor", &main_op_reserve_reduce_axis_factor);
     v->Visit("load_from_shared", &load_from_shared);
     v->Visit("store_to_shared", &store_to_shared);
-    v->Visit("instruction scope", &instruction_scope);
+    v->Visit("instruction_scope", &instruction_scope);
   }
 
   static constexpr const char* _type_key = "auto_tensorize.RecipeStage";

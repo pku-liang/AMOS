@@ -27,7 +27,7 @@
 namespace tvm {
 namespace auto_tensorize {
 
-TVM_REGISTER_OBJECT_TYPE(RecipeStageNode);
+TVM_REGISTER_NODE_TYPE(RecipeStageNode);
 
 RecipeStage::RecipeStage(
     Map<te::Operation, String> operation_role_,

@@ -86,7 +86,8 @@ def test1():
     for i in range(100):
         record = gen.get(policy=policy)
         print(record.to_json())
-        new_state = gen.apply(record)
+        app = at.TransformApplier(match_result)
+        new_state = app.apply(record)
 
         # print("Compare new state and old state:")
         # print("new axis map:", new_state.axis_map)
@@ -164,7 +165,8 @@ def test2():
     for i in range(1):
         record = gen.get()
         print(record.to_json())
-        new_state = gen.apply(record)
+        app = at.TransformApplier(match_result)
+        new_state = app.apply(record)
 
         # print("Compare new state and old state:")
         # print("new axis map:", new_state.axis_map)

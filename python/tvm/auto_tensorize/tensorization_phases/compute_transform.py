@@ -138,16 +138,21 @@ class UnfoldChoiceGenerator(QLearningParamGenerator):
         return reduce(lambda x, y: x + y, init, 0) > 0
 
 
+class Record(object):
+    def __init__(self, unfold_choice):
+        # choice = (des, direction)
+        self.unfold_choice = unfold_choice
+
+    def to_json(self):
+        return {"unfold": self.unfold_choice}
+
+    def __str__(self):
+        return json.dumps(self.to_json())
+
+
 class TransformGenerator(object):
     def __init__(self, intrin_match_result, eps=1e-1):
         assert isinstance(intrin_match_result, IntrinMatchResult)
-        self.init_state = TransformState(
-            intrin_match_result.main_op_map,
-            intrin_match_result.elem_op_map,
-            intrin_match_result.axis_map,
-            intrin_match_result.target_dag,
-            intrin_match_result.intrin_dag
-        )
         match_point_num = -1
         for k, v in intrin_match_result.axis_map.items():
             match_len = len(v)
@@ -156,14 +161,6 @@ class TransformGenerator(object):
             assert match_point_num == match_len
         self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
         self.eps = eps
-
-        class Record(object):
-            def __init__(self, unfold_choice):
-                # choice = (des, direction)
-                self.unfold_choice = unfold_choice
-
-            def to_json(self):
-                return {"unfold": self.unfold_choice}
 
         self.record_cls = Record
         self.entries = []
@@ -215,6 +212,18 @@ class TransformGenerator(object):
         entry = Entry(record, value)
         heapq.heappush(self.entries, entry)
         self.unfold_gen.feedback(*entry.record.unfold_choice, value)
+
+
+class TransformApplier(object):
+    def __init__(self, intrin_match_result):
+        assert isinstance(intrin_match_result, IntrinMatchResult)
+        self.init_state = TransformState(
+            intrin_match_result.main_op_map,
+            intrin_match_result.elem_op_map,
+            intrin_match_result.axis_map,
+            intrin_match_result.target_dag,
+            intrin_match_result.intrin_dag
+        )
 
     def apply_unfold(self, record, state):
         # unfold
