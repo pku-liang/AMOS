@@ -306,6 +306,7 @@ class CUDAScheduleGenerator(object):
         self.init_param_generator()
 
         self.entries = []
+        self.visited = set()
         self.record_cls = Params
 
     def init_param_generator(self):
@@ -350,17 +351,33 @@ class CUDAScheduleGenerator(object):
     def greedy(self):
         return np.random.random() > self.eps
 
+    def valid(self, record):
+        warp_num = 1
+        for factors in record.spatial_factors:
+            warp_num *= factors[0][1]
+        if warp_num > 32:
+            return False
+        warp_num = record.last_factors[0][0][1]
+        if warp_num > 32:
+            return False
+        return True
+
     def sa_select_entry(self, max_num=20):
         assert len(self.entries) > 0
-        cand = []
-        ps = []
-        best_value = self.entries[0].value
-        for i in range(min(max_num, len(self.entries))):
-            ele = heapq.heappop(self.entries)
-            cand.append(ele)
-            ps.append(self.calculate_p(ele.value, best_value))
-        for c in cand:
-            heapq.heappush(self.entries, c)
+        # cand = []
+        # ps = []
+        # best_value = self.entries[0].value
+        # for i in range(min(max_num, len(self.entries))):
+        #     ele = heapq.heappop(self.entries)
+        #     cand.append(ele)
+        #     ps.append(self.calculate_p(ele.value, best_value))
+        # for c in cand:
+        #     heapq.heappush(self.entries, c)
+        topk = heapq.nlargest(min(max_num, len(self.entries)), self.entries)
+        cand = topk
+        best_value = cand[0].value
+        ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
+
         num_cand = len(cand)
         for i in range(max_num):
             choice = np.random.randint(0, num_cand)
@@ -378,32 +395,9 @@ class CUDAScheduleGenerator(object):
             obj["output_unroll_step"],
             obj["last_unroll_step"])
 
-    def get(self, policy="random"):
-        if policy == "random" or not self.entries:
-            record = self.record_cls(
-                self.vectorize.get(policy="random"),
-                [gen.get(policy="random") for gen in self.spatial_splits],
-                [gen.get(policy="random") for gen in self.reduce_splits],
-                [gen.get(policy="random") for gen in self.last_splits],
-                self.unroll_output.get(policy="random"),
-                self.unroll_last.get(policy="random"))
-        else:
-            if self.greedy():
-                entry = self.sa_select_entry()
-                record = self.record_cls(
-                    self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
-                    [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                        self.spatial_splits, entry.record.spatial_factors)],
-                    [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                        self.reduce_splits, entry.record.reduce_factors)],
-                    [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                        self.last_splits, entry.record.last_factors)],
-                    self.unroll_output.get(
-                        hint=entry.record.output_unroll_step[0], policy="q"),
-                    self.unroll_last.get(
-                        hint=entry.record.last_unroll_step[0], policy="q"),
-                    )
-            else:
+    def get(self, policy="random", repeat=False, max_trial=100):
+        for i in range(max_trial):
+            if policy == "random" or not self.entries:
                 record = self.record_cls(
                     self.vectorize.get(policy="random"),
                     [gen.get(policy="random") for gen in self.spatial_splits],
@@ -411,7 +405,39 @@ class CUDAScheduleGenerator(object):
                     [gen.get(policy="random") for gen in self.last_splits],
                     self.unroll_output.get(policy="random"),
                     self.unroll_last.get(policy="random"))
-        return record
+            elif policy == "q":
+                if self.greedy():
+                    entry = self.sa_select_entry()
+                    record = self.record_cls(
+                        self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
+                        [gen.get(hint=x[0], policy="q") for gen, x in zip(
+                            self.spatial_splits, entry.record.spatial_factors)],
+                        [gen.get(hint=x[0], policy="q") for gen, x in zip(
+                            self.reduce_splits, entry.record.reduce_factors)],
+                        [gen.get(hint=x[0], policy="q") for gen, x in zip(
+                            self.last_splits, entry.record.last_factors)],
+                        self.unroll_output.get(
+                            hint=entry.record.output_unroll_step[0], policy="q"),
+                        self.unroll_last.get(
+                            hint=entry.record.last_unroll_step[0], policy="q"),
+                        )
+                else:
+                    record = self.record_cls(
+                        self.vectorize.get(policy="random"),
+                        [gen.get(policy="random") for gen in self.spatial_splits],
+                        [gen.get(policy="random") for gen in self.reduce_splits],
+                        [gen.get(policy="random") for gen in self.last_splits],
+                        self.unroll_output.get(policy="random"),
+                        self.unroll_last.get(policy="random"))
+            elif policy == "greedy":
+                return self.entries[0]
+            else:
+                raise RuntimeError("Unknown policy: %s" % policy)
+            if repeat or str(record) not in self.visited:
+                if self.valid(record):
+                    self.visited.add(str(record))
+                    return record
+        return self.entries[0]
 
     def feedback(self, record, value):
         entry = Entry(record, value)

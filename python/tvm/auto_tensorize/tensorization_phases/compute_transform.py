@@ -164,6 +164,7 @@ class TransformGenerator(object):
 
         self.record_cls = Record
         self.entries = []
+        self.visited = set()
 
     def calculate_p(self, x, best):
         return np.exp((x - best) / 2 * (best + 1e-5))
@@ -173,15 +174,9 @@ class TransformGenerator(object):
 
     def sa_select_entry(self, max_num=20):
         assert len(self.entries) > 0
-        cand = []
-        ps = []
-        best_value = self.entries[0].value
-        for i in range(min(max_num, len(self.entries))):
-            ele = heapq.heappop(self.entries)
-            cand.append(ele)
-            ps.append(self.calculate_p(ele.value, best_value))
-        for c in cand:
-            heapq.heappush(self.entries, c)
+        cand = heapq.nlargest(min(max_num, len(self.entries)), self.entries)
+        best_value = cand[0].value
+        ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
         num_cand = len(cand)
         for i in range(max_num):
             choice = np.random.randint(0, num_cand)
@@ -193,20 +188,26 @@ class TransformGenerator(object):
     def record_from_json(self, obj):
         return self.record_cls(obj["unfold"])
 
-    def get(self, policy="random"):
-        if policy == "random" or not self.entries:
-            record = self.record_cls(
-                self.unfold_gen.get(policy="random"))
-        else:
-            if self.greedy():
-                entry = self.sa_select_entry()
-                record = self.record_cls(
-                    self.unfold_gen.get(
-                        hint=entry.record.unfold_choice[0], policy="q"))
-            else:
+    def get(self, policy="random", repeat=False, max_trial=100):
+        for i in range(max_trial):
+            if policy == "random" or not self.entries:
                 record = self.record_cls(
                     self.unfold_gen.get(policy="random"))
-        return record
+            elif policy == "q":
+                if self.greedy():
+                    entry = self.sa_select_entry()
+                    record = self.record_cls(
+                        self.unfold_gen.get(
+                            hint=entry.record.unfold_choice[0], policy="q"))
+                else:
+                    record = self.record_cls(
+                        self.unfold_gen.get(policy="random"))
+            elif policy == "greedy":
+                return self.entries[0]
+            if repeat or str(record) not in self.visited:
+                self.visited.add(str(record))
+                return record
+        return self.entries[0]
 
     def feedback(self, record, value):
         entry = Entry(record, value)

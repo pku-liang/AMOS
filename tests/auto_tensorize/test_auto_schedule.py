@@ -1,7 +1,20 @@
 import tvm
+import os
+import time
+import tempfile
+import shutil
 import numpy as np
 from tvm import testing
 from tvm import auto_tensorize as at
+from tvm.contrib import tar, ndk
+from tvm import auto_scheduler
+from tvm.ir import transform
+from tvm.driver import build_module
+from tvm.runtime import Object, module, ndarray
+import multiprocessing as multi
+from pebble import concurrent
+from concurrent.futures import TimeoutError
+from pebble import ProcessPool, ProcessExpired
 
 
 def conv2d(N, C, H, W, K, R, S, stride, padding):
@@ -180,10 +193,815 @@ def test1():
         for a, b in zip(outputs_arrays_ref, outputs_arrays):
             testing.assert_allclose(
                 a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+        
+        # get performance
+        evaluator = func.time_evaluator(func.entry_name, ctx, number=10)
+        costs = evaluator(*inputs_arrays, *outputs_arrays)
+        print("Time cost: %f ms." % (costs.mean * 1e3))
 
         gen.feedback(record, np.random.random())
     print("Pass!\n")
 
 
+GLOBAL_BUILD_INPUTS = None
+GLOBAL_RUN_INPUTS = None
+GLOBAL_RPC_RUN_INPUTS = None
+MAX_FLOAT = 1e10  # We use 1e10 instead of sys.float_info.max for better readability in log
+
+
+# this is similar to auto_scheduler
+def native_loacl_build_worker(index):
+    """
+    Build function of LocalBuilder to be ran in the Builder thread pool.
+
+    Parameters
+    ----------
+    index : int
+        The MeasureInput index to be processed by the current Builder thread.
+
+    Returns
+    -------
+    res : BuildResult
+        The build result of this Builder thread.
+    """
+    global GLOBAL_BUILD_INPUTS
+
+    # We use fork and a global variable to copy arguments between processes.
+    # This can avoid expensive serialization of TVM IR when using multiprocessing.Pool
+    if not GLOBAL_BUILD_INPUTS:
+        raise ValueError("GLOBAL_BUILD_INPUTS not found")
+    (
+        sch_app,
+        params_lst,
+        build_func,
+        target,
+        target_host,
+        timeout,
+        verbose
+    ) = GLOBAL_BUILD_INPUTS
+    assert isinstance(build_func, str)
+
+    if build_func == "default":
+        build_func = tar.tar
+    elif build_func == "ndk":
+        build_func = ndk.create_shared
+    else:
+        raise ValueError("Invalid build_func" + build_func)
+
+    def timed_func():
+        tic = time.time()
+        params = params_lst[index]
+        target_dag = sch_app.target_dag
+        inputs = target_dag.get_inputs()
+        sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+
+        error_no = auto_scheduler.measure.MeasureErrorNo.NO_ERROR
+        error_msg = None
+        args = inputs + list(target_dag.tensors)
+
+        try:
+            sch = sch_app.apply(sch, params)
+        # pylint: disable=broad-except
+        except Exception:
+            error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
+            error_msg = auto_scheduler.measure.make_error_msg()
+            print(error_msg)
+
+        if error_no == 0:
+            dirname = tempfile.mkdtemp()
+            filename = os.path.join(dirname, "tmp_func." + build_func.output_format)
+
+            try:
+                # TODO(merrymercy): Port the unroll pass.
+                with transform.PassContext():
+                    func = build_module.build(
+                        sch, args, target=target, target_host=target_host
+                    )
+                func.export_library(filename, build_func)
+            # pylint: disable=broad-except
+            except Exception:
+                error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
+                error_msg = auto_scheduler.measure.make_error_msg()
+        else:
+            filename = ""
+
+        if verbose >= 1:
+            if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
+                print(".Y", end="", flush=True)
+            else:
+                print(".E", end="", flush=True)  # Build error
+
+        return (filename, args, error_no, error_msg, time.time() - tic)
+
+    res = auto_scheduler.utils.call_func_with_timeout(timeout, timed_func)
+    if isinstance(res, TimeoutError):
+        if verbose >= 1:
+            print(".T", end="")  # Build timeout
+        res = None, [], auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT, None, timeout
+
+    return res
+
+
+def native_local_builder_build(sch_app, params_lst, target, target_host, timeout, n_parallel, build_func="default", verbose=1):
+    """
+    Build function of LocalBuilder to build the MeasureInputs to runnable modules.
+
+    Parameters
+    ----------
+    inputs : List[MeasureInput]
+        The MeasureInputs to be built.
+    timeout : int
+        The timeout limit (in second) for each build thread.
+        This is used in a wrapper of the multiprocessing.Process.join().
+    n_parallel : int
+        Number of threads used to build in parallel.
+    build_func : str = 'default'
+        The name of build function to process the built module.
+    verbose: int = 1
+        Verbosity level. 0 for silent, 1 to output information during program building.
+
+    Returns
+    -------
+    res : List[BuildResult]
+        The build results of these MeasureInputs.
+    """
+    # We use fork and a global variable to copy arguments between processes.
+    # This can avoid expensive serialization of TVM IR when using multiprocessing.Pool
+    global GLOBAL_BUILD_INPUTS
+
+    GLOBAL_BUILD_INPUTS = (sch_app, params_lst, build_func, target, target_host, timeout, verbose)
+
+    pool = auto_scheduler.measure.NoDaemonPool(n_parallel)
+    tuple_res = pool.map(native_loacl_build_worker, range(len(params_lst)))
+    pool.terminate()
+    pool.join()
+    del pool
+
+    results = []
+    for res in tuple_res:
+        results.append(auto_scheduler.measure.BuildResult(*res))
+    
+    if verbose >= 1:
+        print("", flush=True)
+
+    return results
+
+
+# this is similar to auto_scheduler
+def native_local_run_worker():
+    global GLOBAL_RUN_INPUTS
+    (
+        target,
+        dev_id,
+        build_results,
+        timeout,
+        number,
+        repeat,
+        min_repeat_ms,
+        cooldown_interval,
+        enable_cpu_cache_flush,
+        verbose,
+    ) = GLOBAL_RUN_INPUTS
+
+    def timed_func(build_res):
+        tic = time.time()
+        error_no = 0
+        error_msg = None
+        if build_res.error_no != auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
+            return (
+                (MAX_FLOAT,),
+                build_res.error_no,
+                build_res.error_msg,
+                build_res.time_cost,
+                time.time(),
+            )
+
+        try:
+            func = module.load_module(build_res.filename)
+            ctx = ndarray.context(str(target), dev_id)
+            # Limitation:
+            # We can not get PackFunction directly in the remote mode as it is wrapped
+            # under the std::function. We could lift the restriction later once we fold
+            # the PackedFunc as an object. Currently, we pass function name to work
+            # around it.
+            f_prepare = "cache_flush_cpu_non_first_arg" if enable_cpu_cache_flush else ""
+            time_f = func.time_evaluator(
+                func.entry_name,
+                ctx,
+                number=number,
+                repeat=repeat,
+                min_repeat_ms=min_repeat_ms,
+                # f_preproc=f_prepare,
+            )
+        # pylint: disable=broad-except
+        except Exception:
+            costs = (MAX_FLOAT,)
+            error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
+            error_msg = auto_scheduler.measure.make_error_msg()
+
+        if error_no == 0:
+            try:
+                args = [
+                    ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                ]
+                random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
+                assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
+                for arg in args:
+                    random_fill(arg)
+                ctx.sync()
+                costs = time_f(*args).results
+            # pylint: disable=broad-except
+            except Exception:
+                costs = (MAX_FLOAT,)
+                error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
+                error_msg = auto_scheduler.measure.make_error_msg()
+
+        shutil.rmtree(os.path.dirname(build_res.filename))
+        toc = time.time()
+        time.sleep(cooldown_interval)
+
+        if verbose >= 1:
+            if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
+                print("*Y", end="", flush=True)
+            else:
+                print("*E", end="", flush=True)  # Run error
+        return (costs, error_no, error_msg, toc - tic + build_res.time_cost, toc)
+
+    measure_results = []
+    for build_res in build_results:
+        if build_res.error_no != 0:
+            res = (
+                (MAX_FLOAT,),
+                build_res.error_no,
+                build_res.error_msg,
+                build_res.time_cost,
+                time.time(),
+            )
+        else:
+            res = auto_scheduler.utils.call_func_with_timeout(timeout, timed_func, args=(build_res,))
+            if isinstance(res, TimeoutError):
+                if verbose >= 1:
+                    print("*T", end="")  # Run timeout
+                res = (
+                    (MAX_FLOAT,),
+                    auto_scheduler.measure.MeasureErrorNo.RUN_TIMEOUT,
+                    None,
+                    build_res.time_cost + timeout,
+                    time.time(),
+                )
+        measure_results.append(auto_scheduler.measure.MeasureResult(*res))
+
+    if verbose >= 1:
+        print("", flush=True)
+
+    return measure_results
+
+
+def test2():
+    print("##########################")
+    print("Test 2")
+    recipe = at.WMMAFp16Fp32()
+    compute_key = "nnn"
+    shape_key = "8x32x16"
+    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
+    target_dag = at.compute_dag_from_tensors([E])
+
+    inputs_ref = target_dag.get_inputs()
+    sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    func_ref = tvm.build(sch_ref, inputs_ref +
+                         list(target_dag.tensors), "llvm")
+    ctx = tvm.cpu()
+    inputs_np_arrays = get_np_arrays(inputs_ref)
+    inputs_arrays = get_tvm_arrays_from_np_arrays(inputs_np_arrays, ctx)
+    outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
+    func_ref(*inputs_arrays, *outputs_arrays_ref)
+
+    main_op_map = {
+        intrin_dag.op_lst[0]: target_dag.op_lst[0]
+    }
+    elem_op_map = {
+    }
+    ii, jj = intrin_dag.op_lst[0].axis
+    kk, = intrin_dag.op_lst[0].reduce_axis
+    n, k, p, q = target_dag.op_lst[0].axis
+    rc, rr, rs = target_dag.op_lst[0].reduce_axis
+    axis_map = {
+        ii: [n, n, n, p, p, q, q],
+        jj: [k, k, k, k, k, k, k],
+        kk: [rc, rr, rs, rc, rs, rc, rr]
+    }
+    match_result = at.IntrinMatchResult(
+        recipe, compute_key, shape_key,
+        main_op_map, elem_op_map,
+        axis_map, target_dag, intrin_dag
+    )
+
+    gen = at.TransformGenerator(match_result)
+    beg = time.time()
+    for i in range(1):
+        record = gen.get(policy="random")
+        record.unfold_choice = ([1, 0, 0, 0, 0, 0, 1], record.unfold_choice[1])
+ 
+        print("transform decision:")
+        for k, v in record.to_json().items():
+            print(k, "=", v)
+
+        app = at.TransformApplier(match_result)
+        new_state = app.apply(record)
+
+        schedule_gen = at.CUDAScheduleGenerator(match_result, new_state)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
+        params_lst = []
+        trials = 10
+        print("trials=", trials)
+        for j in range(trials):
+            params = schedule_gen.get(policy="random")
+            my_params = {
+                'vectorize': (1, 1),
+                'spatial_factors': [([1, 1, 1], (0, 0)), ([4, 1, 1], (-1, 1)), ([14, 1, 1], (-1, -1))],
+                'reduce_factors': [([3, 3, 4], (1, 1)), ([1, 1, 3], (0, -1))],
+                'last_factors': [([-1, 32], (-1,))],
+                'output_unroll_step': (64, -1),
+                'last_unroll_step': (512, 1)}
+            params.from_json(my_params)
+            params_lst.append(params)
+
+        global GLOBAL_BUILD_INPUTS
+        global GLOBAL_RUN_INPUTS
+        build_func = "default"
+        target_host = "llvm"
+        timeout = 15
+        verbose = 1
+
+        GLOBAL_BUILD_INPUTS = (
+            schedule_app,
+            params_lst,
+            build_func,
+            recipe.target,
+            target_host,
+            verbose
+        )
+
+        build_results = native_local_builder_build(
+            schedule_app,
+            params_lst,
+            recipe.target,
+            target_host,
+            timeout,
+            1,
+            build_func=build_func,
+            verbose=verbose)
+
+        for r in build_results:
+            print(r)
+        
+        number = 1
+        repeat = 1
+        min_repeat_ms = 150
+        cooldown_interval = 1
+        enable_cpu_cache_flush = 1
+
+        GLOBAL_RUN_INPUTS = (
+            recipe.target,
+            0,
+            build_results,
+            timeout,
+            number,
+            repeat,
+            min_repeat_ms,
+            cooldown_interval,
+            enable_cpu_cache_flush,
+            verbose
+        )
+
+        run_results = native_local_run_worker()
+
+        for r in run_results:
+            print(r)
+
+        gen.feedback(record, np.random.random())
+    end = time.time()
+    print("Pass %f seconds." % (end - beg))
+    print("Pass!\n")
+
+
+def pebble_local_build_worker(index):
+    """
+    Build function of LocalBuilder to be ran in the Builder thread pool.
+
+    Parameters
+    ----------
+    index : int
+        The MeasureInput index to be processed by the current Builder thread.
+
+    Returns
+    -------
+    res : BuildResult
+        The build result of this Builder thread.
+    """
+    global GLOBAL_BUILD_INPUTS
+
+    # We use fork and a global variable to copy arguments between processes.
+    # This can avoid expensive serialization of TVM IR when using multiprocessing.Pool
+    if not GLOBAL_BUILD_INPUTS:
+        raise ValueError("GLOBAL_BUILD_INPUTS not found")
+    (
+        sch_app,
+        params_lst,
+        build_func,
+        target,
+        target_host,
+        timeout,
+        verbose
+    ) = GLOBAL_BUILD_INPUTS
+    assert isinstance(build_func, str)
+
+    if build_func == "default":
+        build_func = tar.tar
+    elif build_func == "ndk":
+        build_func = ndk.create_shared
+    else:
+        raise ValueError("Invalid build_func" + build_func)
+
+    def timed_func():
+        tic = time.time()
+        params = params_lst[index]
+        target_dag = sch_app.target_dag
+        inputs = target_dag.get_inputs()
+        sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+
+        error_no = auto_scheduler.measure.MeasureErrorNo.NO_ERROR
+        error_msg = None
+        args = inputs + list(target_dag.tensors)
+
+        try:
+            sch = sch_app.apply(sch, params)
+        # pylint: disable=broad-except
+        except Exception:
+            error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
+            error_msg = auto_scheduler.measure.make_error_msg()
+            print(error_msg)
+
+        if error_no == 0:
+            dirname = tempfile.mkdtemp()
+            filename = os.path.join(dirname, "tmp_func." + build_func.output_format)
+
+            try:
+                # TODO(merrymercy): Port the unroll pass.
+                with transform.PassContext():
+                    func = build_module.build(
+                        sch, args, target=target, target_host=target_host
+                    )
+                func.export_library(filename, build_func)
+            # pylint: disable=broad-except
+            except Exception:
+                error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
+                error_msg = auto_scheduler.measure.make_error_msg()
+        else:
+            filename = ""
+
+        if verbose >= 1:
+            if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
+                print(".Y", end="", flush=True)
+            else:
+                print(".E", end="", flush=True)  # Build error
+
+        return (filename, args, error_no, error_msg, time.time() - tic)
+
+    return timed_func()
+
+
+def pebble_local_builder_build(sch_app, params_lst, target, target_host, timeout, n_parallel, build_func="default", verbose=1):
+    """
+    Build function of LocalBuilder to build the MeasureInputs to runnable modules.
+
+    Parameters
+    ----------
+    inputs : List[MeasureInput]
+        The MeasureInputs to be built.
+    timeout : int
+        The timeout limit (in second) for each build thread.
+        This is used in a wrapper of the multiprocessing.Process.join().
+    n_parallel : int
+        Number of threads used to build in parallel.
+    build_func : str = 'default'
+        The name of build function to process the built module.
+    verbose: int = 1
+        Verbosity level. 0 for silent, 1 to output information during program building.
+
+    Returns
+    -------
+    res : List[BuildResult]
+        The build results of these MeasureInputs.
+    """
+    # We use fork and a global variable to copy arguments between processes.
+    # This can avoid expensive serialization of TVM IR when using multiprocessing.Pool
+    global GLOBAL_BUILD_INPUTS
+
+    GLOBAL_BUILD_INPUTS = (sch_app, params_lst, build_func, target, target_host, timeout, verbose)
+
+    with ProcessPool(n_parallel) as pool:
+        future = pool.map(pebble_local_build_worker, range(len(params_lst)), timeout=timeout)
+        iterator = future.result()
+
+        results = []
+        while True:
+            try:
+                result = next(iterator)
+            except StopIteration:
+                break
+            except TimeoutError as error:
+                if verbose >= 1:
+                    print(".T", end="", flush=True)
+                result = None, [], auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT, None, timeout
+            except Exception as error:
+                if verbose >= 1:
+                    print(".F", end="", flush=True)
+                result = None, [], auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST, None, timeout
+            results.append(auto_scheduler.measure.BuildResult(*result))
+    
+    if verbose >= 1:
+        print("", flush=True)
+
+    return results
+
+
+# this is similar to auto_scheduler
+def pebble_local_run_worker(index):
+    global GLOBAL_RUN_INPUTS
+    (
+        target,
+        dev_id,
+        build_results,
+        timeout,
+        number,
+        repeat,
+        min_repeat_ms,
+        cooldown_interval,
+        enable_cpu_cache_flush,
+        verbose,
+    ) = GLOBAL_RUN_INPUTS
+
+    def timed_func(build_res):
+        if build_res.error_no != 0:
+            res = (
+                (MAX_FLOAT,),
+                build_res.error_no,
+                build_res.error_msg,
+                build_res.time_cost,
+                time.time(),
+            )
+            return res
+        tic = time.time()
+        error_no = 0
+        error_msg = None
+        if build_res.error_no != auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
+            return (
+                (MAX_FLOAT,),
+                build_res.error_no,
+                build_res.error_msg,
+                build_res.time_cost,
+                time.time(),
+            )
+
+        try:
+            func = module.load_module(build_res.filename)
+            ctx = ndarray.context(str(target), dev_id)
+            # Limitation:
+            # We can not get PackFunction directly in the remote mode as it is wrapped
+            # under the std::function. We could lift the restriction later once we fold
+            # the PackedFunc as an object. Currently, we pass function name to work
+            # around it.
+            f_prepare = "cache_flush_cpu_non_first_arg" if enable_cpu_cache_flush else ""
+            time_f = func.time_evaluator(
+                func.entry_name,
+                ctx,
+                number=number,
+                repeat=repeat,
+                min_repeat_ms=min_repeat_ms,
+                # f_preproc=f_prepare,
+            )
+        # pylint: disable=broad-except
+        except Exception:
+            costs = (MAX_FLOAT,)
+            error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
+            error_msg = auto_scheduler.measure.make_error_msg()
+
+        if error_no == 0:
+            try:
+                args = [
+                    ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                ]
+                random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
+                assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
+                for arg in args:
+                    random_fill(arg)
+                ctx.sync()
+                costs = time_f(*args).results
+            # pylint: disable=broad-except
+            except Exception:
+                costs = (MAX_FLOAT,)
+                error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
+                error_msg = auto_scheduler.measure.make_error_msg()
+
+        shutil.rmtree(os.path.dirname(build_res.filename))
+        toc = time.time()
+        time.sleep(cooldown_interval)
+
+        if verbose >= 1:
+            if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
+                print("*Y", end="", flush=True)
+            else:
+                print("*E", end="", flush=True)  # Run error
+        return (costs, error_no, error_msg, toc - tic + build_res.time_cost, toc)
+
+    return timed_func(build_results[index])
+
+
+def pebble_local_runner_run(
+        target,
+        dev_id,
+        build_results,
+        timeout,
+        number,
+        repeat,
+        min_repeat_ms,
+        cooldown_interval,
+        enable_cpu_cache_flush,
+        verbose):
+    global GLOBAL_RUN_INPUTS
+    GLOBAL_RUN_INPUTS = (
+        target,
+        dev_id,
+        build_results,
+        timeout,
+        number,
+        repeat,
+        min_repeat_ms,
+        cooldown_interval,
+        enable_cpu_cache_flush,
+        verbose
+    )
+    measure_results = []
+    with ProcessPool(1) as pool:
+        future = pool.map(pebble_local_run_worker, range(len(build_results)), timeout=timeout)
+        iterator = future.result()
+
+        while True:
+            try:
+                result = next(iterator)
+            except StopIteration:
+                break
+            except TimeoutError:
+                if verbose >= 1:
+                    print("*T", end="", flush=True)  # Run timeout
+                result = (
+                    (MAX_FLOAT,),
+                    auto_scheduler.measure.MeasureErrorNo.RUN_TIMEOUT,
+                    None,
+                    timeout + timeout,
+                    time.time(),
+                )
+            except Exception as error:
+                if verbose >= 1:
+                    print("*F", end="", flush=True)  # Run fatal error
+                result = (
+                    (MAX_FLOAT,),
+                    auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE,
+                    None,
+                    timeout + timeout,
+                    time.time(),
+                )
+            measure_results.append(
+                auto_scheduler.measure.MeasureResult(*result))
+
+    if verbose >= 1:
+        print("", flush=True)
+
+    return measure_results
+
+
+def test3():
+    print("##########################")
+    print("Test 3")
+    recipe = at.WMMAFp16Fp32()
+    compute_key = "nnn"
+    shape_key = "8x32x16"
+    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
+    target_dag = at.compute_dag_from_tensors([E])
+
+    inputs_ref = target_dag.get_inputs()
+    sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    func_ref = tvm.build(sch_ref, inputs_ref +
+                         list(target_dag.tensors), "llvm")
+    ctx = tvm.cpu()
+    inputs_np_arrays = get_np_arrays(inputs_ref)
+    inputs_arrays = get_tvm_arrays_from_np_arrays(inputs_np_arrays, ctx)
+    outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
+    func_ref(*inputs_arrays, *outputs_arrays_ref)
+
+    main_op_map = {
+        intrin_dag.op_lst[0]: target_dag.op_lst[0]
+    }
+    elem_op_map = {
+    }
+    ii, jj = intrin_dag.op_lst[0].axis
+    kk, = intrin_dag.op_lst[0].reduce_axis
+    n, k, p, q = target_dag.op_lst[0].axis
+    rc, rr, rs = target_dag.op_lst[0].reduce_axis
+    axis_map = {
+        ii: [n, n, n, p, p, q, q],
+        jj: [k, k, k, k, k, k, k],
+        kk: [rc, rr, rs, rc, rs, rc, rr]
+    }
+    match_result = at.IntrinMatchResult(
+        recipe, compute_key, shape_key,
+        main_op_map, elem_op_map,
+        axis_map, target_dag, intrin_dag
+    )
+
+    gen = at.TransformGenerator(match_result)
+    beg = time.time()
+    for i in range(1):
+        record = gen.get(policy="random")
+        record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+ 
+        print("transform decision:")
+        for k, v in record.to_json().items():
+            print(k, "=", v)
+
+        app = at.TransformApplier(match_result)
+        new_state = app.apply(record)
+
+        schedule_gen = at.CUDAScheduleGenerator(match_result, new_state)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
+        params_lst = []
+        trials = 10
+        print("trials=", trials)
+        for j in range(trials):
+            params = schedule_gen.get(policy="random")
+            # my_params = {
+            #     'vectorize': (1, 1),
+            #     'spatial_factors': [([1, 1, 1], (0, 0)), ([4, 1, 1], (-1, 1)), ([14, 1, 1], (-1, -1))],
+            #     'reduce_factors': [([3, 3, 4], (1, 1)), ([1, 1, 3], (0, -1))],
+            #     'last_factors': [([-1, 32], (-1,))],
+            #     'output_unroll_step': (64, -1),
+            #     'last_unroll_step': (512, 1)}
+            # params.from_json(my_params)
+            params_lst.append(params)
+
+        build_func = "default"
+        target_host = "llvm"
+        timeout = 15
+        verbose = 1
+
+        build_results = pebble_local_builder_build(
+            schedule_app,
+            params_lst,
+            recipe.target,
+            target_host,
+            timeout,
+            1,
+            build_func=build_func,
+            verbose=verbose)
+
+        for r in build_results:
+            print(r)
+        
+        number = 1
+        repeat = 1
+        min_repeat_ms = 150
+        cooldown_interval = 1
+        enable_cpu_cache_flush = 1
+
+        run_results = pebble_local_runner_run(
+            recipe.target,
+            0,
+            build_results,
+            timeout,
+            number,
+            repeat,
+            min_repeat_ms,
+            cooldown_interval,
+            enable_cpu_cache_flush,
+            verbose
+        )
+
+        for r in run_results:
+            print(r)
+
+        gen.feedback(record, np.random.random())
+    end = time.time()
+    print("Pass %f seconds." % (end - beg))
+    print("Pass!\n")
+
+
 if __name__ == "__main__":
-    test1()
+    # we can only run one test each time
+    # test1()
+    # test2()
+    test3()
