@@ -62,8 +62,8 @@ def test1():
     print("##########################")
     print("Test 1")
     recipe = at.WMMAFp16Fp32()
-    compute_key = "ntn"
-    shape_key = "16x16x16"
+    compute_key = "nnn"
+    shape_key = "8x32x16"
     intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
@@ -152,6 +152,8 @@ def test1():
         new_target_dag = sc_info.target_dag
         new_inputs = new_target_dag.get_inputs()
         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
+        # print(tvm.lower(
+        #     sch, new_inputs + list(new_target_dag.tensors), simple_mode=True), flush=True)
         # print("new dag len:", len(new_target_dag.op_lst))
 
         # print("new dag load A op:",
@@ -170,13 +172,14 @@ def test1():
         func = tvm.build(sch, new_inputs +
                          list(new_target_dag.tensors), "cuda")
         # print(func.imported_modules[0].get_source())
+        # print(new_target_dag.tensors)
         ctx = tvm.gpu()
         inputs_arrays = get_tvm_arrays_from_np_arrays(inputs_np_arrays, ctx)
         outputs_arrays = get_tvm_arrays(list(new_target_dag.tensors), ctx)
         func(*inputs_arrays, *outputs_arrays)
-        # for a, b in zip(outputs_arrays_ref, outputs_arrays):
-        #     testing.assert_allclose(
-        #         a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+        for a, b in zip(outputs_arrays_ref, outputs_arrays):
+            testing.assert_allclose(
+                a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
 
         gen.feedback(record, np.random.random())
     print("Pass!\n")

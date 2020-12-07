@@ -497,8 +497,8 @@ class CUDAScheduleApplier(object):
             return self.state.main_op_reduce_axis[0][-1]
         else:
             # no reduce axis
-            print(self.state.main_op_reduce_axis)
-            print(self.main_op.body)
+            # print(self.state.main_op_reduce_axis)
+            # print(self.main_op.body)
             raise RuntimeError("No reduce axis in main op.")
 
     def get_main_op_second_outermost_last_reduce_axis(self):
@@ -725,10 +725,10 @@ class CUDAScheduleApplier(object):
             # the intermediate bind to vthread
             for med_fused in fused_axis[1:-1]:
                 sch[X(op)].bind(med_fused, tvm.te.thread_axis("vthread"))
-            from tvm.te import schedule
-            s = sch.normalize()
-            bounds = schedule.InferBound(s)
-            print(bounds[fused_axis[-1]])
+            # from tvm.te import schedule
+            # s = sch.normalize()
+            # bounds = schedule.InferBound(s)
+            # print(bounds[fused_axis[-1]])
             sch[X(op)].bind(fused_axis[-1], self.ty)
             # thread level intrinsic, still bind to thread x
             if self.recipe_stage.instruction_scope == InstructionScope.thread:

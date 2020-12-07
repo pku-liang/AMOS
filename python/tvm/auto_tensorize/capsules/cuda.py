@@ -56,6 +56,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size)
         elem_bytes = int(input_dtypes[0][-2:]) // 8
+        store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         data_alignments = [
             elem_bytes * int(x[1]) for x in input_shapes]
         offset_factor = 16 // elem_bytes
@@ -90,7 +91,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
                     problem_size[0],
                     problem_size[1],
                     problem_size[2],
-                    BA.elem_offset // 256,
+                    BA.elem_offset // store_elems,
                     BC.access_ptr("w"),
                     ldm,
                     layout
@@ -270,6 +271,9 @@ class WMMAAddBias(ElementwiseComputeCapsule):
         )
 
         elem_bytes = int(input_dtypes[0][-2:]) // 8
+        a_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
+        b_elems = int(input_shapes[1][0]) * int(input_shapes[1][1])
+        c_elems = int(output_shapes[0][0]) * int(output_shapes[0][1])
         data_alignments = [
             elem_bytes * int(x[1]) for x in input_shapes]
         offset_factor = 16 // elem_bytes
@@ -304,11 +308,11 @@ class WMMAAddBias(ElementwiseComputeCapsule):
                     self.belong_recipe_name,
                     "nvcuda::wmma::add_bias",
                     BC.data,
-                    BC.elem_offset // 256,
+                    BC.elem_offset // c_elems,
                     BA.data,
-                    BA.elem_offset // 256,
+                    BA.elem_offset // a_elems,
                     BB.data,
-                    BB.elem_offset // 256,
+                    BB.elem_offset // b_elems,
                     layout,
                 )
             )
@@ -422,10 +426,12 @@ class WMMALoadMatrixSync(MemoryCapsule):
             "nvcuda::wmma::col_major",
             "nvcuda::wmma::mem_row_major",
             "nvcuda::wmma::mem_col_major",]
+        m, n, k = problem_size
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size)
         elem_bytes = int(input_dtypes[0][-2:]) // 8
+        load_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         data_alignments = [
             elem_bytes * int(x[1]) for x in input_shapes]
         offset_factor = 16 // elem_bytes
@@ -460,7 +466,7 @@ class WMMALoadMatrixSync(MemoryCapsule):
                     problem_size[0],
                     problem_size[1],
                     problem_size[2],
-                    BC.elem_offset // 256,
+                    BC.elem_offset // load_elems,
                     BA.access_ptr("r"),
                     ldm,
                     layout,
@@ -639,6 +645,7 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
             input_dtypes, output_dtypes, problem_size
         )
         elem_bytes = int(input_dtypes[0][-2:]) // 8
+        store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         data_alignments = [
             elem_bytes * int(x[1]) for x in input_shapes]
         offset_factor = 16 // elem_bytes
@@ -671,9 +678,9 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
                     self.belong_recipe_name,
                     "nvcuda::wmma::__float_to_tf32",
                     BA.data,
-                    BA.elem_offset // 256,
+                    BA.elem_offset // store_elems,
                     BB.data,
-                    BB.elem_offset // 256,
+                    BB.elem_offset // store_elems,
                     layout
                 )
             )
