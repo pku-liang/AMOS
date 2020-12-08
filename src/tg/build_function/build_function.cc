@@ -136,6 +136,61 @@ std::pair<ScheduleResult, std::shared_future<tvm::runtime::Module> > FunctionBui
 //   return *builder;
 // }
 
+
+/* build without timeout */
+Array<Optional<tvm::runtime::Module>> parallel_build(
+  Array<tvm::te::Schedule> schs,
+  Array<te::Tensor> args,
+  tvm::Target target,
+  tvm::Target target_host,
+  String name,
+  std::unordered_map<te::Tensor, tir::Buffer> binds) {
+  ThreadPool pool;
+  std::vector<std::shared_future<tvm::runtime::Module>> futures;
+  Array<Optional<tvm::runtime::Module>> ret;
+  for (auto sch : schs) {
+    auto future_mod = pool.push_back(
+      [=] (int) {
+          auto lowered = tvm::lower(sch, args, name, binds);
+          tvm::runtime::Module ret = tvm::build(
+            lowered,
+            target,
+            target_host
+          );
+          return ret;
+      }, 0
+    );
+    futures.emplace_back(future_mod);
+  }
+
+  for (auto f : futures) {
+    try {
+      tvm::runtime::Module mod = f.get();
+      ret.push_back(mod);
+    } catch (const std::exception& e) {
+      ret.push_back(Optional<tvm::runtime::Module>(nullptr));
+    }
+  }
+
+  return ret;
+}
+
+
+TVM_REGISTER_GLOBAL("tg.parallel_build")
+.set_body_typed([](
+  Array<tvm::te::Schedule> schs,
+  Array<te::Tensor> args,
+  tvm::Target target,
+  tvm::Target target_host,
+  String name,
+  Map<te::Tensor, tir::Buffer> binds) {
+  std::unordered_map<te::Tensor, tir::Buffer> binds_;
+  for (auto kv : binds) {
+    binds_[kv.first] = kv.second;
+  }
+  return parallel_build(schs, args, target, target_host, name, binds_);
+});
+
    
 }  // namespace tg
 

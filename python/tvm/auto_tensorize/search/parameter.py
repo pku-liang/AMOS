@@ -1,4 +1,6 @@
 import numpy as np
+import time
+from .measure import *
 
 
 class FlipFlopParamGenerator(object):
@@ -22,7 +24,7 @@ class QLearningParamGenerator(object):
             self.Q_table[self.to_hasable(x)] = entry
 
     def feedback(self, init, direction, reward):
-        print("dummy feedback")
+        pass
 
     def map_to_hidden(self, factors):
         raise NotImplementedError()
@@ -78,3 +80,44 @@ class QLearningParamGenerator(object):
         else:
             raise RuntimeError("Unknown policy: %s" % policy)
         return self.map_from_hidden(des), direction
+
+
+def find_optimized_parameters(
+    match_results, transform_state, schedule_gen, schedule_app,
+        measure_opt, checker, trials, batch_size=32,
+        policy="random", builder=tg_parallel_builder_build,
+        runner=pebble_local_runner_run):
+    best_value = 1 / MAX_FLOAT
+    best_params = None
+    if measure_opt.use_rpc:
+        runner = pebble_rpc_runner_run
+    batch_num = (trials + batch_size - 1) // batch_size
+    print("Total search tirals:", trials,
+          "\nbatch size:", batch_size,
+          "\nbatch num:", batch_num, flush=True)
+    tic = time.time()
+    for b in range(batch_num):
+        print("Search round:", b, flush=True)
+        params_lst = []
+        for i in range(batch_size):
+            if b * batch_size + i < trials:
+                params = schedule_gen.get(policy=policy)
+                # print(str(params))
+                params_lst.append(params)
+        assert params_lst
+        build_results = builder(
+            schedule_app, params_lst, measure_opt, checker)
+        run_results = runner(
+            build_results, measure_opt)
+        for params, res in zip(params_lst, run_results):
+            # print(res)
+            value = 1 / np.mean([x.value for x in res.costs])  # use absolute performance
+            schedule_gen.feedback(params, value)
+            if value > best_value:
+                best_value = value
+                best_params = params
+        print("Current best timecost: ", 1/best_value*1e3, "ms", flush=True)
+    toc = time.time()
+    print("Search %d trials costs %f seconds" % (trials, toc - tic))
+    return best_value, best_params
+        

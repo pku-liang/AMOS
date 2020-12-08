@@ -57,7 +57,18 @@ class Params(object):
         self.last_unroll_step = obj["last_unroll_step"]
 
     def __str__(self):
-        return json.dumps(self.to_json())
+        obj = self.to_json()
+        new_obj = {}
+        def handle(v):
+            if isinstance(v, list):
+                return [handle(x) for x in v]
+            if isinstance(v, tuple) and len(v) == 2:
+                return handle(v[0])
+            return v
+
+        for k, v in obj.items():
+            new_obj[k] = handle(v)
+        return json.dumps(new_obj)
 
 
 def empty_params():
@@ -295,7 +306,8 @@ class CUDAScheduleGenerator(object):
         # constants
         self.reduce_tiling_parts = 3
         self.spatial_tiling_parts = 3
-        self.last_op_tiling_parts = 2
+        self.last_op_tiling_parts = 3
+        self.warp_size = 32
         # params generator
         self.reduce_splits = []
         self.spatial_splits = []
@@ -306,7 +318,7 @@ class CUDAScheduleGenerator(object):
         self.init_param_generator()
 
         self.entries = []
-        self.visited = set()
+        self.visited = {}
         self.record_cls = Params
 
     def init_param_generator(self):
@@ -329,7 +341,8 @@ class CUDAScheduleGenerator(object):
         for iv in self.target_dag.op_lst[-1].axis:
             last_total_extent *= int(iv.dom.extent)
         self.last_splits = [
-            SplitFactorGenerator(last_total_extent, self.last_op_tiling_parts)]
+            SplitFactorGenerator(last_total_extent // self.warp_size,
+                                 self.last_op_tiling_parts)]
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
@@ -353,12 +366,19 @@ class CUDAScheduleGenerator(object):
 
     def valid(self, record):
         warp_num = 1
+        block_num = 1
         for factors in record.spatial_factors:
-            warp_num *= factors[0][1]
+            warp_num *= factors[0][-2]
+            block_num *= factors[0][0]
         if warp_num > 32:
             return False
-        warp_num = record.last_factors[0][0][1]
+        if block_num > 2**16:
+            return False
+        warp_num = record.last_factors[0][0][-1]
         if warp_num > 32:
+            return False
+        block_num = record.last_factors[0][0][0]
+        if block_num > 2**16:
             return False
         return True
 
@@ -433,14 +453,21 @@ class CUDAScheduleGenerator(object):
                 return self.entries[0]
             else:
                 raise RuntimeError("Unknown policy: %s" % policy)
-            if repeat or str(record) not in self.visited:
+            if str(record) not in self.visited:
                 if self.valid(record):
-                    self.visited.add(str(record))
+                    self.visited[str(record)] = 0.0
                     return record
-        return self.entries[0]
+            elif repeat:
+                self.feedback(record, self.visited[str(record)])
+                return record
+            else:
+                self.feedback(record, self.visited[str(record)])
+        print("It seems hard to find new candidates...", flush=True)
+        return self.entries[0].record
 
     def feedback(self, record, value):
         entry = Entry(record, value)
+        self.visited[str(record)] = value
         heapq.heappush(self.entries, entry)
         self.vectorize.feedback(*entry.record.vectorize, value)
         for gen, factors in zip(self.spatial_splits, entry.record.spatial_factors):
@@ -501,7 +528,7 @@ class CUDAScheduleApplier(object):
         self.otx = tvm.te.thread_axis("threadIdx.x")
         self.reduce_tiling_parts = 3
         self.spatial_tiling_parts = 3
-        self.last_op_tiling_parts = 2
+        self.last_op_tiling_parts = 3
 
     def initialize_state(self):
         # self.state = {
@@ -547,6 +574,12 @@ class CUDAScheduleApplier(object):
         assert isinstance(self.state.output_op_axis[0], list)
         assert len(self.state.output_op_axis[0]) > 0
         return self.state.output_op_axis[0][-1]
+
+    def get_last_op_innermost_last_axis(self):
+        assert len(self.state.last_op_axis) > 0
+        assert isinstance(self.state.last_op_axis[-1], list)
+        assert len(self.state.last_op_axis[-1]) > 0
+        return self.state.last_op_axis[-1][-1]
 
     def get_last_op_second_innermost_last_axis(self):
         assert len(self.state.last_op_axis) > 0
@@ -657,7 +690,7 @@ class CUDAScheduleApplier(object):
         # if do_cache_read_for_last:
         #     last_ops = [X(x) for x in consumers]
         #     S = sch.cache_read(X(op).output(0), "shared", last_ops)
-        #     axis = self.get_last_op_second_innermost_last_axis()
+        #     axis = self.get_last_op_innermost_last_axis()
         #     # compute at to last op
         #     sch[S].compute_at(sch[last_ops[0]], axis)
         #     warp_num = self.get_last_op_warp_numbers()
@@ -832,7 +865,7 @@ class CUDAScheduleApplier(object):
             self.set_scope,
             self.tiling,
             self.compute_at,
-            self.unroll,
+            # self.unroll,
             self.tensorize
         ]
         

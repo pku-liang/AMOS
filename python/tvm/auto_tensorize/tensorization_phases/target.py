@@ -16,3 +16,6 @@ def get_vector_length(target, dtype):
     width = int(dtype[-2:])
     assert bitwidth % width == 0
     return min(bitwidth // width, 4)
+
+
+

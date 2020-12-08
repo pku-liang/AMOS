@@ -3,6 +3,7 @@ Author: size zheng
 """
 
 """Longtail related functions."""
+import tvm
 from tvm import target as _target
 from . import _ffi_api
 
@@ -375,3 +376,29 @@ def print_subgraphs(session_id, task_id):
     -------
   """
   _ffi_api.print_subgraphs(session_id, task_id)
+
+
+def parallel_build(schs, args, target, target_host="llvm", name="main", binds={}):
+  """Parallel build.
+
+    Parameters
+    ----------
+    schs : list of schedules
+
+    args : list of Tensor
+
+    target : str
+
+    target_host : str
+
+    name : str
+
+    binds : dict of {tensor: buffer}
+
+    Returns
+    -------
+    list of Module
+  """
+  return _ffi_api.parallel_build(
+    schs, args,
+    tvm.target.Target(target), tvm.target.Target(target_host), name, binds)

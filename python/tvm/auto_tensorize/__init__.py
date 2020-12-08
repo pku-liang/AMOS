@@ -3,3 +3,4 @@ from .capsule_base import (register_capsule, register_recipe,
 from .recipe import OperationRole, RecipeStage, InstructionScope
 from .capsules import *
 from .tensorization_phases import *
+from .search import *

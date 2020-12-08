@@ -164,7 +164,7 @@ class TransformGenerator(object):
 
         self.record_cls = Record
         self.entries = []
-        self.visited = set()
+        self.visited = {}
 
     def calculate_p(self, x, best):
         return np.exp((x - best) / 2 * (best + 1e-5))
@@ -204,13 +204,20 @@ class TransformGenerator(object):
                         self.unfold_gen.get(policy="random"))
             elif policy == "greedy":
                 return self.entries[0]
-            if repeat or str(record) not in self.visited:
-                self.visited.add(str(record))
+            if str(record) not in self.visited:
+                self.visited[str(record)] = 0.0
                 return record
-        return self.entries[0]
+            elif repeat:
+                self.feedback(record, self.visited[str(record)])
+                return record
+            else:
+                self.feedback(record, self.visited[str(record)])
+        print("It seems hard to find new candidates...", flush=True)
+        return self.entries[0].record
 
     def feedback(self, record, value):
         entry = Entry(record, value)
+        self.visited[str(record)] = value
         heapq.heappush(self.entries, entry)
         self.unfold_gen.feedback(*entry.record.unfold_choice, value)
 
