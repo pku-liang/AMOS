@@ -13,118 +13,11 @@
 #include <curand.h>
 
 #include "tensor.h"
+#include "configs.h"
 
 #ifndef PAD_KERNELS
 #define PAD_KERNELS 1
 #endif
-
-// Vector saves m, n, k, a_t, b_t
-std::vector<std::tuple<int, int, int, bool, bool>> inference_server_set = {
-    std::make_tuple(5124, 700, 2048, false, false),
-    std::make_tuple(35, 700, 2048, false, false),
-    std::make_tuple(5124, 700, 2560, false, false),
-    std::make_tuple(35, 700, 2560, false, false),
-    std::make_tuple(5124, 1500, 2048, false, false),
-    std::make_tuple(35, 1500, 2048, false, false),
-    std::make_tuple(5124, 1500, 2560, false, false),
-    std::make_tuple(35, 1500, 2560, false, false),
-    std::make_tuple(7680, 1, 2560, false, false),
-    std::make_tuple(7680, 2, 2560, false, false),
-    std::make_tuple(7680, 4, 2560, false, false),
-    std::make_tuple(3072, 1, 1024, false, false),
-    std::make_tuple(3072, 2, 1024, false, false),
-    std::make_tuple(3072, 4, 1024, false, false),
-    std::make_tuple(512, 1, 500000, false, false),
-    std::make_tuple(1024, 1, 500000, false, false),
-    std::make_tuple(512, 2, 500000, false, false),
-    std::make_tuple(1024, 2, 500000, false, false),
-    std::make_tuple(512, 4, 500000, false, false),
-    std::make_tuple(1024, 4, 500000, false, false),
-    std::make_tuple(1024, 700, 512, false, false),
-    std::make_tuple(7680, 1500, 2560, false, false),
-    std::make_tuple(6144, 1500, 2048, false, false),
-    std::make_tuple(4608, 1500, 1536, false, false),
-    std::make_tuple(8448, 1500, 2816, false, false),
-    std::make_tuple(3072, 1500, 1024, false, false),
-    std::make_tuple(7680, 3000, 2560, false, false),
-    std::make_tuple(6144, 3000, 2048, false, false),
-    std::make_tuple(4608, 3000, 1536, false, false),
-    std::make_tuple(8448, 3000, 2816, false, false),
-    std::make_tuple(3072, 3000, 1024, false, false),
-    std::make_tuple(7680, 6000, 2560, false, false),
-    std::make_tuple(6144, 6000, 2048, false, false),
-    std::make_tuple(4608, 6000, 1536, false, false),
-    std::make_tuple(8448, 6000, 2816, false, false),
-    std::make_tuple(3072, 6000, 1024, false, false),
-    std::make_tuple(6144, 1, 2048, false, false),
-    std::make_tuple(4608, 1, 1536, false, false),
-    std::make_tuple(8448, 1, 2816, false, false),
-    std::make_tuple(6144, 2, 2048, false, false),
-    std::make_tuple(4608, 2, 1536, false, false),
-    std::make_tuple(8448, 2, 2816, false, false),
-    std::make_tuple(6144, 4, 2048, false, false),
-    std::make_tuple(4608, 4, 1536, false, false),
-    std::make_tuple(8448, 4, 2816, false, false),
-    std::make_tuple(512, 1500, 2816, false, false),
-    std::make_tuple(512, 1500, 2048, false, false),
-    std::make_tuple(512, 1500, 2560, false, false),
-    std::make_tuple(512, 1500, 1536, false, false),
-    std::make_tuple(1024, 1500, 2816, false, false),
-    std::make_tuple(1024, 1500, 2048, false, false),
-    std::make_tuple(1024, 1500, 2560, false, false),
-    std::make_tuple(1024, 1500, 1536, false, false),
-    std::make_tuple(512, 1, 512, false, false),
-    std::make_tuple(1024, 1, 512, false, false),
-    std::make_tuple(512, 3000, 2816, false, false),
-    std::make_tuple(512, 3000, 2048, false, false),
-    std::make_tuple(512, 3000, 2560, false, false),
-    std::make_tuple(512, 3000, 1536, false, false),
-    std::make_tuple(1024, 3000, 2816, false, false),
-    std::make_tuple(1024, 3000, 2048, false, false),
-    std::make_tuple(1024, 3000, 2560, false, false),
-    std::make_tuple(1024, 3000, 1536, false, false),
-    std::make_tuple(512, 2, 512, false, false),
-    std::make_tuple(1024, 2, 512, false, false),
-    std::make_tuple(512, 6000, 2816, false, false),
-    std::make_tuple(512, 6000, 2048, false, false),
-    std::make_tuple(512, 6000, 2560, false, false),
-    std::make_tuple(512, 6000, 1536, false, false),
-    std::make_tuple(1024, 6000, 2816, false, false),
-    std::make_tuple(1024, 6000, 2048, false, false),
-    std::make_tuple(1024, 6000, 2560, false, false),
-    std::make_tuple(1024, 6000, 1536, false, false),
-    std::make_tuple(512, 4, 512, false, false),
-    std::make_tuple(1024, 4, 512, false, false)};
-
-/*
-Usage:
-
-The default precision is set based on the architecture and mode.
-
-By default, the program runs the benchmark in training mode.
-
-bin/gemm_bench
-
-To run inference mode, use the following command:
-
-bin/gemm_bench inference
-
-
-To change the precision for training/inference, use:
-
-bin/gemm_bench train <precision>
-bin/gemm_bench inference <precision>
-
-Supported precision types:
-
-For Maxwell GPUS:
-float for training and inference
-
-For Pascal GPUS:
-float, half for training
-float, half, int8 for inference
-
-*/
 
 template <typename T1, typename T2>
 int time_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
@@ -243,7 +136,7 @@ int main(int argc, char **argv) {
 
     int pad_kernels_count = 0;
 
-    for (const auto &problem : inference_server_set) {
+    for (const auto &problem : gemm_set) {
       int m, n, k;
       bool a_t, b_t;
       std::tie(m, n, k, a_t, b_t) = problem;

@@ -45,3 +45,30 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
 		  std::make_tuple( 14,  14, 96,  1,  96*6,  3,   3,  1,  1,  2,  2,  96),
 		  std::make_tuple(  7,   7,160,  1, 160*6,  3,   3,  1,  1,  1,  1, 160)
 };
+
+
+// Vector saves m, n, k, a_t, b_t
+std::vector<std::tuple<int, int, int, bool, bool>> gemm_set = {
+    std::make_tuple(1024, 6000, 2816, false, false),
+    std::make_tuple(1024, 6000, 2048, false, false),
+    std::make_tuple(1024, 6000, 2560, false, false),
+    std::make_tuple(1024, 6000, 1536, false, false),
+    std::make_tuple(512, 4, 512, false, false),
+    std::make_tuple(1024, 4, 512, false, false)
+};
+
+// Vector saves m, n, trans
+std::vector<std::tuple<int, int, bool>> gemv_noTC = {
+    std::make_tuple(1024, 256, false),
+    std::make_tuple(512, 1024, false)
+};
+
+// Vector saves m, n, k, a_t, b_t
+std::vector<std::tuple<int, int, int, bool, bool>> gemv_to_gemm = {
+    std::make_tuple(1024, 1, 2816, false, false),
+    std::make_tuple(1024, 1, 2048, false, false),
+    std::make_tuple(1024, 1, 2560, false, false),
+    std::make_tuple(1024, 1, 1536, false, false),
+    std::make_tuple(512, 1, 512, false, false),
+    std::make_tuple(1024, 1, 512, false, false)
+};
