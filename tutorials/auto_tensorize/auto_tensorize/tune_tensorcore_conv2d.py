@@ -36,13 +36,13 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
                         ).astype("float32"), axis=[rc, rr, rs]),
         name="Conv"
     )
-    bias = tvm.te.placeholder([K], dtype="float32", name="bias")
-    E = tvm.te.compute(
-        [N, K, P, Q],
-        lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
-        name="E"
-    )
-    return [A, B, bias, E]
+    # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
+    # E = tvm.te.compute(
+    #     [N, K, P, Q],
+    #     lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
+    #     name="E"
+    # )
+    return [A, B, Conv]
 
 
 def tensorize_tensorcore_fp16fp32_nnn_16x16x16(
@@ -52,8 +52,8 @@ def tensorize_tensorcore_fp16fp32_nnn_16x16x16(
     compute_key = "nnn"
     shape_key = "16x16x16"
     intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
-    A, B, bias, E = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
-    target_dag = at.compute_dag_from_tensors([E])
+    A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
+    target_dag = at.compute_dag_from_tensors([Conv])
 
     # hand-craft the match results
     main_op_map = {
@@ -87,13 +87,38 @@ def tensorize_tensorcore_fp16fp32_nnn_16x16x16(
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 2000
-    measure_opt = at.MeasureOptions(target=recipe.target)
+    measure_opt = at.MeasureOptions(target=recipe.target, timeout=150)
     checker = at.CUDAProgramChecker()
-    value, params = at.find_optimized_parameters(
-        match_result, new_state, schedule_gen, schedule_app,
-        measure_opt, checker, trials, policy="random")
-    print(value)
-    print(params.to_json())
+    # value, params = at.find_optimized_parameters(
+    #     match_result, new_state, schedule_gen, schedule_app,
+    #     measure_opt, checker, trials, policy="random")
+    # print(value)
+    # print(params.to_json())
+    params = schedule_gen.get()
+    my_params = {
+        'vectorize': (4, -1),
+        'spatial_factors': [([392, 2, 7], (0, 1)), ([2, 1, 2], (-1, 0))],
+        'reduce_factors': [([5, 2, 1], (1, 1))],
+        'last_factors': [([112, 128, 32], (0, 0))],
+        'output_unroll_step': (1500, 0),
+        'last_unroll_step': (512, 1)
+    }
+    params.from_json(my_params)
+    target_dag = schedule_app.target_dag
+    inputs = target_dag.get_inputs()
+    args = inputs + list(target_dag.tensors)
+    sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    sch = schedule_app.apply(sch, params)
+    print(tvm.lower(sch, args, simple_mode=True))
+    func = tvm.build(sch, args, target="cuda")
+    ctx = tvm.gpu()
+    inputs_arrays = at.get_tvm_arrays(inputs, ctx)
+    outputs_arrays = at.get_tvm_arrays(list(target_dag.tensors), ctx)
+    func(*inputs_arrays, *outputs_arrays)
+    evaluator = func.time_evaluator(
+        func.entry_name, ctx, number=100, min_repeat_ms=150)
+    cost = evaluator(*inputs_arrays, *outputs_arrays).mean * 1e3
+    print("Cost is %f ms" % cost)
 
 
 def run(N, C, H, W, K, R, S, stride, padding, dilation):

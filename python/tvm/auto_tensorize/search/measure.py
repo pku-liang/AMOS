@@ -47,6 +47,33 @@ GLOBAL_RUN_INPUTS = None
 GLOBAL_RPC_RUN_INPUTS = None
 MAX_FLOAT = 1e10
 
+
+def get_np_arrays(tensors):
+    ret = []
+    for t in tensors:
+        np_ary = np.random.uniform(-1, 1, [int(x)
+                                           for x in t.shape]).astype(t.dtype)
+        ret.append(np_ary)
+    return ret
+
+
+def get_tvm_arrays_from_np_arrays(arys, ctx):
+    ret = []
+    for ary in arys:
+        tvm_ary = tvm.nd.array(ary, ctx)
+        ret.append(tvm_ary)
+    return ret
+
+
+def get_tvm_arrays(tensors, ctx):
+    ret = []
+    for t in tensors:
+        np_ary = np.random.uniform(-1, 1, [int(x)
+                                           for x in t.shape]).astype(t.dtype)
+        tvm_ary = tvm.nd.array(np_ary, ctx)
+        ret.append(tvm_ary)
+    return ret
+
 # this is similar to auto_scheduler
 # we modify existing measure functions to adapt to auto_tensorize
 # auto_scheduler uses customized multi-processing, which is proved

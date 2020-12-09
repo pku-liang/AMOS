@@ -839,15 +839,18 @@ class CUDAScheduleApplier(object):
             axis = self.get_output_op_outermost_last_axis()
             step = self.get_output_op_unroll_step()
             sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
+            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
         elif op == self.main_op:
             axis = self.get_main_op_outermost_last_reduce_axis()
             # reuse output op unroll step
             step = self.get_output_op_unroll_step()
             sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
+            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
         elif op == self.target_dag.op_lst[-1]:
             axis = self.get_last_op_outermost_last_axis()
             step = self.get_last_op_unroll_step()
             sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
+            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
 
     def tensorize(self, op_id, op, sch, X):
         if not op in self.recipe_stage.operation_role:
@@ -865,7 +868,7 @@ class CUDAScheduleApplier(object):
             self.set_scope,
             self.tiling,
             self.compute_at,
-            # self.unroll,
+            self.unroll,
             self.tensorize
         ]
         
