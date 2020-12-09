@@ -6,8 +6,8 @@ from tvm.runtime import Object
 from ..capsule_base import ComputeDAG
 from .intrin_match import IntrinMatchResult
 from .. import _ffi_api
-from ..search import QLearningParamGenerator, Entry
-from .utils import bi_product
+from ..search import QLearningParamGenerator, Entry, SAEntryGenerator
+from .utils import bi_product, substitute_inputs
 from functools import reduce
 
 
@@ -93,23 +93,6 @@ def transform_main_op(init, request):
     return n
 
 
-def substitute_inputs(org_dag, op_map):
-    """Infer ranges for expressions
-
-    Parameters
-    ----------
-    org_dag: ComputeDAG
-    op_map: dict of {Operation: Operation}
-
-    Returns
-    -------
-    ComputeDAG
-    """
-    n = _ffi_api.SubstituteInputs(
-        org_dag, op_map)
-    return n
-
-
 class UnfoldChoiceGenerator(QLearningParamGenerator):
     def __init__(self, num_choices):
         self.choices = bi_product(num_choices)
@@ -150,8 +133,9 @@ class Record(object):
         return json.dumps(self.to_json())
 
 
-class TransformGenerator(object):
+class TransformGenerator(SAEntryGenerator):
     def __init__(self, intrin_match_result, eps=1e-1):
+        super(TransformGenerator, self).__init__(eps, Record)
         assert isinstance(intrin_match_result, IntrinMatchResult)
         match_point_num = -1
         for k, v in intrin_match_result.axis_map.items():
@@ -159,66 +143,21 @@ class TransformGenerator(object):
             if match_point_num < 0:
                 match_point_num = match_len
             assert match_point_num == match_len
-        self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
-        self.eps = eps
-
-        self.record_cls = Record
-        self.entries = []
-        self.visited = {}
-
-    def calculate_p(self, x, best):
-        return np.exp((x - best) / 2 * (best + 1e-5))
-
-    def greedy(self):
-        return np.random.random() > self.eps
-
-    def sa_select_entry(self, max_num=20):
-        assert len(self.entries) > 0
-        cand = heapq.nlargest(min(max_num, len(self.entries)), self.entries)
-        best_value = cand[0].value
-        ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
-        num_cand = len(cand)
-        for i in range(max_num):
-            choice = np.random.randint(0, num_cand)
-            if np.random.random() < ps[choice]:
-                return cand[i]
-        # no chosen, return the best
-        return cand[0]
+        self.unfold_gen = UnfoldChoiceGenerator(match_point_num) 
 
     def record_from_json(self, obj):
         return self.record_cls(obj["unfold"])
 
-    def get(self, policy="random", repeat=False, max_trial=100):
-        for i in range(max_trial):
-            if policy == "random" or not self.entries:
-                record = self.record_cls(
-                    self.unfold_gen.get(policy="random"))
-            elif policy == "q":
-                if self.greedy():
-                    entry = self.sa_select_entry()
-                    record = self.record_cls(
+    def get_record(self, entry=None, policy="random"):
+        if entry is None:
+            return self.record_cls(
+                    self.unfold_gen.get(policy=policy))
+        else:
+            return self.record_cls(
                         self.unfold_gen.get(
-                            hint=entry.record.unfold_choice[0], policy="q"))
-                else:
-                    record = self.record_cls(
-                        self.unfold_gen.get(policy="random"))
-            elif policy == "greedy":
-                return self.entries[0]
-            if str(record) not in self.visited:
-                self.visited[str(record)] = 0.0
-                return record
-            elif repeat:
-                self.feedback(record, self.visited[str(record)])
-                return record
-            else:
-                self.feedback(record, self.visited[str(record)])
-        print("It seems hard to find new candidates...", flush=True)
-        return self.entries[0].record
+                            hint=entry.record.unfold_choice[0], policy=policy))
 
-    def feedback(self, record, value):
-        entry = Entry(record, value)
-        self.visited[str(record)] = value
-        heapq.heappush(self.entries, entry)
+    def feedback_value(self, entry, value):
         self.unfold_gen.feedback(*entry.record.unfold_choice, value)
 
 

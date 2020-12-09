@@ -33,7 +33,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
         [N, K, P, Q],
         lambda n, k, p, q:
             tvm.te.sum((Pad[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
-                        ).astype("float32"), axis=[rc, rr, rs]),
+                        ).astype("float16"), axis=[rc, rr, rs]),
         name="Conv"
     )
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
@@ -45,10 +45,10 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp16fp32_nnn_16x16x16(
+def tensorize_tensorcore_fp16fp16_nnn_16x16x16(
     N, C, H, W, K, R, S, stride, padding, dilation
 ):
-    recipe = at.WMMAFp16Fp32()
+    recipe = at.WMMAFp16Fp16()
     compute_key = "nnn"
     shape_key = "16x16x16"
     intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
@@ -87,42 +87,31 @@ def tensorize_tensorcore_fp16fp32_nnn_16x16x16(
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 2000
-    measure_opt = at.MeasureOptions(target=recipe.target, timeout=150)
+    measure_opt = at.MeasureOptions(target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
+
+    # use tuning to find params
     # value, params = at.find_optimized_parameters(
-    #     match_result, new_state, schedule_gen, schedule_app,
-    #     measure_opt, checker, trials, policy="random")
+    #     match_result, schedule_gen, schedule_app,
+    #     measure_opt, checker, trials, policy="random",
+    #     builder=at.pebble_local_builder_build,
+    #     runner=at.pebble_local_runner_run)
     # print(value)
     # print(params.to_json())
+
+    # hand-craft params
     params = schedule_gen.get()
-    my_params = {
-        'vectorize': (4, -1),
-        'spatial_factors': [([392, 2, 7], (0, 1)), ([2, 1, 2], (-1, 0))],
-        'reduce_factors': [([5, 2, 1], (1, 1))],
-        'last_factors': [([112, 128, 32], (0, 0))],
-        'output_unroll_step': (1500, 0),
-        'last_unroll_step': (512, 1)
-    }
+    print("Random params:")
+    print(params.to_json())
+    my_params = {'vectorize': (4, -1), 'spatial_factors': [([49, 1, 2, 2], (0, 1, 1)), ([2, 1, 8, 2], (1, 0, -1))], 'reduce_factors': [([36, 4, 1], (-1, -1))], 'last_factors': [([512, 7, 32], (-1, 0))], 'output_unroll_step': (64, 1), 'last_unroll_step': (512, 0)}
     params.from_json(my_params)
-    target_dag = schedule_app.target_dag
-    inputs = target_dag.get_inputs()
-    args = inputs + list(target_dag.tensors)
-    sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    sch = schedule_app.apply(sch, params)
-    print(tvm.lower(sch, args, simple_mode=True))
-    func = tvm.build(sch, args, target="cuda")
-    ctx = tvm.gpu()
-    inputs_arrays = at.get_tvm_arrays(inputs, ctx)
-    outputs_arrays = at.get_tvm_arrays(list(target_dag.tensors), ctx)
-    func(*inputs_arrays, *outputs_arrays)
-    evaluator = func.time_evaluator(
-        func.entry_name, ctx, number=100, min_repeat_ms=150)
-    cost = evaluator(*inputs_arrays, *outputs_arrays).mean * 1e3
+ 
+    cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
     print("Cost is %f ms" % cost)
 
 
 def run(N, C, H, W, K, R, S, stride, padding, dilation):
-    tensorize_tensorcore_fp16fp32_nnn_16x16x16(
+    tensorize_tensorcore_fp16fp16_nnn_16x16x16(
         N, C, H, W, K, R, S, stride, padding, dilation)
 
 
@@ -158,7 +147,7 @@ yolo_shapes_b1 = [
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     for batch in batches:
-        for shape in yolo_shapes_b1[0:1]:
+        for shape in yolo_shapes_b1[5:6]:
             _, C, H, W, K, _, R, S, _, stride, padding, dilation, _ = shape
             N = batch
             print("\n\nProblem size:")

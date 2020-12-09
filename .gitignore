@@ -237,3 +237,5 @@ conda/pkg
 # nix files
 .envrc
 *.nix
+
+tmp

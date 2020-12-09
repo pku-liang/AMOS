@@ -1,5 +1,5 @@
 from ..capsule_base import ComputeCapsule, ComputeDAG
-from .target import *
+from ..target import *
 
 
 class IntrinMatchResult(object):
