@@ -30,7 +30,7 @@ class RecipeDAGMatcher : public Object {
   public:
     RecipeDAGMatcher();
     MatchResult match(Tensor target, Tensor intrin, Operation main_capsule);
-  private:
+  // private:
     MatchResult results;
     BufferMap buffer_map;
     bool _match(Tensor target, Tensor intrin, Operation main_capsule, 
