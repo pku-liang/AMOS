@@ -23,8 +23,8 @@
 template <typename T1, typename T2>
 int time_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
               cublasHandle_t cublas_handle, bool use_tensor_core) {
-  const int alpha = 1.f;
-  const int beta = 1.f;
+  const T2 alpha = 1.f;
+  const T2 beta = 1.f;
 
   int m = C.dims()[0];
   int k = a_t ? A.dims()[0] : A.dims()[1];
@@ -89,12 +89,18 @@ int time_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
       numRepeats);
 }
 
+template<typename T1>
+void rand_matrix(T1 *ptr, int size) {
+  for (int i = 0; i < size; ++i)
+    ptr[i] = i;
+}
+
 template <typename T1, typename T2>
 bool check_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
               cublasHandle_t cublas_handle, bool use_tensor_core) {
 
-  const float alpha = 1.f;
-  const float beta = 1.f;
+  const T2 alpha = 1.f;
+  const T2 beta = 1.f;
 
   int m = C.dims()[0];
   int k = a_t ? A.dims()[0] : A.dims()[1];
@@ -102,13 +108,16 @@ bool check_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
 
   int lda = A.dims()[0], ldb = B.dims()[0], ldc = C.dims()[0];
   T1 *A_host, *B_host;
-  std::vector<T2> C_host(n * ldc), C_reference(n * ldc);
+  T2 *C_host, *C_reference;
 
   A_host = (T1 *)malloc(A.size() * sizeof(T1));
-  cudaMemcpy(A_host, A.begin(), A.size() * sizeof(T1), cudaMemcpyDeviceToHost);
+  rand_matrix(A_host, A.size());
+  cudaMemcpy(A.begin(), A_host, A.size() * sizeof(T1), cudaMemcpyHostToDevice);
   B_host = (T1 *)malloc(B.size() * sizeof(T1));
-  cudaMemcpy(B_host, B.begin(), B.size() * sizeof(T1), cudaMemcpyDeviceToHost);
-  cudaMemcpy(C_reference.data(), C.begin(), C.size() * sizeof(T2), cudaMemcpyDeviceToHost);
+  rand_matrix(B_host, B.size());
+  cudaMemcpy(B.begin(), B_host, B.size() * sizeof(T1), cudaMemcpyHostToDevice);
+  C_reference = (T2 *)malloc(C.size() * sizeof(T2));
+  cudaMemcpy(C_reference, C.begin(), C.size() * sizeof(T2), cudaMemcpyDeviceToHost);
 
   int numRepeats = 6;
   cublasStatus_t stat;
@@ -141,7 +150,8 @@ bool check_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
                    A_type, A.dims()[0], B.begin(), B_type, B.dims()[0], &beta,
                    C.begin(), C_type, C.dims()[0], compute_type, algo);
   
-  cudaMemcpy(C_host.data(), C.begin(), C.size() * sizeof(T2), cudaMemcpyDeviceToHost);
+  C_host = (T2 *)malloc(C.size() * sizeof(T2));
+  cudaMemcpy(C_host, C.begin(), C.size() * sizeof(T2), cudaMemcpyDeviceToHost);
 
   if (stat != CUBLAS_STATUS_SUCCESS) {
     throw std::runtime_error("sgemm failed");
@@ -164,6 +174,7 @@ bool check_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
     if (!(C_diff <= atol && C_diff / C_min <= rtol)) {
       std::cout << "\n(" << i << "," << j << "): atol=" << C_diff << ", rtol=" << C_diff/C_min << std::endl;
       std::cout << "-------" << std::endl;
+      std::cout << C_host[i * n + j] << "," << C_reference[i * n + j] << std::endl;
       std ::cout << A.dims()[0] << "," << A.dims()[1] << std::endl;
       std ::cout << B.dims()[0] << "," << B.dims()[1] << std::endl;
       std ::cout << C.dims()[0] << "," << C.dims()[1] << std::endl;
@@ -221,6 +232,21 @@ int main(int argc, char **argv) {
 
     int pad_kernels_count = 0;
 
+
+    //--------------------------------------------
+    int m = 32, n = 32, k = 16;
+    bool a_t = false, b_t = false;
+    auto a = rand<float>({a_t ? k : m, a_t ? m : k}, curand_gen);
+    auto b = rand<float>({b_t ? n : k, b_t ? k : n}, curand_gen);
+    auto c = zeros<float>({m, n});
+    if (!check_gemm<float, float>(a, b, c, a_t, b_t, cublas_handle, false)) {
+      std::cout << "gemm check fail!" << std::endl;
+      return 0;
+    }
+    else std::cout << "gemm check pass!" << std::endl;
+
+    //--------------------------------------------
+
     for (const auto &problem : gemm_set) {
       int m, n, k;
       bool a_t, b_t;
@@ -249,11 +275,6 @@ int main(int argc, char **argv) {
         time_ms =
             time_gemm<float, float>(a, b, c, a_t, b_t, cublas_handle, false);
         std::cout << "," << std::setprecision(6) << time_ms;
-        if (!check_gemm<float, float>(a, b, c, a_t, b_t, cublas_handle, false)) {
-          std::cout << "NO!!!!" << std::endl;
-          return 0;
-        }
-        else std::cout << "YES!!!" << std::endl;
       }
 
       // fp16 benchmark

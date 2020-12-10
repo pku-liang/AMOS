@@ -63,8 +63,8 @@ int time_gemm(T1** A_array, T1** B_array, T2** C_array, bool a_t, bool b_t,
   //const int alpha = 1.f;
   //const int beta = 1.f;
 
-  const T1 alpha = (T1)1.0f;
-  const T1 beta = (T1)1.0f;
+  const T2 alpha = (T2)1.0f;
+  const T2 beta = (T2)0.0f;
 
   //std::cout << std::endl << "m, k, n = " << m << "," << k << "," << n << std::endl;
 
