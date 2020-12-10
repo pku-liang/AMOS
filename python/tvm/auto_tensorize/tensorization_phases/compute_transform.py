@@ -6,8 +6,8 @@ from tvm.runtime import Object
 from ..capsule_base import ComputeDAG
 from .intrin_match import IntrinMatchResult
 from .. import _ffi_api
-from ..search import QLearningParamGenerator, Entry, SAEntryGenerator
-from .utils import bi_product, substitute_inputs
+from ..search import CDParamGenerator, Entry, SAEntryGenerator
+from .utils import bi_product, substitute_inputs, softmax
 from functools import reduce
 
 
@@ -93,7 +93,7 @@ def transform_main_op(init, request):
     return n
 
 
-class UnfoldChoiceGenerator(QLearningParamGenerator):
+class UnfoldChoiceGenerator(CDParamGenerator):
     def __init__(self, num_choices):
         self.choices = bi_product(num_choices)
         self.directions = []
@@ -134,8 +134,14 @@ class Record(object):
 
 
 class TransformGenerator(SAEntryGenerator):
-    def __init__(self, intrin_match_result, eps=1e-1):
-        super(TransformGenerator, self).__init__(eps, Record)
+    def __init__(self, intrin_match_result, eps=1e-1,
+                log_file="transform_schedule_generator.log", steps=1):
+        super(TransformGenerator, self).__init__(eps, Record,
+            steps=steps, log_file=log_file)
+        self.init_param_generator(intrin_match_result)
+        self.init_score_table()
+
+    def init_param_generator(self, intrin_match_result):
         assert isinstance(intrin_match_result, IntrinMatchResult)
         match_point_num = -1
         for k, v in intrin_match_result.axis_map.items():
@@ -143,7 +149,14 @@ class TransformGenerator(SAEntryGenerator):
             if match_point_num < 0:
                 match_point_num = match_len
             assert match_point_num == match_len
-        self.unfold_gen = UnfoldChoiceGenerator(match_point_num) 
+        self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
+        self.generator_lst = [self.unfold_gen]
+    
+    def init_score_table(self):
+        self.score_table = softmax([0.5 for gen in self.generator_lst])
+
+    def get_generators(self):
+        return self.generator_lst
 
     def record_from_json(self, obj):
         return self.record_cls(obj["unfold"])
@@ -157,6 +170,30 @@ class TransformGenerator(SAEntryGenerator):
                         self.unfold_gen.get(
                             hint=entry.record.unfold_choice[0], policy=policy))
 
+    def get_records_mutate_one_generator(
+        self, record, to_mutate, steps):
+        unfold = record.unfold_choice
+
+        next_unfold = self.unfold_gen.get_next(
+            unfold[0], to_mutate)
+
+        has_mutate = False
+
+        def helper(_gen, org_val):
+            nonlocal has_mutate
+            try:
+                ret = next(_gen)
+                has_mutate = True
+            except StopIteration:
+                ret = org_val
+            return ret
+
+        for s in range(steps):
+            unfold = helper(next_unfold, unfold)
+            if has_mutate:
+                yield self.record_cls(unfold)
+            has_mutate = False
+    
     def feedback_value(self, entry, value):
         self.unfold_gen.feedback(*entry.record.unfold_choice, value)
 

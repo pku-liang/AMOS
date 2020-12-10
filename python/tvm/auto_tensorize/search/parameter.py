@@ -3,6 +3,12 @@ import time
 import heapq
 from .measure import *
 from .record import Entry
+from ..tensorization_phases.utils import *
+import queue
+import logging
+import json
+import sys
+import os
 
 
 
@@ -18,17 +24,26 @@ class FlipFlopParamGenerator(ParamGenerator):
     pass
 
 
-class QLearningParamGenerator(ParamGenerator):
+class CDParamGenerator(ParamGenerator):
     def init_Q_table(self):
         self.Q_table = {}
+        visited = set()
+        q = queue.Queue()
         for x in self.choices:
+            q.put(x)
+            visited.add(self.to_hashable(x))
+        while not q.empty():
+            x = q.get()
             entry = {}
             for d in self.directions:
                 des = self.move_towards_direction(x, d)
                 if self.valid(des):
                     # initial random value
-                    entry[self.to_hasable(d)] = (des, np.random.random())
-            self.Q_table[self.to_hasable(x)] = entry
+                    entry[self.to_hashable(d)] = (des, np.random.random())
+                    if self.to_hashable(des) not in visited:
+                        q.put(des)
+                        visited.add(self.to_hashable(des))
+            self.Q_table[self.to_hashable(x)] = entry
 
     def feedback(self, init, direction, reward):
         pass
@@ -45,18 +60,18 @@ class QLearningParamGenerator(ParamGenerator):
     def valid(self, init):
         raise NotImplementedError()
 
-    def to_hasable(self, value):
+    def to_hashable(self, value):
         if isinstance(value, list):
             ret = []
             for v in value:
-                new_v = self.to_hasable(v)
+                new_v = self.to_hashable(v)
                 ret.append(new_v)
             return tuple(ret)
         return value
 
     def get_random_direction(self, init):
         choices = []
-        for d, (des, q_value) in self.Q_table[self.to_hasable(init)].items():
+        for d, (des, q_value) in self.Q_table[self.to_hashable(init)].items():
             choices.append((d, des))
         choice = np.random.randint(0, len(choices))
         return choices[choice]
@@ -67,7 +82,7 @@ class QLearningParamGenerator(ParamGenerator):
         max_choice = -1
         max_q = -1
         max_des = None
-        for d, (des, q_value) in self.Q_table[self.to_hasable(init)].items():
+        for d, (des, q_value) in self.Q_table[self.to_hashable(init)].items():
             if q_value > max_q:
                 max_choice = d
                 max_q = q_value
@@ -88,7 +103,34 @@ class QLearningParamGenerator(ParamGenerator):
             raise RuntimeError("Unknown policy: %s" % policy)
         return self.map_from_hidden(des), direction
 
+    def diameter(self):
+        raise NotImplementedError()
 
+    def get_directions_from(self, init, may_be_self):
+        ret = []
+        if may_be_self != self:
+            return ret
+        for d in self.directions:
+            if self.to_hashable(d) in self.Q_table[self.to_hashable(init)]:
+                ret.append(d)
+        return ret
+
+    def get_next_via_direction(self, init, d):
+        if self.to_hashable(d) not in self.Q_table[self.to_hashable(init)]:
+            raise RuntimeError("Invalid direction")
+        return (self.Q_table[self.to_hashable(init)][self.to_hashable(d)][0], d)
+
+    def get_next(self, init, may_be_self):
+        # init = self.map_to_hidden(init)
+        # ds = self.get_directions_from(init, may_be_self)
+        # for d in ds:
+        #     try:
+        #         ret = self.get_next_via_direction(init, d)
+        #         yield self.map_from_hidden(ret[0]), ret[1]
+        #     except RuntimeError as e:
+        #         pass
+        if self == may_be_self:
+            yield self.get()
 
 class EntryGenerator(object):
     def get(self, *args, **kwargs):
@@ -99,27 +141,49 @@ class EntryGenerator(object):
 
 
 class SAEntryGenerator(EntryGenerator):
-    def __init__(self, eps, record_cls):
+    def __init__(self, eps, record_cls, steps=1, log_file="sa_entry_generator_record.log"):
         self.eps = eps
         self.entries = []
         self.visited = {}
         self.record_cls = record_cls
+        self.steps = steps
+        self.log_file = log_file
+        self.init_logger()
+        self.last_choice = None
+        self.last_value = 0.0
+        self.gen = self._get_next()
+    
+    def init_logger(self):
+        if self.log_file:
+            print("Logging to %s..." % self.log_file, flush=True)
+            self.logger = open(self.log_file, "a")
+        else:
+            print("Logging to %s..." % "devnull", flush=True)
+            self.logger = open(os.devnull, "w")
+
+    def init_param_generator(self, *args):
+        raise NotImplementedError()
+
+    def init_score_table(self, *args):
+        raise NotImplementedError()
 
     def calculate_p(self, x, best):
-        return np.exp((x - best) / 2 * (best + 1e-5))
+        return np.exp((x - best) / (2 * (best + 1e-5)))
 
-    def greedy(self):
-        return np.random.random() > self.eps
+    def greedy(self, cnt):
+        p = np.random.random()
+        q = (self.eps / (cnt//100+1))
+        return p > q
 
     def sa_select_entry(self, max_num=20):
         assert len(self.entries) > 0
-        topk = heapq.nlargest(min(max_num, len(self.entries)), self.entries)
+        topk = heapq.nsmallest(min(max_num, len(self.entries)), self.entries)
         cand = topk
         best_value = cand[0].value
         ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
 
         num_cand = len(cand)
-        for i in range(max_num):
+        for i in range(max_num//4):
             choice = np.random.randint(0, num_cand)
             if np.random.random() < ps[choice]:
                 return cand[i]
@@ -131,7 +195,7 @@ class SAEntryGenerator(EntryGenerator):
             if policy == "random" or not self.entries:
                 record = self.get_record(policy="random")
             elif policy == "q":
-                if self.greedy():
+                if self.greedy(i+1):
                     entry = self.sa_select_entry()
                     record = self.get_record(entry=entry, policy="q")
                 else:
@@ -152,14 +216,65 @@ class SAEntryGenerator(EntryGenerator):
         print("It seems hard to find new candidates...", flush=True)
         return self.entries[0].record
 
-    def feedback(self, record, value):
+    def update_score_table(self, value):
+        if self.last_choice is not None:
+            i = self.last_choice
+            if value > self.last_value:
+                self.score_table[i] += 1
+                self.score_table[i] = min(1.0, self.score_table[i])
+            elif value == self.last_value:
+                self.score_table[i] += 0.5
+                self.score_table[i] = min(1.0, self.score_table[i])
+            else:
+                self.score_table[i] -= 1
+                self.score_table[i] = max(0.0, self.score_table[i])
+            self.score_table = softmax(self.score_table)
+
+    def feedback(self, record, value, log_to_file=True):
         entry = Entry(record, value)
         self.visited[str(record)] = value
         heapq.heappush(self.entries, entry)
-        self.feedback_value(entry, value)
+        # self.feedback_value(entry, value)
+        self.update_score_table(value)
+        # store the record
+        log = json.dumps(entry.to_json())
+        if log_to_file:
+            print(log, file=self.logger, flush=True)
 
     def record_from_json(self, obj):
         raise NotImplementedError()
+
+    def clear(self, log_file):
+        self.entries = []
+        self.visited = {}
+        self.last_choice = None
+        self.last_value = 0.0
+        self.gen = self._get_next()
+        self.init_score_table()
+        self.log_file = log_file
+        self.logger.close()
+        self.init_logger()
+
+    def load_from_file(self, file_name):
+        print("Loading from file %s..." % file_name, flush=True)
+        # assert file_name != self.log_file, "Please do not use the same log file."
+        assert not self.entries, "Please clear the generator first (be caution!)."
+        count = 0
+        best = 0.0
+        with open(file_name, "r") as fin:
+            for line in fin:
+                count += 1
+                obj = json.loads(line)
+                record = self.record_from_json(obj["record"])
+                value = obj["value"]
+                best = max(value, best)
+                self.feedback(record, value, False)
+        print("Load %d entries! The best known is %f ms" % (
+            count, 1/(best+1e-10)*1e3), flush=True)
+
+    def get_best_entry(self):
+        assert self.entries
+        return self.entries[0]
 
     def get_record(self, entry=None, policy="random"):
         raise NotImplementedError()
@@ -170,11 +285,64 @@ class SAEntryGenerator(EntryGenerator):
     def valid(self, record):
         return True
 
+    def get_generators(self):
+        raise NotImplementedError()
+    
+    def get_records_mutate_one_generator(self, record, to_mutate, steps):
+        raise NotImplementedError()
+
+    def _get_next(self):
+        count = 0
+        while True:
+            if not self.entries:
+                self.last_choice = None
+                self.last_value = 0.0
+                count += 1
+                yield self.get()
+            else:
+                if self.greedy(count):
+                    entry = self.sa_select_entry()
+                    record = entry.record
+                    self.last_value = entry.value
+                    # select one generator
+                    has_output = False
+                    for i, gen_x in enumerate(self.get_generators()):
+                        # if np.random.random() > self.score_table[i]:
+                        #     continue
+                        self.last_choice = i
+                        for next_record in self.get_records_mutate_one_generator(
+                            record, gen_x, self.steps):
+                            if str(next_record) not in self.visited:
+                                if self.valid(next_record):
+                                    has_output = True
+                                    self.visited[str(next_record)] = 0.0
+                                    count += 1
+                                    yield next_record
+                    # fallback
+                    if not has_output:
+                        self.last_choice = None
+                        self.last_value = 0.0
+                        count += 1
+                        yield self.get()
+                else:
+                    self.last_choice = None
+                    self.last_value = 0.0
+                    count += 1
+                    yield self.get()
+
+    def refresh(self):
+        self.gen = self._get_next()
+
+    def get_next(self, policy=""):
+        if policy:
+            return self.get(policy=policy)
+        return next(self.gen)
+
 
 def find_optimized_parameters(
     match_results, schedule_gen, schedule_app,
         measure_opt, checker, trials, batch_size=32,
-        policy="random", builder=tg_parallel_builder_build,
+        policy="", builder=tg_parallel_builder_build,
         runner=pebble_local_runner_run):
     best_value = 1 / MAX_FLOAT
     best_params = None
@@ -187,10 +355,12 @@ def find_optimized_parameters(
     tic = time.time()
     for b in range(batch_num):
         print("Search round:", b, flush=True)
+        schedule_gen.refresh()
         params_lst = []
         for i in range(batch_size):
             if b * batch_size + i < trials:
-                params = schedule_gen.get(policy=policy)
+                # params = schedule_gen.get(policy=policy)
+                params = schedule_gen.get_next(policy=policy)
                 # print(str(params))
                 params_lst.append(params)
         assert params_lst
@@ -201,7 +371,8 @@ def find_optimized_parameters(
         for params, res in zip(params_lst, run_results):
             # print(res)
             value = 1 / np.mean([x.value for x in res.costs])  # use absolute performance
-            schedule_gen.feedback(params, value)
+            if value > 1 / MAX_FLOAT:  # valid results
+                schedule_gen.feedback(params, value)
             if value > best_value:
                 # print(np.mean([x.value for x in res.costs]))
                 # cost = evaluate_params(

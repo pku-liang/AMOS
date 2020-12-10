@@ -2,7 +2,7 @@ import tvm
 import numpy as np
 from .utils import *
 from ..target import *
-from ..search import QLearningParamGenerator, Entry, SAEntryGenerator
+from ..search import CDParamGenerator, Entry, SAEntryGenerator
 from ..recipe import OperationRole, RecipeStage, InstructionScope
 import heapq
 import json
@@ -89,23 +89,26 @@ class ScheduleComputeInfo(object):
 #####################################################
 # Target independent parameter generator
 #####################################################
-class SplitFactorGenerator(QLearningParamGenerator):
+class SplitFactorGenerator(CDParamGenerator):
     def __init__(self, extent, parts):
         assert isinstance(extent, int)
         factor_list = any_factor_split(extent, parts)
-        self.choices, self.factor_map, dim, self.sum_val = remap_factors(
+        self.choices, self.factor_map, dim, sum_val = remap_factors(
             factor_list)
+        self.choice_set = set([tuple(x) for x in self.choices])
         self.directions = get_directions(dim)
+        # self.directions = get_partial_directions(dim)
         self.reverse_map = {y: x for x, y in self.factor_map.items()}
         self.init_Q_table()
 
     def move_towards_direction(self, init, d):
         ret = []
+        sum_val = reduce(lambda x, y: x + y, init, 0)
         tmp_sum = 0
         for i, v in enumerate(d):
             ret.append(init[i] + v)
             tmp_sum += ret[-1]
-        ret.append(self.sum_val - tmp_sum)
+        ret.append(sum_val - tmp_sum)
         return ret
 
     def map_to_hidden(self, factors):
@@ -115,19 +118,23 @@ class SplitFactorGenerator(QLearningParamGenerator):
         return [self.factor_map[i] for i in init]
 
     def valid(self, init):
-        for v in init:
-            if not (0 <= v <= self.sum_val):
-                return False
-        return True
+        # for v in init:
+        #     if not (0 <= v <= self.sum_val):
+        #         return False
+        # return True
+        return tuple(init) in self.choice_set
+
+    def diameter(self):
+        return len(self.factor_map)
 
 
-class VectorizeLengthGenerator(QLearningParamGenerator):
+class VectorizeLengthGenerator(CDParamGenerator):
     def __init__(self, target, dtype):
         self.lengths = get_factor_lst(get_vector_length(target, dtype))
         self.choices = list(range(len(self.lengths)))
         self.length_map = {x: y for x, y in zip(self.choices, self.lengths)}
         self.reverse_map = {y: x for x, y in zip(self.choices, self.lengths)}
-        self.directions = [0, 1, -1]
+        self.directions = [1, -1]
         self.init_Q_table()
 
     def move_towards_direction(self, init, d):
@@ -143,14 +150,17 @@ class VectorizeLengthGenerator(QLearningParamGenerator):
     def map_from_hidden(self, init):
         return self.length_map[init]
 
+    def diameter(self):
+        return len(self.length_map)
 
-class UnrollStepGenerator(QLearningParamGenerator):
+
+class UnrollStepGenerator(CDParamGenerator):
     def __init__(self, steps):
         self.steps = steps
         self.choices = list(range(len(self.steps)))
         self.length_map = {x: y for x, y in zip(self.choices, self.steps)}
         self.reverse_map = {y: x for x, y in zip(self.choices, self.steps)}
-        self.directions = [0, 1, -1]
+        self.directions = [1, -1]
         self.init_Q_table()
 
     def move_towards_direction(self, init, d):
@@ -166,11 +176,14 @@ class UnrollStepGenerator(QLearningParamGenerator):
     def map_from_hidden(self, init):
         return self.length_map[init]
 
+    def diameter(self):
+        return len(self.length_map)
+
 
 #####################################################
 # Target specific parameter generator
 #####################################################
-class CUDAKernelParamGenerator(QLearningParamGenerator):
+class CUDAKernelParamGenerator(CDParamGenerator):
     pass
 
 
@@ -191,9 +204,11 @@ class AcceleratorScheduleGenerator(SAEntryGenerator):
         raise NotImplementedError()
 
 class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
-    def __init__(self, intrin_match_result, transform_state, eps=1e-1,
-            reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch=70):
-        super(CUDAScheduleGenerator, self).__init__(eps, CUDAParams)
+    def __init__(self, intrin_match_result, transform_state, eps=0.9,
+            reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch=70,
+            log_file="cuda_schedule_generator.log", steps=1):
+        super(CUDAScheduleGenerator, self).__init__(eps, CUDAParams,
+            steps=steps, log_file=log_file)
         self.init_recipe(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_recipe_stage(nodes)
@@ -213,6 +228,7 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
         self.warp_size = self.arch_info.get_warp_size()
         # params generator
         self.init_param_generator()
+        self.init_score_table()
 
     def init_recipe(self, intrin_match_result):
         recipe = intrin_match_result.recipe
@@ -325,7 +341,21 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
             self.recipe.target, self.main_op.input_tensors[0].dtype)
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
         self.unroll_last = UnrollStepGenerator([16, 64, 512, 1500])
-    
+        self.generator_lst = [
+            self.vectorize,
+            *self.spatial_splits,
+            *self.reduce_splits,
+            *self.last_splits,
+            self.unroll_output,
+            self.unroll_last
+        ]
+
+    def init_score_table(self):
+        self.score_table = softmax([0.5 for gen in self.generator_lst])
+
+    def get_generators(self):
+        return self.generator_lst
+
     def get_schedule_compute_info(self):
         return ScheduleComputeInfo(
             self.target_dag,
@@ -392,6 +422,70 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
                     hint=entry.record.last_unroll_step[0], policy="q"),
                 )
         return record
+
+    def get_records_mutate_one_generator(
+        self, record, to_mutate, steps):
+        vec = record.vectorize
+        spatial = record.spatial_factors
+        reduce = record.reduce_factors
+        last = record.last_factors
+        unroll_output = record.output_unroll_step
+        unroll_last = record.last_unroll_step
+
+        next_vec = self.vectorize.get_next(
+            vec[0], to_mutate)
+        next_spatial = [
+            gen.get_next(x[0], to_mutate) for gen, x in zip(
+                self.spatial_splits, spatial)
+        ]
+        next_reduce = [
+            gen.get_next(x[0], to_mutate) for gen, x in zip(
+                self.reduce_splits, reduce)
+        ]
+        next_last = [
+            gen.get_next(x[0], to_mutate) for gen, x in zip(
+                self.last_splits, last)
+        ]
+        next_unroll_output = self.unroll_output.get_next(
+            unroll_output[0], to_mutate
+        )
+        next_unroll_last = self.unroll_last.get_next(
+            unroll_last[0], to_mutate
+        )
+
+        has_mutate = False
+
+        def helper(_gen, org_val):
+            nonlocal has_mutate
+            try:
+                ret = next(_gen)
+                has_mutate = True
+            except StopIteration:
+                ret = org_val
+            return ret
+
+        for s in range(steps):
+            vec = helper(next_vec, vec)
+            spatial = [
+                helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)
+            ]
+            reduce = [
+                helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)
+            ]
+            last = [
+                helper(_gen, org_val) for _gen, org_val in zip(next_last, last)
+            ]
+            unroll_output = helper(next_unroll_output, unroll_output)
+            unroll_last = helper(next_unroll_last, unroll_last)
+            if has_mutate:
+                yield self.record_cls(
+                    vec,
+                    spatial,
+                    reduce,
+                    last,
+                    unroll_output,
+                    unroll_last)
+            has_mutate = False
 
     def feedback_value(self, entry, value):
         self.vectorize.feedback(*entry.record.vectorize, value)

@@ -30,8 +30,24 @@ def test_bi_product():
     print(len(ret))
 
 
+def test_partial_directions():
+    ret = get_partial_directions(3)
+    for v in ret:
+        print(v)
+    print(len(ret))
+
+
+def test_softmax():
+    ret = softmax([1, 2, 3])
+    print(ret)
+    ret = softmax([0])
+    print(ret)
+
+
 if __name__ == "__main__":
     test_split()
     test_remap()
     test_directions()
     test_bi_product()
+    test_partial_directions()
+    test_softmax()

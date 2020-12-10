@@ -8,3 +8,6 @@ class Entry(object):
     def __lt__(self, other):
         # to make a max-heap
         return self.value > other.value
+
+    def to_json(self):
+        return {"record": self.record.to_json(), "value": self.value}

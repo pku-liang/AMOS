@@ -1,4 +1,5 @@
 import math
+import numpy as np
 import tvm
 from ..capsule_base import construct_dag
 from itertools import permutations, product
@@ -88,8 +89,23 @@ def get_directions(dim):
     return list(product([-1, 0, 1], repeat=dim))
 
 
+def get_partial_directions(dim):
+    def worker(v):
+        def set_value(i):
+            d = [0 for _ in range(dim)]
+            d[i] = v
+            return d
+        return set_value
+    return list(map(worker(1), range(dim))) + list(map(worker(-1), range(dim)))
+
+
 def bi_product(repeat):
     return list(product([0, 1], repeat=repeat))
+
+
+def softmax(x):
+    e_x = np.exp(x - np.max(x))
+    return (e_x / (e_x.sum() + 1e-5)).tolist()
 
 
 ####################################################
