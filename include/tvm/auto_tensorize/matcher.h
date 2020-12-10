@@ -33,7 +33,9 @@ class RecipeDAGMatcher : public Object {
   private:
     MatchResult results;
     BufferMap buffer_map;
-    bool _match(Tensor target, Tensor intrin, Operation main_capsule);
+    bool _match(Tensor target, Tensor intrin, Operation main_capsule, 
+                Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
+    Map<IterVar, Range> _infer_bounds(Operation out);
     Array<IterVar> _extract_axes_from_op(const ComputeOpNode* op);
     bool _check_elemwise(const ComputeOpNode* op, Array<Array<PrimExpr>>& indices);
 };
@@ -42,8 +44,8 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
  public:
   using ExprFunctor::VisitExpr;
   CapsuleExprMatcher(BufferMap& bm): buffer_map(bm) {};
-  Array<IterVarMap> match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, 
-                          Array<IterVar> &intrin_axes);
+  Array<IterVarMap> match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, Array<IterVar> &intrin_axes, 
+                          Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
   void extract_indices(PrimExpr target, PrimExpr intrin, Array<Array<PrimExpr>>& target_indices,
                        Array<Array<PrimExpr>>& intrin_indices);
 
@@ -330,17 +332,24 @@ class IndexExprMatcher : public ExprVisitor {
   public:
     IndexExprMatcher();
     Array<IterVarMap> match(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices, 
-                            Array<IterVar>& target_axes, Array<IterVar>& intrin_axes);
+                            Array<IterVar>& target_axes, Array<IterVar>& intrin_axes, 
+                            Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
   private:
     bool _match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx);
     bool _match_indices(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices);
-    Array<Array<PrimExpr>> _rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map);
+    Array<Array<PrimExpr>> _rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map, 
+                                            Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
 };
 
 class IterVarRewriter final : public ExprMutator {
  public:
   using ExprMutator::VisitExpr;
-  IterVarRewriter(IterVarMap &itervar_map) : itervar_map(itervar_map) {}
+  IterVarRewriter(IterVarMap &itervar_map, Map<IterVar, Range> &bounds) : itervar_map(itervar_map) {
+    for (auto it : bounds) {
+      const VarNode* var = it.first.get()->var.get();
+      this->bounds.Set(var, it.second);
+    }
+  }
  protected:
   using ExprMutator::VisitExpr_;
   PrimExpr VisitExpr_(const VarNode* op) {
@@ -348,10 +357,13 @@ class IterVarRewriter final : public ExprMutator {
       if (op != item.first.get()->var.get()) continue;
       return item.second;
     }
-    return make_zero(op->dtype);
+    // return make_zero(op->dtype);
+    return bounds[op].get()->min;
   }
+
  private:
   IterVarMap &itervar_map;
+  Map<const VarNode*, Range> bounds;
 };
 
 }  // namespace auto_tensorize
