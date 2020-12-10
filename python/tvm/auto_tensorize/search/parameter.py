@@ -1,17 +1,24 @@
 import numpy as np
 import time
+import heapq
 from .measure import *
+from .record import Entry
 
 
-class FlipFlopParamGenerator(object):
-    def get(self):
+
+class ParamGenerator(object):
+    def get(self, *args, **kwargs):
         raise NotImplementedError()
 
-    def feedback(self):
+    def feedback(self, *args, **kwargs):
         raise NotImplementedError()
 
 
-class QLearningParamGenerator(object):
+class FlipFlopParamGenerator(ParamGenerator):
+    pass
+
+
+class QLearningParamGenerator(ParamGenerator):
     def init_Q_table(self):
         self.Q_table = {}
         for x in self.choices:
@@ -82,8 +89,90 @@ class QLearningParamGenerator(object):
         return self.map_from_hidden(des), direction
 
 
+
+class EntryGenerator(object):
+    def get(self, *args, **kwargs):
+        raise NotImplementedError()
+    
+    def feedback(self, *args, **kwargs):
+        raise NotImplementedError()
+
+
+class SAEntryGenerator(EntryGenerator):
+    def __init__(self, eps, record_cls):
+        self.eps = eps
+        self.entries = []
+        self.visited = {}
+        self.record_cls = record_cls
+
+    def calculate_p(self, x, best):
+        return np.exp((x - best) / 2 * (best + 1e-5))
+
+    def greedy(self):
+        return np.random.random() > self.eps
+
+    def sa_select_entry(self, max_num=20):
+        assert len(self.entries) > 0
+        topk = heapq.nlargest(min(max_num, len(self.entries)), self.entries)
+        cand = topk
+        best_value = cand[0].value
+        ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
+
+        num_cand = len(cand)
+        for i in range(max_num):
+            choice = np.random.randint(0, num_cand)
+            if np.random.random() < ps[choice]:
+                return cand[i]
+        # no chosen, return the best
+        return cand[0]
+
+    def get(self, policy="random", repeat=False, max_trial=100):
+        for i in range(max_trial):
+            if policy == "random" or not self.entries:
+                record = self.get_record(policy="random")
+            elif policy == "q":
+                if self.greedy():
+                    entry = self.sa_select_entry()
+                    record = self.get_record(entry=entry, policy="q")
+                else:
+                    record = self.get_record(policy="random")
+            elif policy == "greedy":
+                return self.entries[0]
+            else:
+                raise RuntimeError("Unknown policy: %s" % policy)
+            if str(record) not in self.visited:
+                if self.valid(record):
+                    self.visited[str(record)] = 0.0
+                    return record
+            elif repeat:
+                self.feedback(record, self.visited[str(record)])
+                return record
+            else:
+                self.feedback(record, self.visited[str(record)])
+        print("It seems hard to find new candidates...", flush=True)
+        return self.entries[0].record
+
+    def feedback(self, record, value):
+        entry = Entry(record, value)
+        self.visited[str(record)] = value
+        heapq.heappush(self.entries, entry)
+        self.feedback_value(entry, value)
+
+    def record_from_json(self, obj):
+        raise NotImplementedError()
+
+    def get_record(self, entry=None, policy="random"):
+        raise NotImplementedError()
+
+    def feedback_value(self, entry, value):
+        raise NotImplementedError()
+
+    def valid(self, record):
+        return True
+
+
 def find_optimized_parameters(
-    match_results, transform_state, schedule_gen, schedule_app,
+    match_results, schedule_gen, schedule_app,
         measure_opt, checker, trials, batch_size=32,
         policy="random", builder=tg_parallel_builder_build,
         runner=pebble_local_runner_run):
@@ -114,10 +203,18 @@ def find_optimized_parameters(
             value = 1 / np.mean([x.value for x in res.costs])  # use absolute performance
             schedule_gen.feedback(params, value)
             if value > best_value:
+                # print(np.mean([x.value for x in res.costs]))
+                # cost = evaluate_params(
+                #     schedule_app,
+                #     params,
+                #     measure_opt)
+                # print("Re-evaluate: %f ms" % cost, flush=True)
                 best_value = value
                 best_params = params
         print("Current best timecost: ", 1/best_value*1e3, "ms", flush=True)
+        if best_params is not None:
+            print("Current best params:\n", best_params.to_json(), flush=True)
     toc = time.time()
-    print("Search %d trials costs %f seconds" % (trials, toc - tic))
+    print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
         

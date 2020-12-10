@@ -21,7 +21,7 @@ from collections import OrderedDict
 class MeasureOptions(object):
     def __init__(
         self, target="llvm", build_func="default", target_host="llvm", timeout=20,
-            verbose=1, number=10, repeat=1, min_repeat_ms=150,
+            verbose=1, number=100, repeat=1, min_repeat_ms=150,
             cooldown_interval=1, enable_cpu_cache_flush=1,
             dev_id=0, use_rpc=False, key=None, host=None, port=None, priority=1):
         self.target = target
@@ -42,6 +42,7 @@ class MeasureOptions(object):
         self.priority = priority
 
 
+EVALUTE_INPUTS = None
 GLOBAL_BUILD_INPUTS = None
 GLOBAL_RUN_INPUTS = None
 GLOBAL_RPC_RUN_INPUTS = None
@@ -73,6 +74,68 @@ def get_tvm_arrays(tensors, ctx):
         tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
+
+
+def evaluate_schedule(sch, args, measure_opt):
+    target = measure_opt.target
+    dev_id = measure_opt.dev_id
+    number = measure_opt.number
+    min_repeat_ms = measure_opt.min_repeat_ms
+    ctx = tvm.context(target, dev_id)
+    arrays = get_tvm_arrays(args, ctx)
+    func = tvm.build(sch, args, target=target)
+    evaluator = func.time_evaluator(
+        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
+    ctx.sync()
+    cost = evaluator(*arrays).mean * 1e3
+    return cost
+
+
+def evaluate_params_worker(dump):
+    global EVALUTE_INPUTS
+    schedule_app, params, measure_opt = EVALUTE_INPUTS
+    target = measure_opt.target
+    dev_id = measure_opt.dev_id
+    number = measure_opt.number
+    min_repeat_ms = measure_opt.min_repeat_ms
+
+    target_dag = schedule_app.target_dag
+    inputs = target_dag.get_inputs()
+    args = inputs + list(target_dag.tensors)
+    sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    try:
+        sch = schedule_app.apply(sch, params)
+        if dump:
+            print(tvm.lower(sch, args, simple_mode=True), flush=True)
+        cost = evaluate_schedule(sch, args, measure_opt)
+    except Exception as e:
+        print("Bad params, error message:", flush=True)
+        print(auto_scheduler.measure.make_error_msg(), flush=True)
+        cost = MAX_FLOAT
+    return cost
+
+
+def evaluate_params(schedule_app, params, measure_opt, timeout=100, dump=False):
+    global EVALUTE_INPUTS
+    EVALUTE_INPUTS = (schedule_app, params, measure_opt)
+    with ProcessPool(1) as pool:
+        future = pool.map(evaluate_params_worker, [dump], timeout=100)
+        iterator = future.result()
+
+        while True:
+            try:
+                results = next(iterator)
+            except StopIteration:
+                break
+            except TimeoutError as error:
+                print("Evaluate Timeout.", flush=True)
+                results = MAX_FLOAT
+            except Exception as error:
+                print("Evaluate Fatal Error\n",
+                       auto_scheduler.measure.make_error_msg(), flush=True)
+                results = MAX_FLOAT
+            
+    return results
 
 # this is similar to auto_scheduler
 # we modify existing measure functions to adapt to auto_tensorize
@@ -307,6 +370,7 @@ def pebble_local_run_worker(index):
                     random_fill(arg)
                 ctx.sync()
                 costs = time_f(*args).results
+                # print("peek costs:", costs, flush=True)
             # pylint: disable=broad-except
             except Exception:
                 costs = (MAX_FLOAT,)

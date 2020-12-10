@@ -27,7 +27,14 @@ add_executable(cublas_gemm_benchmark
 
 target_link_libraries(cublas_gemm_benchmark -lcublas -lcurand)
 
-# cublas_gemv_benchmark
+# cublas_gemv_benchmark_noTC, invoking cublasSgemv without tensor core
+add_executable(cublas_gemv_benchmark_noTC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_gemv_bench_noTC.cu
+)
+
+target_link_libraries(cublas_gemv_benchmark_noTC -lcublas -lcurand)
+
+# cublas_gemv_benchmark, converting to gemm for computation
 add_executable(cublas_gemv_benchmark
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_gemv_bench.cu
 )

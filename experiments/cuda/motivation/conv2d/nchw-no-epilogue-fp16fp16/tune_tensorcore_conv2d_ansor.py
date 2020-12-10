@@ -66,7 +66,7 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
         lambda i, j, ii, jj:
             tvm.tir.if_then_else(
                 tvm.tir.all(i * m + ii < GM, j * k + jj < GK),
-                Pad[get_n(i * m + ii),
+                A[get_n(i * m + ii),
                   get_c(j * k + jj),
                   get_h(i * m + ii) * stride + get_r(j * k + jj),
                   get_w(i * m + ii) * stride + get_s(j * k + jj)],
@@ -299,7 +299,7 @@ if __name__ == "__main__":
     for batch in batches:
         results.append([])
         beg = 0
-        end = beg + 2
+        end = beg + 1
         for i, shape in enumerate(yolo_shapes_b1[beg:end]):
             _, C, H, W, K, _, R, S, _, stride, padding, _, _ = shape
             N = batch

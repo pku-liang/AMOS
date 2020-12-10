@@ -1,17 +1,14 @@
 import tvm
 import numpy as np
-from .utils import any_factor_split, remap_factors, get_directions, get_factor_lst
-from .target import *
-from .compute_transform import TransformGenerator, TransformApplier, substitute_inputs
-from ..search import QLearningParamGenerator, Entry
-from ..capsule_base import construct_dag
+from .utils import *
+from ..target import *
+from ..search import QLearningParamGenerator, Entry, SAEntryGenerator
 from ..recipe import OperationRole, RecipeStage, InstructionScope
-from functools import reduce
 import heapq
 import json
 
 
-class State(object):
+class CUDAState(object):
     def __init__(
             self, inlined, main_op_reduce_axis,
             output_op_axis, last_op_axis, tensorize_iter):
@@ -22,11 +19,11 @@ class State(object):
         self.tensorize_iter = tensorize_iter
 
 
-def empty_state():
-    return State(set(), [], [], [], {})
+def empty_cuda_state():
+    return CUDAState(set(), [], [], [], {})
 
 
-class Params(object):
+class CUDAParams(object):
     def __init__(
             self, vectorize, spatial_factors, reduce_factors,
             last_factors, output_unroll_step, last_unroll_step):
@@ -71,20 +68,22 @@ class Params(object):
         return json.dumps(new_obj)
 
 
-def empty_params():
-    return Params(None, [], [], [], None, None)
+def empty_cuda_params():
+    return CUDAParams(None, [], [], [], None, None)
 
 
 class ScheduleComputeInfo(object):
     def __init__(
         self, target_dag, main_op, output_op,
-            main_op_id, output_op_id, recipe_stage):
+            main_op_id, output_op_id, recipe_stage,
+            **kwargs):
         self.target_dag = target_dag
         self.main_op = main_op
         self.output_op = output_op
         self.main_op_id = main_op_id
         self.output_op_id = output_op_id
         self.recipe_stage = recipe_stage
+        self.kwargs = kwargs
 
 
 #####################################################
@@ -175,45 +174,47 @@ class CUDAKernelParamGenerator(QLearningParamGenerator):
     pass
 
 
-####################################################
-# tools
-####################################################
-def reconstruct_dag_as_intrin(
-        target_dag, main_op, recipe, compute_key, shape_key):
-    inputs = list(main_op.input_tensors)
-    outputs = [main_op.output(0)]
-    # TODO: consider elem op in dag construction
-    input_names, output_names, nodes, read_graph, feed_graph = \
-        construct_dag(
-            recipe, compute_key, shape_key, inputs, outputs, [], outputs)
-    output_tensors = reduce(
-        lambda x, y: x + y, [nodes[x] for x in output_names], [])
-    output = output_tensors[0]
-    replace_map = {main_op: output.op}
-    result_dag = substitute_inputs(target_dag, replace_map)
-    return (result_dag,
-            (input_names, output_names, nodes, read_graph, feed_graph))
-
-
-def can_inline(op, dag):
-    """
-    op: tvm.te.Operation
-    dag: ComputeDAG
-    """
-    if op not in dag.feed_graph:
-        return False
-    if not isinstance(op, tvm.te.ComputeOp):
-        return False
-    if len(op.reduce_axis) > 0:
-        return False
-    return True
-
 
 #####################################################
 # Target specific schedule generator and applier
 #####################################################
-class CUDAScheduleGenerator(object):
-    def __init__(self, intrin_match_result, transform_state, eps=1e-1):
+""" We aim to design special scheduler for tensorize.
+    So we only accept a particular structure of input DAG.
+    The input DAG only has one intrinsic match point,
+    the other nodes in the DAG should not contain reduction.
+    For other kind of input DAG, a previous dispatcher should
+    cut the DAG into proper sub-DAGs and assign those we don't
+    handle to other schedulers such as Ansor, FlexTensor, or AutoTVM.
+"""
+class AcceleratorScheduleGenerator(SAEntryGenerator):
+    def get_schedule_compute_info(self):
+        raise NotImplementedError()
+
+class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
+    def __init__(self, intrin_match_result, transform_state, eps=1e-1,
+            reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch=70):
+        super(CUDAScheduleGenerator, self).__init__(eps, CUDAParams)
+        self.init_recipe(intrin_match_result)
+        nodes = self.init_target_dag(transform_state)
+        self.init_recipe_stage(nodes)
+        # get main op id and output op id
+        self.main_op_id = 0
+        self.output_op_id = 0
+        for i, op in enumerate(self.target_dag.op_lst):
+            if op == self.main_op:
+                self.main_op_id = i
+            elif op == self.output_op:
+                self.output_op_id = i
+        # constants
+        self.reduce_tiling_parts = reduce_tiling
+        self.spatial_tiling_parts = spatial_tiling
+        self.last_op_tiling_parts = last_tiling
+        self.arch_info = CUDA(arch=arch)
+        self.warp_size = self.arch_info.get_warp_size()
+        # params generator
+        self.init_param_generator()
+
+    def init_recipe(self, intrin_match_result):
         recipe = intrin_match_result.recipe
         compute_key = intrin_match_result.compute_key
         shape_key = intrin_match_result.shape_key
@@ -221,9 +222,8 @@ class CUDAScheduleGenerator(object):
         self.compute_key = compute_key
         self.shape_key = shape_key
 
-        self.eps = eps
-
-         # get main op
+    def init_target_dag(self, transform_state):
+        # get main op
         target_main_op = None
         for k, v in transform_state.main_op_map.items():
             target_main_op = v
@@ -232,21 +232,24 @@ class CUDAScheduleGenerator(object):
         self.target_dag, info = reconstruct_dag_as_intrin(
             transform_state.target_dag,
             target_main_op,
-            recipe,
-            compute_key,
-            shape_key)
+            self.recipe,
+            self.compute_key,
+            self.shape_key)
         # nodes: dict {capsule name : new tensor}
         (_, _, nodes, _, _) = info
         # get new main op
-        self.main_op = nodes[recipe.main_capsule_name][0].op
+        self.main_op = nodes[self.recipe.main_capsule_name][0].op
+        return nodes
+
+    def init_recipe_stage(self, nodes):
         ###################################
         # fill the recipe stage info
         # analyze the intrinsic dag
         def cond(cur):
-            if cur in recipe.capsules:
+            if cur in self.recipe.capsules:
                 return True
             return False
-        capsule_names, read_graph, feed_graph = recipe.serialize_dag(
+        capsule_names, read_graph, feed_graph = self.recipe.serialize_dag(
             cond1=cond)
 
         operation_role = {}
@@ -262,8 +265,8 @@ class CUDAScheduleGenerator(object):
             op = nodes[name][0].op
             capsule_map[op] = name
             spatial_axis, reduce_axis = \
-                recipe.get_capsule_compute_reserve_axis(
-                    compute_key, shape_key, name)
+                self.recipe.get_capsule_compute_reserve_axis(
+                    self.compute_key, self.shape_key, name)
             reserve_inner_axis_count[op] = len(spatial_axis)
             if name not in read_graph:
                 operation_role[op] = OperationRole.load_op
@@ -272,7 +275,7 @@ class CUDAScheduleGenerator(object):
                 operation_role[op] = OperationRole.output_op
                 store_to_shared[op] = 0
                 self.output_op = op
-            elif name == recipe.main_capsule_name:
+            elif name == self.recipe.main_capsule_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
                     main_op_reserve_reduce_axis.append(
@@ -280,46 +283,21 @@ class CUDAScheduleGenerator(object):
                     main_op_reserve_reduce_axis_factor.append(
                         int(red.dom.extent))
         assert self.output_op is not None
-        # get main op id and output op id
-        self.main_op_id = 0
-        self.output_op_id = 0
-        for i, op in enumerate(self.target_dag.op_lst):
-            if op == self.main_op:
-                self.main_op_id = i
-            elif op == self.output_op:
-                self.output_op_id = i
         # construct recipe stage
         self.recipe_stage = RecipeStage(
             operation_role,
-            recipe.target,
-            recipe.get_name(),
-            compute_key,
-            shape_key,
+            self.recipe.target,
+            self.recipe.get_name(),
+            self.compute_key,
+            self.shape_key,
             capsule_map,
             reserve_inner_axis_count,
             main_op_reserve_reduce_axis,
             main_op_reserve_reduce_axis_factor,
             load_from_shared,
             store_to_shared,
-            recipe.scope
+            self.recipe.scope
         )
-        # constants
-        self.reduce_tiling_parts = 3
-        self.spatial_tiling_parts = 3
-        self.last_op_tiling_parts = 3
-        self.warp_size = 32
-        # params generator
-        self.reduce_splits = []
-        self.spatial_splits = []
-        self.last_splits = []
-        self.vectorize = None
-        self.unroll_output = None
-        self.unroll_last = None
-        self.init_param_generator()
-
-        self.entries = []
-        self.visited = {}
-        self.record_cls = Params
 
     def init_param_generator(self):
         self.reduce_splits = []
@@ -355,56 +333,31 @@ class CUDAScheduleGenerator(object):
             self.output_op,
             self.main_op_id,
             self.output_op_id,
-            self.recipe_stage
+            self.recipe_stage,
+            spatial_tiling = self.spatial_tiling_parts,
+            reduce_tiling = self.reduce_tiling_parts,
+            last_tiling = self.last_op_tiling_parts
         )
 
-    def calculate_p(self, x, best):
-        return np.exp((x - best) / 2 * (best + 1e-5))
-
-    def greedy(self):
-        return np.random.random() > self.eps
-
     def valid(self, record):
+        max_warps = self.arch_info.max_threads() // self.warp_size
+        max_blocks = self.arch_info.max_blocks()
         warp_num = 1
         block_num = 1
         for factors in record.spatial_factors:
             warp_num *= factors[0][-2]
             block_num *= factors[0][0]
-        if warp_num > 32:
+        if warp_num > max_warps:
             return False
-        if block_num > 2**16:
+        if block_num > max_blocks:
             return False
         warp_num = record.last_factors[0][0][-1]
-        if warp_num > 32:
+        if warp_num > max_warps:
             return False
         block_num = record.last_factors[0][0][0]
-        if block_num > 2**16:
+        if block_num > max_blocks:
             return False
         return True
-
-    def sa_select_entry(self, max_num=20):
-        assert len(self.entries) > 0
-        # cand = []
-        # ps = []
-        # best_value = self.entries[0].value
-        # for i in range(min(max_num, len(self.entries))):
-        #     ele = heapq.heappop(self.entries)
-        #     cand.append(ele)
-        #     ps.append(self.calculate_p(ele.value, best_value))
-        # for c in cand:
-        #     heapq.heappush(self.entries, c)
-        topk = heapq.nlargest(min(max_num, len(self.entries)), self.entries)
-        cand = topk
-        best_value = cand[0].value
-        ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
-
-        num_cand = len(cand)
-        for i in range(max_num):
-            choice = np.random.randint(0, num_cand)
-            if np.random.random() < ps[choice]:
-                return cand[i]
-        # no chosen, return the best
-        return cand[0]
 
     def record_from_json(self, obj):
         return self.record_cls(
@@ -415,60 +368,32 @@ class CUDAScheduleGenerator(object):
             obj["output_unroll_step"],
             obj["last_unroll_step"])
 
-    def get(self, policy="random", repeat=False, max_trial=100):
-        for i in range(max_trial):
-            if policy == "random" or not self.entries:
-                record = self.record_cls(
-                    self.vectorize.get(policy="random"),
-                    [gen.get(policy="random") for gen in self.spatial_splits],
-                    [gen.get(policy="random") for gen in self.reduce_splits],
-                    [gen.get(policy="random") for gen in self.last_splits],
-                    self.unroll_output.get(policy="random"),
-                    self.unroll_last.get(policy="random"))
-            elif policy == "q":
-                if self.greedy():
-                    entry = self.sa_select_entry()
-                    record = self.record_cls(
-                        self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
-                        [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                            self.spatial_splits, entry.record.spatial_factors)],
-                        [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                            self.reduce_splits, entry.record.reduce_factors)],
-                        [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                            self.last_splits, entry.record.last_factors)],
-                        self.unroll_output.get(
-                            hint=entry.record.output_unroll_step[0], policy="q"),
-                        self.unroll_last.get(
-                            hint=entry.record.last_unroll_step[0], policy="q"),
-                        )
-                else:
-                    record = self.record_cls(
-                        self.vectorize.get(policy="random"),
-                        [gen.get(policy="random") for gen in self.spatial_splits],
-                        [gen.get(policy="random") for gen in self.reduce_splits],
-                        [gen.get(policy="random") for gen in self.last_splits],
-                        self.unroll_output.get(policy="random"),
-                        self.unroll_last.get(policy="random"))
-            elif policy == "greedy":
-                return self.entries[0]
-            else:
-                raise RuntimeError("Unknown policy: %s" % policy)
-            if str(record) not in self.visited:
-                if self.valid(record):
-                    self.visited[str(record)] = 0.0
-                    return record
-            elif repeat:
-                self.feedback(record, self.visited[str(record)])
-                return record
-            else:
-                self.feedback(record, self.visited[str(record)])
-        print("It seems hard to find new candidates...", flush=True)
-        return self.entries[0].record
+    def get_record(self, entry=None, policy="random"):
+        if entry is None:
+            record = self.record_cls(
+                self.vectorize.get(policy=policy),
+                [gen.get(policy=policy) for gen in self.spatial_splits],
+                [gen.get(policy=policy) for gen in self.reduce_splits],
+                [gen.get(policy=policy) for gen in self.last_splits],
+                self.unroll_output.get(policy=policy),
+                self.unroll_last.get(policy=policy))
+        else:
+            record = self.record_cls(
+                self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
+                [gen.get(hint=x[0], policy="q") for gen, x in zip(
+                    self.spatial_splits, entry.record.spatial_factors)],
+                [gen.get(hint=x[0], policy="q") for gen, x in zip(
+                    self.reduce_splits, entry.record.reduce_factors)],
+                [gen.get(hint=x[0], policy="q") for gen, x in zip(
+                    self.last_splits, entry.record.last_factors)],
+                self.unroll_output.get(
+                    hint=entry.record.output_unroll_step[0], policy="q"),
+                self.unroll_last.get(
+                    hint=entry.record.last_unroll_step[0], policy="q"),
+                )
+        return record
 
-    def feedback(self, record, value):
-        entry = Entry(record, value)
-        self.visited[str(record)] = value
-        heapq.heappush(self.entries, entry)
+    def feedback_value(self, entry, value):
         self.vectorize.feedback(*entry.record.vectorize, value)
         for gen, factors in zip(self.spatial_splits, entry.record.spatial_factors):
             gen.feedback(*factors, value)
@@ -481,7 +406,7 @@ class CUDAScheduleGenerator(object):
 
 
 class CUDAScheduleApplier(object):
-    def __init__(self, intrin_match_result, schedule_compute_info):
+    def __init__(self, intrin_match_result, schedule_compute_info, arch=70):
         self.intrin_match_result = intrin_match_result
         # get match recipe info
         recipe = intrin_match_result.recipe
@@ -498,37 +423,20 @@ class CUDAScheduleApplier(object):
         self.output_op_id = schedule_compute_info.output_op_id
         self.recipe_stage = schedule_compute_info.recipe_stage
         # the state during schedule
-        # this is only used to guide primitive combination
-        # self.state = {
-        #     "inlined": set(),
-        #     "main_op_reduce_axis": [],
-        #     "output_op_axis": [],
-        #     "last_op_axis": [],
-        #     "tensorize_iter": {}
-        # }
-        self.state = empty_state()
+        self.state = empty_cuda_state()
         # the parameters during schedule
-        # this is only used to provide paramters
-        # self.params = {
-        #     "vectoirze": None,
-        #     "spatial_factors": [],
-        #     "reduce_factors": [],
-        #     "last_factors": [],
-        #     "output_unroll_step": None,
-        #     "last_unroll_step": None
-        # }
-        self.params = empty_params()
+        self.params = empty_cuda_params()
         # some constants
-        self.warp_size = 32
+        self.warp_size = CUDA(arch=arch).get_warp_size()
         self.bx = tvm.te.thread_axis("blockIdx.x")
         self.ty = tvm.te.thread_axis("threadIdx.y")
         self.tx = tvm.te.thread_axis("threadIdx.x")
         self.obx = tvm.te.thread_axis("blockIdx.x")
         self.oty = tvm.te.thread_axis("threadIdx.y")
         self.otx = tvm.te.thread_axis("threadIdx.x")
-        self.reduce_tiling_parts = 3
-        self.spatial_tiling_parts = 3
-        self.last_op_tiling_parts = 3
+        self.reduce_tiling_parts = schedule_compute_info.kwargs["reduce_tiling"]
+        self.spatial_tiling_parts = schedule_compute_info.kwargs["spatial_tiling"]
+        self.last_op_tiling_parts = schedule_compute_info.kwargs["last_tiling"]
 
     def initialize_state(self):
         # self.state = {
@@ -538,7 +446,7 @@ class CUDAScheduleApplier(object):
         #     "last_op_axis": [],
         #     "tensorize_iter": {}
         # }
-        self.state = empty_state()
+        self.state = empty_cuda_state()
 
     def initialize_parameters(self, params):
         self.params = params
@@ -548,6 +456,17 @@ class CUDAScheduleApplier(object):
             assert isinstance(self.state.main_op_reduce_axis[0], list)
             assert len(self.state.main_op_reduce_axis[0]) > 0
             return self.state.main_op_reduce_axis[0][-1]
+        else:
+            # no reduce axis
+            # print(self.state.main_op_reduce_axis)
+            # print(self.main_op.body)
+            raise RuntimeError("No reduce axis in main op.")
+
+    def get_main_op_outermost_first_reduce_axis(self):
+        if len(self.state.main_op_reduce_axis) > 0:
+            assert isinstance(self.state.main_op_reduce_axis[0], list)
+            assert len(self.state.main_op_reduce_axis[0]) > 0
+            return self.state.main_op_reduce_axis[0][0]
         else:
             # no reduce axis
             # print(self.state.main_op_reduce_axis)
@@ -782,12 +701,8 @@ class CUDAScheduleApplier(object):
             final_axis = [[x] for x in fused_axis]
             sch[X(op)].bind(fused_axis[0], self.bx)
             # the intermediate bind to vthread
-            for med_fused in fused_axis[1:-1]:
-                sch[X(op)].bind(med_fused, tvm.te.thread_axis("vthread"))
-            # from tvm.te import schedule
-            # s = sch.normalize()
-            # bounds = schedule.InferBound(s)
-            # print(bounds[fused_axis[-1]])
+            # for med_fused in fused_axis[1:-1]:
+            #     sch[X(op)].bind(med_fused, tvm.te.thread_axis("vthread"))
             sch[X(op)].bind(fused_axis[-1], self.ty)
             # thread level intrinsic, still bind to thread x
             if self.recipe_stage.instruction_scope == InstructionScope.thread:
@@ -841,7 +756,7 @@ class CUDAScheduleApplier(object):
             sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
             # sch[X(op)].pragma(axis, "unroll_explicit", 0)
         elif op == self.main_op:
-            axis = self.get_main_op_outermost_last_reduce_axis()
+            axis = self.get_main_op_outermost_first_reduce_axis()
             # reuse output op unroll step
             step = self.get_output_op_unroll_step()
             sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
@@ -888,34 +803,3 @@ class CUDAScheduleApplier(object):
                 for prim in primitives:
                     prim(total_op - op_id - 1, op, sch, X)
         return sch
-
-
-def auto_schedule(intrin_match_result, transform_state):
-    """We aim to design special scheduler for tensorize.
-       So we only accept a particular structure of input DAG.
-       The input DAG only has one intrinsic match point,
-       the other nodes in the DAG should not contain reduction.
-       For other kind of input DAG, a previous dispatcher should
-       cut the DAG into proper sub-DAGs and assign those we don't
-       handle to other schedulers such as Ansor, FlexTensor, or AutoTVM.
-    """
-    # TODO: add a checker to check if we can schedule the given DAG
-    target_main_op = None
-    for k, v in transform_state.main_op_map.items():
-        target_main_op = v
-    assert target_main_op is not None
-    for op in transform_state.target_dag.op_lst:
-        if len(op.reduce_axis) > 0 and op != target_main_op:
-            raise RuntimeError(
-                "We do not support scheduling for reduce op which is not main op.")
-    recipe = intrin_match_result.recipe
-    if recipe.target == "cuda":
-        pass
-    else:
-        raise RuntimeError("Target not supported: %s" % recipe.target)
-
-
-class ScheduleResult(object):
-    def __init__(self, schedule, schedule_steps):
-        self.schedule = schedule
-        self.schedule_steps = schedule_steps

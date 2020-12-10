@@ -1,7 +1,14 @@
 import math
+import tvm
+from ..capsule_base import construct_dag
 from itertools import permutations, product
+from functools import reduce
+from .. import _ffi_api
 
 
+####################################################
+# schedule parameter functions
+####################################################
 def get_factor_lst(value):
     assert isinstance(value, int)
     ret = []
@@ -85,36 +92,52 @@ def bi_product(repeat):
     return list(product([0, 1], repeat=repeat))
 
 
-def test_split():
-    lst = any_factor_split(1024, 4)
-    for v in lst:
-        print(v)
+####################################################
+# schedule helper tools
+####################################################
+def substitute_inputs(org_dag, op_map):
+    """Infer ranges for expressions
+
+    Parameters
+    ----------
+    org_dag: ComputeDAG
+    op_map: dict of {Operation: Operation}
+
+    Returns
+    -------
+    ComputeDAG
+    """
+    n = _ffi_api.SubstituteInputs(
+        org_dag, op_map)
+    return n
 
 
-def test_remap():
-    lst = any_factor_split(112, 2)
-    lst, fmap, dim, sum_val = remap_factors(lst)
-    for factors in lst:
-        print(factors, [fmap[x] for x in factors])
-    print(dim)
-    print(sum_val)
+def reconstruct_dag_as_intrin(
+        target_dag, main_op, recipe, compute_key, shape_key):
+    inputs = list(main_op.input_tensors)
+    outputs = [main_op.output(0)]
+    # TODO: consider elem op in dag construction
+    input_names, output_names, nodes, read_graph, feed_graph = \
+        construct_dag(
+            recipe, compute_key, shape_key, inputs, outputs, [], outputs)
+    output_tensors = reduce(
+        lambda x, y: x + y, [nodes[x] for x in output_names], [])
+    output = output_tensors[0]
+    replace_map = {main_op: output.op}
+    result_dag = substitute_inputs(target_dag, replace_map)
+    return (result_dag,
+            (input_names, output_names, nodes, read_graph, feed_graph))
 
 
-def test_directions():
-    ret = get_directions(3)
-    for v in ret:
-        print(v)
-
-
-def test_bi_product():
-    ret = bi_product(7)
-    for v in ret:
-        print(v)
-    print(len(ret))
-
-
-if __name__ == "__main__":
-    test_split()
-    test_remap()
-    test_directions()
-    test_bi_product()
+def can_inline(op, dag):
+    """
+    op: tvm.te.Operation
+    dag: ComputeDAG
+    """
+    if op not in dag.feed_graph:
+        return False
+    if not isinstance(op, tvm.te.ComputeOp):
+        return False
+    if len(op.reduce_axis) > 0:
+        return False
+    return True

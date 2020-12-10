@@ -1,4 +1,5 @@
 from .. import _ffi_api
+from ..target import *
 
 
 def get_buffer_size(scope, stmt):
@@ -29,13 +30,12 @@ class CUDAProgramChecker(Checker):
     def __init__(
         self,
         check_scope=CUDACheckScope.kThread,
-        max_shared_mem_bytes_per_block=2**16,
-        max_register_bytes_per_thread=255*4,
-        warp_size=32):
+        arch=70):
+        self.arch_info = CUDA(arch=arch)
         self.scope = check_scope
-        self.max_shared_mem_bytes_per_block = max_shared_mem_bytes_per_block
-        self.max_register_bytes_per_thread = max_register_bytes_per_thread
-        self.warp_size = warp_size
+        self.max_shared_mem_bytes_per_block = self.arch_info.get_shared_memory_bytes()
+        self.max_register_bytes_per_thread = self.arch_info.get_register_bytes_per_thread()
+        self.warp_size = self.arch_info.get_warp_size()
 
     def check_shared_memory(self, ir_module):
         for k, v in ir_module.functions.items():
