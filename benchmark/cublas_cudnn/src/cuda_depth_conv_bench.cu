@@ -65,8 +65,8 @@ template <typename T1, typename T2> class cudnnCNN {
   Tensor<float> fwd_workspace_;
   cudnnConvolutionFwdAlgo_t fwd_algo_;
 
-  const float alpha_ = 1.f;
-  const float beta_ = 0.f;
+  const T2 alpha_ = 1.f;
+  const T2 beta_ = 0.f;
 
   ConvolutionDescriptor<T2> conv_desc_;
   CudnnHandle cudnn_handle_;
