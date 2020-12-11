@@ -11,8 +11,8 @@ from itertools import product
 def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     pH = H + 2 * padding
     pW = W + 2 * padding
-    A = tvm.te.placeholder([N, C, H, W], dtype="float16", name="A")
-    B = tvm.te.placeholder([K, C, R, S], dtype="float16", name="B")
+    A = tvm.te.placeholder([N, C, H, W], dtype="float64", name="A")
+    B = tvm.te.placeholder([K, C, R, S], dtype="float64", name="B")
 
     Pad = tvm.te.compute(
         [N, C, pH, pW],
@@ -35,7 +35,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
         [N, K, P, Q],
         lambda n, k, p, q:
             tvm.te.sum((Pad[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
-                        ).astype("float16"), axis=[rc, rr, rs]),
+                        ).astype("float64"), axis=[rc, rr, rs]),
         name="Conv"
     )
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
@@ -47,13 +47,13 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp16fp16(
+def tensorize_tensorcore_fp64fp64(
     N, C, H, W, K, R, S, stride,
     padding, dilation, layer
 ):
-    recipe = at.WMMAFp16Fp16()
+    recipe = at.WMMAFp64Fp64()
     compute_key = "nnn"
-    shape_key = "16x16x16"
+    shape_key = "8x8x4"
     intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
@@ -122,7 +122,7 @@ def tensorize_tensorcore_fp16fp16(
 
 def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer):
-    tensorize_tensorcore_fp16fp16(
+    tensorize_tensorcore_fp64fp64(
         N, C, H, W, K, R, S, stride,
         padding, dilation, layer)
 

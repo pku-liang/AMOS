@@ -93,32 +93,94 @@ def transform_main_op(init, request):
     return n
 
 
+# class UnfoldChoiceGenerator(CDParamGenerator):
+#     def __init__(self, num_choices):
+#         self.choices = bi_product(num_choices)
+#         self.directions = []
+#         # d = [0 for _ in range(num_choices)]
+#         # self.directions.append(d)
+#         for i in range(num_choices):
+#             d = [0 for _ in range(num_choices)]
+#             d[i] = 1
+#             self.directions.append(d)
+#         self.init_Q_table()
+
+#     def map_to_hidden(self, factors):
+#         return factors
+
+#     def map_from_hidden(self, init):
+#         return init
+
+#     def move_towards_direction(self, init, d):
+#         ret = []
+#         for a, b in zip(init, d):
+#             ret.append((a + b) % 2)
+#         return ret
+
+#     def valid(self, init):
+#         return reduce(lambda x, y: x + y, init, 0) > 0
+
+
 class UnfoldChoiceGenerator(CDParamGenerator):
-    def __init__(self, num_choices):
-        self.choices = bi_product(num_choices)
-        self.directions = []
-        # d = [0 for _ in range(num_choices)]
-        # self.directions.append(d)
-        for i in range(num_choices):
-            d = [0 for _ in range(num_choices)]
-            d[i] = 1
-            self.directions.append(d)
+    def __init__(self, axis_map):
+        self.unfolds = []
+        value_map = {}
+        value = 1
+        k_value = 1
+        num_items = 0
+        for k, lst in axis_map.items():
+            tmp_num_items = len(lst)
+            if num_items:
+                assert num_items == tmp_num_items
+            num_items = tmp_num_items
+            for l in lst:
+                if l not in value_map:
+                    value_map[l] = value
+                    value *= 2
+            if k not in value_map:
+                value_map[k] = k_value
+                k_value *= 3
+        choices = bi_product(num_items)
+        visited = set()
+        for bit_vec in choices:
+            tmp_set = {}
+            for ind, v in enumerate(bit_vec):
+                if v:
+                    for k, lst in axis_map.items():
+                        if k not in tmp_set:
+                            tmp_set[k] = set()
+                        tmp_set[k].add(lst[ind])
+            if tmp_set:
+                unique_value = 0
+                for k, s in tmp_set.items():
+                    tmp_value = 0
+                    for v in s:
+                        tmp_value += value_map[v]
+                    unique_value += tmp_value * value_map[k]
+                if unique_value not in visited:
+                    visited.add(unique_value)
+                    self.unfolds.append(bit_vec)
+        
+        self.choices = list(range(len(self.unfolds)))
+        self.reverse_map = {
+            self.to_hashable(k): v for v, k in enumerate(self.unfolds)
+        }
+
+        self.directions = [1, -1]
         self.init_Q_table()
 
     def map_to_hidden(self, factors):
-        return factors
+        return self.reverse_map[self.to_hashable(factors)]
 
     def map_from_hidden(self, init):
-        return init
+        return self.unfolds[init]
 
     def move_towards_direction(self, init, d):
-        ret = []
-        for a, b in zip(init, d):
-            ret.append((a + b) % 2)
-        return ret
+        des = init + d
+        return des
 
     def valid(self, init):
-        return reduce(lambda x, y: x + y, init, 0) > 0
+        return 0 <= init < len(self.choices)
 
 
 class Record(object):
@@ -143,13 +205,15 @@ class TransformGenerator(SAEntryGenerator):
 
     def init_param_generator(self, intrin_match_result):
         assert isinstance(intrin_match_result, IntrinMatchResult)
-        match_point_num = -1
-        for k, v in intrin_match_result.axis_map.items():
-            match_len = len(v)
-            if match_point_num < 0:
-                match_point_num = match_len
-            assert match_point_num == match_len
-        self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
+        # match_point_num = -1
+        # for k, v in intrin_match_result.axis_map.items():
+        #     match_len = len(v)
+        #     if match_point_num < 0:
+        #         match_point_num = match_len
+        #     assert match_point_num == match_len
+        # self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
+        self.unfold_gen = UnfoldChoiceGenerator(
+            intrin_match_result.axis_map)
         self.generator_lst = [self.unfold_gen]
     
     def init_score_table(self):

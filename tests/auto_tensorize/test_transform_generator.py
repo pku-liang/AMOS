@@ -277,6 +277,7 @@ def test3():
     )
 
     gen = at.TransformGenerator(match_result)
+    print(len(gen.unfold_gen.choices))
     for i in range(10):
         record = gen.get_next()
         print(record.to_json())

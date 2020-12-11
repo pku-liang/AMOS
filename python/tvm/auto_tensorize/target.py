@@ -1,3 +1,4 @@
+import tvm
 
 
 supported_target = ["cuda", "opencl"]
@@ -13,7 +14,7 @@ def get_vector_bitwidth(target):
 
 def get_vector_length(target, dtype):
     bitwidth = get_vector_bitwidth(target)
-    width = int(dtype[-2:])
+    width = tvm.runtime.DataType(dtype).bits
     assert bitwidth % width == 0
     return min(bitwidth // width, 4)
 

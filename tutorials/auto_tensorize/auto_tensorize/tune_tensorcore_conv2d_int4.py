@@ -11,8 +11,8 @@ from itertools import product
 def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     pH = H + 2 * padding
     pW = W + 2 * padding
-    A = tvm.te.placeholder([N, C, H, W], dtype="float16", name="A")
-    B = tvm.te.placeholder([K, C, R, S], dtype="float16", name="B")
+    A = tvm.te.placeholder([N, C, H, W], dtype="int4", name="A")
+    B = tvm.te.placeholder([K, C, R, S], dtype="int4", name="B")
 
     Pad = tvm.te.compute(
         [N, C, pH, pW],
@@ -35,7 +35,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
         [N, K, P, Q],
         lambda n, k, p, q:
             tvm.te.sum((Pad[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
-                        ).astype("float16"), axis=[rc, rr, rs]),
+                        ).astype("int32"), axis=[rc, rr, rs]),
         name="Conv"
     )
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
@@ -47,13 +47,13 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp16fp16(
+def tensorize_tensorcore_s4s4(
     N, C, H, W, K, R, S, stride,
     padding, dilation, layer
 ):
-    recipe = at.WMMAFp16Fp16()
-    compute_key = "nnn"
-    shape_key = "16x16x16"
+    recipe = at.WMMAInt4Int32()
+    compute_key = "ntn"
+    shape_key = "8x8x32"
     intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
@@ -95,7 +95,7 @@ def tensorize_tensorcore_fp16fp16(
         schedule_gen.load_from_file(log_file)
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
-    trials = 400
+    trials = 100
     measure_opt = at.MeasureOptions(
         target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
@@ -122,7 +122,7 @@ def tensorize_tensorcore_fp16fp16(
 
 def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer):
-    tensorize_tensorcore_fp16fp16(
+    tensorize_tensorcore_s4s4(
         N, C, H, W, K, R, S, stride,
         padding, dilation, layer)
 
@@ -167,11 +167,11 @@ if __name__ == "__main__":
             N = batch
             print("\n\nProblem size:")
             print(N, C, H, W, K, R, S, stride, padding)
-            try:
-                run(
-                    N, C, H, W, K, R, S, stride,
-                    padding, dilation,
-                    i + beg + 1
-                )
-            except Exception as e:
-                print("Fail to run\n", str(e))
+            # try:
+            run(
+                N, C, H, W, K, R, S, stride,
+                padding, dilation,
+                i + beg + 1
+            )
+            # except Exception as e:
+            #     print("Fail to run\n", str(e))

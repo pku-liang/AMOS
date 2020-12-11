@@ -52,8 +52,12 @@ MAX_FLOAT = 1e10
 def get_np_arrays(tensors):
     ret = []
     for t in tensors:
+        dtype = t.dtype
+        if str(dtype) == "bfloat16":
+            # For now, just simply use float16
+            dtype = "float16"
         np_ary = np.random.uniform(-1, 1, [int(x)
-                                           for x in t.shape]).astype(t.dtype)
+                                           for x in t.shape]).astype(dtype)
         ret.append(np_ary)
     return ret
 
@@ -69,8 +73,12 @@ def get_tvm_arrays_from_np_arrays(arys, ctx):
 def get_tvm_arrays(tensors, ctx):
     ret = []
     for t in tensors:
+        dtype = t.dtype
+        if str(dtype) == "bfloat16":
+            # For now, just simply use float16
+            dtype = "float16"
         np_ary = np.random.uniform(-1, 1, [int(x)
-                                           for x in t.shape]).astype(t.dtype)
+                                           for x in t.shape]).astype(dtype)
         tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
@@ -367,6 +375,8 @@ def pebble_local_run_worker(index):
                 random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
                 assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
                 for arg in args:
+                    if str(arg.dtype) in ["int4"]:
+                        continue
                     random_fill(arg)
                 ctx.sync()
                 costs = time_f(*args).results
@@ -541,6 +551,8 @@ def pebble_rpc_run_worker(index):
                         "on the remote devices"
                     )
                 for arg in args:
+                    if str(arg.dtype) in ["int4"]:
+                        continue
                     random_fill(arg)
                 ctx.sync()
 

@@ -431,9 +431,9 @@ s[ConvF].tensorize(nnf, intrin_wmma_gemm())
 ir_module = tvm.lower(s, [A, W, Conv], simple_mode=True)
 print("Lowered IRModule")
 print(ir_module)
-# func = tvm.build(ir_module, target="cuda")
-# print("Source Code")
-# print(func.imported_modules[0].get_source())
+func = tvm.build(s, [A, W, Conv], target="cuda")
+print("Source Code")
+print(func.imported_modules[0].get_source())
 
 ###############################################################################
 # Generate CUDA Kernel

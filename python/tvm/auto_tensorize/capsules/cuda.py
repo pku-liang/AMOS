@@ -55,20 +55,20 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size)
-        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         data_alignments = [
-            elem_bytes * int(x[1]) for x in input_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in input_shapes]
+        offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
                 data_alignment=y, offset_factor=offset_factor)
             for x, y in zip(inputs, data_alignments)]
-        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
         data_alignments = [
-            elem_bytes * int(x[1]) for x in output_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in output_shapes]
+        offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="global",
@@ -270,23 +270,23 @@ class WMMAAddBias(ElementwiseComputeCapsule):
             input_dtypes, output_dtypes, problem_size
         )
 
-        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         a_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         b_elems = int(input_shapes[1][0]) * int(input_shapes[1][1])
         c_elems = int(output_shapes[0][0]) * int(output_shapes[0][1])
         data_alignments = [
-            elem_bytes * int(x[1]) for x in input_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in input_shapes]
+        offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
                 data_alignment=y, offset_factor=offset_factor)
             for x, y in zip(inputs, data_alignments)]
 
-        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
         data_alignments = [
-            elem_bytes * int(x[1]) for x in output_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in output_shapes]
+        offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
@@ -430,20 +430,20 @@ class WMMALoadMatrixSync(MemoryCapsule):
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size)
-        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         load_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         data_alignments = [
-            elem_bytes * int(x[1]) for x in input_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in input_shapes]
+        offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope=scope,
                 data_alignment=y, offset_factor=offset_factor)
             for x, y in zip(inputs, data_alignments)]
-        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
         data_alignments = [
-            elem_bytes * int(x[1]) for x in output_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in output_shapes]
+        offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
@@ -644,20 +644,20 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
             input_shapes, output_shapes,
             input_dtypes, output_dtypes, problem_size
         )
-        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         data_alignments = [
-            elem_bytes * int(x[1]) for x in input_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in input_shapes]
+        offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
                 data_alignment=y, offset_factor=offset_factor)
             for x, y in zip(inputs, data_alignments)]
-        elem_bytes = int(output_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
         data_alignments = [
-            elem_bytes * int(x[1]) for x in output_shapes]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * x[1]) for x in output_shapes]
+        offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, scope="local",
@@ -1008,20 +1008,20 @@ class WMMAMmaSync(ComputeCapsule):
             trans_C=trans_C
         )
 
-        elem_bytes = int(input_dtypes[0][-2:]) // 8
+        elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         data_alignments = [
-            elem_bytes * (m if trans_A else k),
-            elem_bytes * (k if trans_B else n)]
-        offset_factor = 16 // elem_bytes
+            int(elem_bytes * (m if trans_A else k)),
+            int(elem_bytes * (k if trans_B else n))]
+        offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, name="buffer_" + x.name, scope="local",
                 data_alignment=y, offset_factor=offset_factor
             ) for x, y in zip(inputs, data_alignments)]
 
-        elem_bytes = int(output_dtypes[0][-2:]) // 8
-        data_alignment = elem_bytes * (m if trans_C else n)
-        offset_factor = 16 // elem_bytes
+        elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
+        data_alignment = int(elem_bytes * (m if trans_C else n))
+        offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
                 x.shape, x.dtype, name="buffer_" + x.name, scope="local",
@@ -1971,6 +1971,54 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
 
 
+@register_recipe("cuda", "wmma_int8_int32")
+class WMMAInt8Int32(WMMABaseRecipe):
+    def __init__(self):
+        self.capsules = {
+            "load_a": WMMALoadMatrixSync,
+            "load_b": WMMALoadMatrixSync,
+            "mma": WMMAMmaSync,
+            "store": WMMAStoreMatrixSync
+        }
+        self.edges = {
+            "mma": ["load_a", "load_b"],
+            "store": ["mma"],
+            "load_a": ["a"],
+            "load_b": ["b"]
+        }
+        self.main_capsule_name = "mma"
+        self.anchor_point = "mma"
+        self.input_dtypes = {
+            "load_a": ["int8"],
+            "load_b": ["int8"],
+            "mma": ["int8", "int8"],
+            "store": ["int32"],
+            "a": ["int8"],
+            "b": ["int8"]
+        }
+        self.output_dtypes = {
+            "load_a": ["int8"],
+            "load_b": ["int8"],
+            "mma": ["int32"],
+            "store": ["int32"],
+            "a": ["int8"],
+            "b": ["int8"]
+        }
+
+    def get_name(self):
+        return "wmma_int8_int32"
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str
+        """
+        return ["ntn"]
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str
+        """
+        return ["32x8x16", "16x16x16", "8x32x16"]
+
+
 @register_recipe("cuda", "wmma_int4_int32")
 class WMMAInt4Int32(WMMABaseRecipe):
     def __init__(self):
@@ -2011,7 +2059,7 @@ class WMMAInt4Int32(WMMABaseRecipe):
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str
         """
-        return ["nnn", "nnt"]
+        return ["ntn"]
 
     def get_all_shape_keys(self):
         """Return all shape keys. Keys are str

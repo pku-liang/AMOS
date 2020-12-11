@@ -877,7 +877,7 @@ class CUDAScheduleApplier(object):
             self.set_scope,
             self.tiling,
             self.compute_at,
-            self.unroll,
+            # self.unroll,
             self.tensorize
         ]
         
