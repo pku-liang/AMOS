@@ -3,7 +3,7 @@
 #include <tvm/tir/expr.h>
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/te/schedule_pass.h>
-#include <src/tg/autodiff/arg_util.h>
+#include "../tg/autodiff/arg_util.h"
 #include <tvm/auto_tensorize/matcher.h>
 
 namespace tvm {
@@ -139,9 +139,9 @@ namespace auto_tensorize {
       return Array<IterVarMap>();
     }
     Array<IterVarMap> possible_index_mappings;
-    possible_index_mappings = index_matcher.match(
-      target_indices, intrin_indices, target_axes, intrin_axes, 
-      target_bounds, intrin_bounds);
+    IndexExprMatcher index_matcher;
+    possible_index_mappings = index_matcher.match(target_indices, intrin_indices, target_axes,
+                                                  intrin_axes, target_bounds, intrin_bounds);
     if (possible_index_mappings.size() == 0) {
       return Array<IterVarMap>();
     } else {
@@ -153,8 +153,12 @@ namespace auto_tensorize {
     size_t n = target_axes.size(), r = intrin_axes.size();
     if (n < r) return Array<IterVarMap>();
 
-    auto comp = [](const IterVar& x, const IterVar& y) { return &x < &y; };
-    std::sort(target_axes.begin(), target_axes.end(), comp);
+    std::vector<IterVar> target_axes_vec;
+    for (auto axis : target_axes) 
+      target_axes_vec.push_back(axis);
+    
+    auto comp = [](const IterVar& x, const IterVar& y) { return x.get() < y.get(); };
+    std::sort(target_axes_vec.begin(), target_axes_vec.end(), comp);
 
     Array<IterVarMap> all_itervar_mappings;
 
@@ -165,7 +169,7 @@ namespace auto_tensorize {
       std::vector<IterVar> comb;
       for (int i = 0; i < n; ++i) {
         if (!selector[i]) continue;
-        comb.push_back(target_axes[i]);
+        comb.push_back(target_axes_vec[i]);
       }
 
       do {

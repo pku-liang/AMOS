@@ -12,6 +12,7 @@
 #include <tvm/runtime/container.h>
 #include <tvm/node/node.h>
 #include <tvm/te/operation.h>
+#include <tvm/tir/expr_functor.h>
 #include <tvm/auto_tensorize/capsule.h>
 
 
@@ -28,9 +29,8 @@ typedef Map<Operation, Array<IterVarMap>> MatchResult;
 
 class RecipeDAGMatcher : public Object {
   public:
-    RecipeDAGMatcher();
     MatchResult match(Tensor target, Tensor intrin, Operation main_capsule);
-  // private:
+  private:
     MatchResult results;
     BufferMap buffer_map;
     bool _match(Tensor target, Tensor intrin, Operation main_capsule, 
@@ -51,7 +51,6 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
 
  private:
   BufferMap& buffer_map;
-  IndexExprMatcher index_matcher;
   Array<Array<PrimExpr>> target_indices;
   Array<Array<PrimExpr>> intrin_indices;
   // void ExtractIndexExpr(PrimExpr target, PrimExpr intrin, Array<PrimExpr>& target_indices,
@@ -330,7 +329,6 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
 
 class IndexExprMatcher : public ExprVisitor {
   public:
-    IndexExprMatcher();
     Array<IterVarMap> match(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices, 
                             Array<IterVar>& target_axes, Array<IterVar>& intrin_axes, 
                             Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
@@ -347,7 +345,7 @@ class IterVarRewriter final : public ExprMutator {
   IterVarRewriter(IterVarMap &itervar_map, Map<IterVar, Range> &bounds) : itervar_map(itervar_map) {
     for (auto it : bounds) {
       const VarNode* var = it.first.get()->var.get();
-      this->bounds.Set(var, it.second);
+      this->bounds[var] = it.second;
     }
   }
  protected:
@@ -363,7 +361,7 @@ class IterVarRewriter final : public ExprMutator {
 
  private:
   IterVarMap &itervar_map;
-  Map<const VarNode*, Range> bounds;
+  std::unordered_map<const VarNode*, Range> bounds;
 };
 
 }  // namespace auto_tensorize
