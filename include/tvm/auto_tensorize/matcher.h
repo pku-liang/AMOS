@@ -104,14 +104,14 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
       return false;
     }
 
-    if (op->indices.size() != another->indices.size()) {
-      return false;
-    }
-    for (size_t i = 0; i < op->indices.size(); ++i) {
-      if (!VisitExpr(op->indices[i], another->indices[i])) {
-        return false;
-      }
-    }
+    // if (op->indices.size() != another->indices.size()) {
+    //   return false;
+    // }
+    // for (size_t i = 0; i < op->indices.size(); ++i) {
+    //   if (!VisitExpr(op->indices[i], another->indices[i])) {
+    //     return false;
+    //   }
+    // }
 
     // save indices
     target_indices.push_back(op->indices);

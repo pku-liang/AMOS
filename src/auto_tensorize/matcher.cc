@@ -136,6 +136,7 @@ namespace auto_tensorize {
     std::cout << target_axes << " " << intrin_axes << std::endl;
     bool structure_match = VisitExpr(target, intrin);  // buffer and op
     if (!structure_match) {
+      std::cout << __LINE__ << "CapsuleExprMatcher::match " << "structure_match failed" << std::endl;
       return Array<IterVarMap>();
     }
     Array<IterVarMap> possible_index_mappings;
@@ -187,7 +188,7 @@ namespace auto_tensorize {
 
   bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx) {
     std::cout << __LINE__ << "IndexExprMatcher::_match_index " << target_idx << " " << intrin_idx << std::endl;
-    tg::CheckExprEqual check_equal;
+    tg::CheckExprEqual check_equal(true);
     size_t n_dim_target = target_idx.size();
     size_t n_dim_intrin = intrin_idx.size();
 
