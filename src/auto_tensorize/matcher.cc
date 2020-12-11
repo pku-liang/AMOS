@@ -9,19 +9,22 @@
 namespace tvm {
 namespace auto_tensorize {
 
-  Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode *op) {
-    Array<IterVar> axes;
-    for (IterVar axis : op->axis) axes.push_back(axis);
-    for (IterVar axis : op->reduce_axis) axes.push_back(axis);
-    std::cout << __LINE__ << "RecipeDAGMatcher::_extract_axes_from_op " << axes << std::endl;
-    return std::move(axes);
-  }
+Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
+                                                       bool include_reduce) {
+  Array<IterVar> axes;
+  for (IterVar axis : op->axis) axes.push_back(axis);
+  for (IterVar axis : op->reduce_axis) axes.push_back(axis);
+  std::cout << __LINE__ << "RecipeDAGMatcher::_extract_axes_from_op " << axes << std::endl;
+  return std::move(axes);
+}
 
   bool RecipeDAGMatcher::_check_elemwise(const ComputeOpNode *op, Array<Array<PrimExpr>> &indices) {
     if (op->reduce_axis.size() != 0) return false;
-    Array<IterVar> spatial_axes = _extract_axes_from_op(op);
+    Array<IterVar> spatial_axes = _extract_axes_from_op(op, false);
     size_t n_axes = spatial_axes.size();
     for (Array<PrimExpr> buf_idx : indices) {
+      std::cout << __LINE__ << "_check_elemwise: spatial_axes: " << spatial_axes
+                << " buf_idx: " << buf_idx << std::endl;
       if (buf_idx.size() != n_axes) return false;
       for (size_t i = 0; i < n_axes; ++i) {
         // const IterVarNode* ptr = buf_idx[i].as<IterVarNode>();
@@ -84,16 +87,6 @@ namespace auto_tensorize {
       Array<Array<PrimExpr>> target_indices, intrin_indices;
       expr_matcher.extract_indices(target_expr, intrin_expr, target_indices, intrin_indices);
 
-      bool has_const_dim = false;
-      for (auto index : intrin_indices) {
-        for (auto i : index) {
-          if (is_const_int(i)) {
-            has_const_dim = true;
-          }
-        }
-      }
-      CHECK(has_const_dim) << "intrinsic compute expr contains constant index: " << intrin_expr;
-
       CHECK(_check_elemwise(intrin_op, intrin_indices));
       if (!_check_elemwise(target_op, target_indices)) {
         std::cout << __LINE__ << "Checking elementwise failed!" << std::endl;
@@ -122,6 +115,7 @@ namespace auto_tensorize {
   void CapsuleExprMatcher::extract_indices(PrimExpr target, PrimExpr intrin, Array<Array<PrimExpr>> &target_indices, 
                                            Array<Array<PrimExpr>> &intrin_indices) {
     VisitExpr(target, intrin);
+    _check_intrin_const_dim();
     for (Array<PrimExpr> i : this->target_indices) {
       target_indices.push_back(i);
     }
@@ -130,11 +124,25 @@ namespace auto_tensorize {
     }
   }
 
+  void CapsuleExprMatcher::_check_intrin_const_dim() {
+    bool has_const_dim = false;
+    for (auto index : intrin_indices) {
+      for (auto i : index) {
+        if (is_const_int(i)) {
+          std::cout << "__LINE__" << "Found const dim: " << i << ", " << index << ", " << intrin_indices << std::endl;
+          has_const_dim = true;
+        }
+      }
+    }
+    CHECK(!has_const_dim);
+  }
+
   Array<IterVarMap> CapsuleExprMatcher::match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, Array<IterVar> &intrin_axes, 
                                               Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds) {
     std::cout << __LINE__ << "CapsuleExprMatcher::match " << target << " " << intrin << " ";
     std::cout << target_axes << " " << intrin_axes << std::endl;
     bool structure_match = VisitExpr(target, intrin);  // buffer and op
+    _check_intrin_const_dim();
     if (!structure_match) {
       std::cout << __LINE__ << "CapsuleExprMatcher::match " << "structure_match failed" << std::endl;
       return Array<IterVarMap>();

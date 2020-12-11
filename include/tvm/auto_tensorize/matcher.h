@@ -36,7 +36,7 @@ class RecipeDAGMatcher : public Object {
     bool _match(Tensor target, Tensor intrin, Operation main_capsule, 
                 Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
     Map<IterVar, Range> _infer_bounds(Operation out);
-    Array<IterVar> _extract_axes_from_op(const ComputeOpNode* op);
+    Array<IterVar> _extract_axes_from_op(const ComputeOpNode* op, bool include_reduce = true);
     bool _check_elemwise(const ComputeOpNode* op, Array<Array<PrimExpr>>& indices);
 };
 
@@ -55,6 +55,7 @@ class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr &, const PrimE
   Array<Array<PrimExpr>> intrin_indices;
   // void ExtractIndexExpr(PrimExpr target, PrimExpr intrin, Array<PrimExpr>& target_indices,
   //                       Array<PrimExpr>& intrin_indices);
+  void _check_intrin_const_dim();
 
  protected:
   using ExprFunctor::VisitExpr_;
