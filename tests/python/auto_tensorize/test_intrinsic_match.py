@@ -33,7 +33,7 @@ def test1():
   rs = te.reduce_axis([0, S], name="rs")
   Out = te.compute([N, P, Q, K],
     lambda b, p, q, k: te.sum(
-      (A[b, p+rr, q+rs, rc] * Weight[rr, rs, rc, k]).astype(output_dtype), 
+      (A[b, p+rr, q+rs, rc] * Weight[rr, rs, rc, k]),  # .astype(output_dtype) 
     axis=[rc, rr, rs]), name="Out")
 
   intrin_t = gemm_intrinsic_compute()
@@ -44,12 +44,13 @@ def test1():
   print("Intrin compute:")
   print(intrin_t.op.body[0])
 
-  recipe = at.WMMAFp16Fp32()
-  main_capsule = recipe.get_capsule_compute_expression(
-    'nnn', '16x16x16', recipe.main_capsule_name)
+  # recipe = at.WMMAFp16Fp32()
+  # main_capsule = recipe.get_capsule_compute_expression(
+  #   'nnn', '16x16x16', recipe.main_capsule_name)
 
   print("Intrinsic match:")
-  print(at.intrinsic_match(Out, intrin_t, main_capsule.op))
+  # print(at.intrinsic_match(Out, intrin_t, main_capsule[1][0].op))
+  print(at.intrinsic_match(Out, intrin_t, intrin_t.op))
 
 
 def test2():
@@ -58,7 +59,7 @@ def test2():
   rc = te.reduce_axis([0, C], name="rc")
   Out = te.compute([H, W],
     lambda i, j: te.sum(
-      (A[i, rc] * Weight[rc, j]).astype(output_dtype), 
+      (A[i, rc] * Weight[rc, j]),   # .astype(output_dtype)
   axis=[rc]), name="Out")
 
   intrin_t = gemm_intrinsic_compute()
@@ -69,12 +70,21 @@ def test2():
   print("Intrin compute:")
   print(intrin_t.op.body[0])
 
-  recipe = at.WMMAFp16Fp32()
-  main_capsule = recipe.get_capsule_compute_expression(
-    'nnn', '16x16x16', recipe.main_capsule_name)
+  # recipe = at.WMMAFp16Fp32()
+  # main_capsule = recipe.get_capsule_compute_expression(
+  #   'nnn', '16x16x16', recipe.main_capsule_name)
 
   print("Intrinsic match:")
-  print(at.intrinsic_match(Out, intrin_t, main_capsule.op))
+  # print(at.intrinsic_match(Out, intrin_t, main_capsule[1][0].op))
+  print(at.intrinsic_match(Out, intrin_t, intrin_t.op))
+
+  # {
+  #   compute(OO, 0x56534d1f42f0): [{
+  #     iter_var(i, range(min=0, ext=16)): iter_var(i, range(min=0, ext=32)), 
+  #     iter_var(j, range(min=0, ext=16)): iter_var(j, range(min=0, ext=32)), 
+  #     iter_var(rc, range(min=0, ext=1024)): iter_var(kk, range(min=0, ext=32))
+  #   }]
+  # }
 
 
 if __name__ == "__main__":

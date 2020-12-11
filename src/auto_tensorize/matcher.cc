@@ -278,8 +278,36 @@ namespace auto_tensorize {
     return std::move(possible_itervar_mappings);
   }
 
+  
+
   TVM_REGISTER_GLOBAL("auto_tensorize.MatchIntrinsic").set_body([](TVMArgs args, TVMRetValue* ret) {
-    *ret = RecipeDAGMatcher().match(args[0], args[1], args[2]);
+    MatchResult result = RecipeDAGMatcher().match(args[0], args[1], args[2]);
+    
+    Array<Operation> keys;
+    Array<Array<IterVarMap>> values;
+    for (auto it : result) {
+      keys.push_back(it.first);
+      values.push_back(it.second);
+    }
+
+    Array<Array<Array<ObjectRef>>> flattened_values;
+    for (auto value : values) {  // Array<IterVarMap>
+      Array<Array<ObjectRef>> flattened_value;
+      for (auto val : value) {  // IterVarMap
+        Array<IterVar> ks;
+        Array<IterVar> vs;
+        for (auto it : val) {
+          ks.push_back(it.first);
+          vs.push_back(it.second);
+        }
+        Array<ObjectRef> flattened_val{ks, vs};
+        flattened_value.push_back(flattened_val);
+      }
+      flattened_values.push_back(flattened_value);
+    }
+
+    Array<ObjectRef> flattened_result{keys, flattened_values};
+    *ret = flattened_result;
   });
 }  // namespace auto_tensorize
 }
