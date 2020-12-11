@@ -14,7 +14,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
   Array<IterVar> axes;
   for (IterVar axis : op->axis) axes.push_back(axis);
   for (IterVar axis : op->reduce_axis) axes.push_back(axis);
-  std::cout << __LINE__ << "RecipeDAGMatcher::_extract_axes_from_op " << axes << std::endl;
+  // std::cout << __LINE__ << "RecipeDAGMatcher::_extract_axes_from_op " << axes << std::endl;
   return std::move(axes);
 }
 
@@ -23,8 +23,8 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
     Array<IterVar> spatial_axes = _extract_axes_from_op(op, false);
     size_t n_axes = spatial_axes.size();
     for (Array<PrimExpr> buf_idx : indices) {
-      std::cout << __LINE__ << "_check_elemwise: spatial_axes: " << spatial_axes
-                << " buf_idx: " << buf_idx << std::endl;
+      // std::cout << __LINE__ << "_check_elemwise: spatial_axes: " << spatial_axes
+                // << " buf_idx: " << buf_idx << std::endl;
       if (buf_idx.size() != n_axes) return false;
       for (size_t i = 0; i < n_axes; ++i) {
         // const IterVarNode* ptr = buf_idx[i].as<IterVarNode>();
@@ -52,8 +52,8 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
 
   bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsule, 
                                 Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds) {
-    std::cout << __LINE__ << "RecipeDAGMatcher::_match " << target << " " << intrin << " " << std::endl;
-    std::cout << __LINE__ << "bounds (t&i) " << target_bounds << " " << intrin_bounds << std::endl;
+    // std::cout << __LINE__ << "RecipeDAGMatcher::_match " << target << " " << intrin << " " << std::endl;
+    // std::cout << __LINE__ << "bounds (t&i) " << target_bounds << " " << intrin_bounds << std::endl;
     const ComputeOpNode* target_op = target->op.as<ComputeOpNode>();
     const ComputeOpNode* intrin_op = intrin->op.as<ComputeOpNode>();
     
@@ -69,7 +69,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
     const PrimExpr intrin_expr = intrin_op->body[intrin->value_index];
 
     if (intrin->op.same_as(main_capsule)) {
-      std::cout << __LINE__ << "Matching main capsule..." << std::endl;
+      // std::cout << __LINE__ << "Matching main capsule..." << std::endl;
       Array<IterVar> intrin_axes = _extract_axes_from_op(intrin_op);
       Array<IterVar> target_axes = _extract_axes_from_op(target_op);
       CapsuleExprMatcher expr_matcher(buffer_map);
@@ -82,14 +82,14 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
       }
       results.Set(intrin->op, possible_index_mappings);
     } else {
-      std::cout << __LINE__ << "Checking elementwise..." << std::endl;
+      // std::cout << __LINE__ << "Checking elementwise..." << std::endl;
       CapsuleExprMatcher expr_matcher(buffer_map);
       Array<Array<PrimExpr>> target_indices, intrin_indices;
       expr_matcher.extract_indices(target_expr, intrin_expr, target_indices, intrin_indices);
 
       CHECK(_check_elemwise(intrin_op, intrin_indices));
       if (!_check_elemwise(target_op, target_indices)) {
-        std::cout << __LINE__ << "Checking elementwise failed!" << std::endl;
+        // std::cout << __LINE__ << "Checking elementwise failed!" << std::endl;
         return false;
       }
     }
@@ -97,7 +97,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
     Array<Tensor> target_input_tensors = target_op->InputTensors();
     Array<Tensor> intrin_input_tensors = intrin_op->InputTensors();
     if (target_input_tensors.size() != intrin_input_tensors.size()) {
-      std::cout << __LINE__ << "#Target input tensors != Intrin input tensors" << std::endl;
+      // std::cout << __LINE__ << "#Target input tensors != Intrin input tensors" << std::endl;
       return false;
     }
 
@@ -129,7 +129,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
     for (auto index : intrin_indices) {
       for (auto i : index) {
         if (is_const_int(i)) {
-          std::cout << "__LINE__" << "Found const dim: " << i << ", " << index << ", " << intrin_indices << std::endl;
+          // std::cout << "__LINE__" << "Found const dim: " << i << ", " << index << ", " << intrin_indices << std::endl;
           has_const_dim = true;
         }
       }
@@ -139,12 +139,12 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
 
   Array<IterVarMap> CapsuleExprMatcher::match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes, Array<IterVar> &intrin_axes, 
                                               Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds) {
-    std::cout << __LINE__ << "CapsuleExprMatcher::match " << target << " " << intrin << " ";
-    std::cout << target_axes << " " << intrin_axes << std::endl;
+    // std::cout << __LINE__ << "CapsuleExprMatcher::match " << target << " " << intrin << " ";
+    // std::cout << target_axes << " " << intrin_axes << std::endl;
     bool structure_match = VisitExpr(target, intrin);  // buffer and op
     _check_intrin_const_dim();
     if (!structure_match) {
-      std::cout << __LINE__ << "CapsuleExprMatcher::match " << "structure_match failed" << std::endl;
+      // std::cout << __LINE__ << "CapsuleExprMatcher::match " << "structure_match failed" << std::endl;
       return Array<IterVarMap>();
     }
     Array<IterVarMap> possible_index_mappings;
@@ -195,12 +195,10 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
   }
 
   bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx) {
-    std::cout << __LINE__ << "IndexExprMatcher::_match_index " << target_idx << " " << intrin_idx << std::endl;
+    // std::cout << __LINE__ << "IndexExprMatcher::_match_index " << target_idx << " " << intrin_idx << std::endl;
     tg::CheckExprEqual check_equal(true);
     size_t n_dim_target = target_idx.size();
     size_t n_dim_intrin = intrin_idx.size();
-
-    PrimExpr zero = make_zero(target_idx[0].dtype());
 
     for (size_t j = 0; j < n_dim_intrin; ++j) {
       PrimExpr intrin_i = intrin_idx[j];
@@ -208,7 +206,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
       for (size_t k = 0; k < n_dim_target; ++k) {
         PrimExpr target_i = target_idx[k];
         if (check_equal(intrin_i, target_i)) {
-          target_idx.Set(k, zero);
+          target_idx.Set(k, make_zero(target_idx[0].dtype()));
           i_matched = true;
           break;
         }
@@ -221,7 +219,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
     for (PrimExpr i : target_idx) {
       if (!is_const_int(i)) {
         return false;
-      } else if (!i.same_as(zero)) {
+      } else if (!i.as<IntImmNode>()->value == 0) {
         std::cout << "Warning: found a non-zero constant in target_idx" << std::endl;
         std::cout << "target_idx: " << target_idx << std::endl;
         std::cout << "intrin_idx: " << intrin_idx << std::endl;
@@ -232,7 +230,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
   }
 
   bool IndexExprMatcher::_match_indices(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices) {
-    std::cout << __LINE__ << "IndexExprMatcher::_match_indices " << target_indices << " " << intrin_indices << std::endl;
+    // std::cout << __LINE__ << "IndexExprMatcher::_match_indices " << target_indices << " " << intrin_indices << std::endl;
     size_t n_indices_intrin = intrin_indices.size();
 
     for (size_t i = 0; i < n_indices_intrin; ++i) {
@@ -249,7 +247,7 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
 
   Array<Array<PrimExpr>> IndexExprMatcher::_rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map, 
                                                             Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds) {
-    std::cout << __LINE__ << "IndexExprMatcher::_rewrite_indices " << indices << " " << itervar_map << std::endl;
+    // std::cout << __LINE__ << "IndexExprMatcher::_rewrite_indices " << indices << " " << itervar_map << std::endl;
     IterVarRewriter itervar_rewriter(itervar_map, target_bounds);
     size_t n_indices = indices.size();
     auto simplify = [](const PrimExpr& x) { return arith::Analyzer().Simplify(x); };
@@ -263,15 +261,15 @@ Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
       }
       indices.Set(i, idx);
     }
-    std::cout << __LINE__ << "IndexExprMatcher::_rewrite_indices " << indices << std::endl;
+    // std::cout << __LINE__ << "IndexExprMatcher::_rewrite_indices " << indices << std::endl;
     return std::move(indices);
   }
 
   Array<IterVarMap> IndexExprMatcher::match(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices,
                                             Array<IterVar>& target_axes, Array<IterVar>& intrin_axes, 
                                             Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds) {
-    std::cout << __LINE__ << "IndexExprMatcher::match " << target_indices << " " << intrin_indices << " ";
-    std::cout << target_axes << " " << intrin_axes << std::endl;
+    // std::cout << __LINE__ << "IndexExprMatcher::match " << target_indices << " " << intrin_indices << " ";
+    // std::cout << target_axes << " " << intrin_axes << std::endl;
     CHECK(target_indices.size() == intrin_indices.size());
     Array<IterVarMap> possible_itervar_mappings;
     Array<IterVarMap> all_itervar_mappings = enumerate_mappings(target_axes, intrin_axes);
