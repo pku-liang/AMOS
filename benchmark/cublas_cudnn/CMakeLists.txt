@@ -55,6 +55,13 @@ add_executable(cudnn_conv_benchmark
 
 target_link_libraries(cudnn_conv_benchmark -lcublas -lcurand -lcudnn)
 
+# cudnn_conv_dilated_benchmark
+add_executable(cudnn_conv_dilated_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_conv_dilated_bench.cu
+    )
+
+target_link_libraries(cudnn_conv_dilated_benchmark -lcublas -lcurand -lcudnn)
+
 # grouped_conv
 add_executable(cudnn_grouped_conv
     ${CMAKE_CURRENT_SOURCE_DIR}/src/grouped_conv.cu

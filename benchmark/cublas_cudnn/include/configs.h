@@ -26,6 +26,22 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
         std::make_tuple(7, 7, 1024, 1, 1024, 3, 3, 1, 1, 1, 1)
 };
 
+// Vector saves w, h, c, n,
+//              k, filter_w(s), filter_h(r), pad_w,
+//              pad_h, wstride, hstride
+//              dilation_h, dilation_w
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int, unsigned int> >
+    conv_dilated = {
+                    //   w,   h,   c, n,  k,  s, r,pw,ph,sw,sh,dw,dh
+        std::make_tuple(448, 448,   3, 1,  64, 7, 7, 3, 3, 2, 2, 2, 2),
+        std::make_tuple(112, 112,  64, 1, 192, 3, 3, 1, 1, 1, 1, 2, 2),
+        std::make_tuple(56,   56, 192, 1, 128, 1, 1, 0, 0, 1, 1, 2, 2),
+        std::make_tuple(56,   56, 128, 1, 256, 3, 3, 1, 1, 1, 1, 2, 2),
+};
+
+
 // Vector saves l, c, n, k, filter, pad, stride
 std::vector<std::tuple<unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int,

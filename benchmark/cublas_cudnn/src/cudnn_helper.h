@@ -341,7 +341,49 @@ public:
                                                           type));
     }
 
+    ConvolutionDescriptor(int pad_h, int pad_w, int hstride, int wstride, std::vector<int> dilations) :
+        desc_(new cudnnConvolutionDescriptor_t, ConvolutionDescriptorDeleter()) {
 
+        CHECK_CUDNN_ERROR(cudnnCreateConvolutionDescriptor(desc_.get()));
+#if CUDNN_MAJOR >= 6
+        cudnnDataType_t type;
+        if (std::is_same<T, float>::value) {
+            type = CUDNN_DATA_FLOAT;
+        } else if (std::is_same<T, uint8_t>::value) {
+            type = CUDNN_DATA_INT8;
+        } else if (std::is_same<T, uint16_t>::value) {
+            type = CUDNN_DATA_HALF;
+        } else if (std::is_same<T, int>::value) {
+            type = CUDNN_DATA_INT32;
+        } else {
+            throw std::runtime_error("Unknown type in ConvolutionDescriptor");
+        }
+
+
+        CHECK_CUDNN_ERROR(cudnnSetConvolution2dDescriptor(*desc_,
+                                                          pad_h,
+                                                          pad_w,
+                                                          hstride,
+                                                          wstride,
+                                                          dilations[0],
+                                                          dilations[1],
+                                                          CUDNN_CONVOLUTION,
+                                                          type));
+#else
+        CHECK_CUDNN_ERROR(cudnnSetConvolution2dDescriptor(*desc_,
+                                                          pad_h,
+                                                          pad_w,
+                                                          hstride,
+                                                          wstride,
+                                                          dilations[0],
+                                                          dilations[1],
+                                                          CUDNN_CONVOLUTION));
+
+#endif
+
+    }
+
+    
     ConvolutionDescriptor(int pad_h, int pad_w, int hstride, int wstride) :
         desc_(new cudnnConvolutionDescriptor_t, ConvolutionDescriptorDeleter()) {
 
