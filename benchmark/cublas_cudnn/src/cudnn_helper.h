@@ -49,8 +49,8 @@ class TensorDescriptorNd {
 
 public:
 
-    TensorDescriptorNd(const std::vector<int>& dim,
-                       const std::vector<int>& stride) {
+    TensorDescriptorNd() {}
+    TensorDescriptorNd(const std::vector<int>& dim) {
         cudnnDataType_t type;
         if (std::is_same<T, float>::value)
             type = CUDNN_DATA_FLOAT;
@@ -64,11 +64,28 @@ public:
             throw std::runtime_error("Unknown type in TensorDescriptorNd");
 
         cudnnTensorDescriptor_t * desc = new cudnnTensorDescriptor_t;
-
         CHECK_CUDNN_ERROR(cudnnCreateTensorDescriptor(desc));
-        CHECK_CUDNN_ERROR(cudnnSetTensorNdDescriptor(*desc, type, dim.size(),
-                                                     &dim[0], &stride[0]));
-
+        //  By convention, the ordering of dimensions in the array follows the format - 
+        // [N, C, D, H, W], with W occupying the smallest index in the array
+        if (dim.size() == 5) {
+            int dimA[] = {dim[0], dim[1], dim[2], dim[3], dim[4]};
+            int strideA[] = {dim[1] * dim[2] *dim[3] * dim[4],
+                            dim[2] * dim[3] * dim[4],
+                            dim[3] * dim[4],
+                            dim[4],
+                            1};
+            CHECK_CUDNN_ERROR(cudnnSetTensorNdDescriptor(*desc, type, 5,
+                                                     dimA, strideA));
+        }
+        else if (dim.size() == 3) {
+            int dimA[] = {dim[0], dim[1], dim[2]};
+            int strideA[] = {dim[1] * dim[2],
+                            dim[2],
+                            1};
+            CHECK_CUDNN_ERROR(cudnnSetTensorNdDescriptor(*desc, type, 3,
+                                                     dimA, strideA));
+        }
+        
         desc_.reset(desc, TensorDescriptorNdDeleter());
     }
 
@@ -155,7 +172,7 @@ public:
 
         cudnnFilterDescriptor_t * desc = new cudnnFilterDescriptor_t;
         CHECK_CUDNN_ERROR(cudnnCreateFilterDescriptor(desc));
-        CHECK_CUDNN_ERROR(cudnnSetFilterNdDescriptor(*desc, type, tensor_format, dim.size(), &dim[0]));
+        CHECK_CUDNN_ERROR(cudnnSetFilterNdDescriptor(*desc, type, tensor_format, dim.size(), dim.data()));
 
         desc_.reset(desc, FilterDescriptorNdDeleter());
     }
@@ -262,6 +279,67 @@ class ConvolutionDescriptor {
         }
     };
 public:
+    ConvolutionDescriptor(int pad, int stride) :
+        desc_(new cudnnConvolutionDescriptor_t, ConvolutionDescriptorDeleter()) {
+
+        CHECK_CUDNN_ERROR(cudnnCreateConvolutionDescriptor(desc_.get()));
+        
+        cudnnDataType_t type;
+        if (std::is_same<T, float>::value) {
+            type = CUDNN_DATA_FLOAT;
+        } else if (std::is_same<T, uint8_t>::value) {
+            type = CUDNN_DATA_INT8;
+        } else if (std::is_same<T, uint16_t>::value) {
+            type = CUDNN_DATA_HALF;
+        } else if (std::is_same<T, int>::value) {
+            type = CUDNN_DATA_INT32;
+        } else {
+            throw std::runtime_error("Unknown type in ConvolutionDescriptor");
+        }
+        int padA[] = {pad};
+        int filterStrideA[] = {stride};
+        int dilationA[] = {1};
+
+        CHECK_CUDNN_ERROR(cudnnSetConvolutionNdDescriptor(*desc_,
+                                                          1,
+                                                          padA,
+                                                          filterStrideA,
+                                                          dilationA,
+                                                          CUDNN_CONVOLUTION,
+                                                          //CUDNN_CROSS_CORRELATION,
+                                                          type));
+    }
+
+    ConvolutionDescriptor(int pad_d, int pad_h, int pad_w, int dstride, int hstride, int wstride) :
+        desc_(new cudnnConvolutionDescriptor_t, ConvolutionDescriptorDeleter()) {
+
+        CHECK_CUDNN_ERROR(cudnnCreateConvolutionDescriptor(desc_.get()));
+        
+        cudnnDataType_t type;
+        if (std::is_same<T, float>::value) {
+            type = CUDNN_DATA_FLOAT;
+        } else if (std::is_same<T, uint8_t>::value) {
+            type = CUDNN_DATA_INT8;
+        } else if (std::is_same<T, uint16_t>::value) {
+            type = CUDNN_DATA_HALF;
+        } else if (std::is_same<T, int>::value) {
+            type = CUDNN_DATA_INT32;
+        } else {
+            throw std::runtime_error("Unknown type in ConvolutionDescriptor");
+        }
+        int padA[] = {pad_d, pad_h, pad_w};
+        int filterStrideA[] = {dstride, hstride, wstride};
+        int dilationA[] = {1, 1, 1};
+
+        CHECK_CUDNN_ERROR(cudnnSetConvolutionNdDescriptor(*desc_,
+                                                          3,
+                                                          padA,
+                                                          filterStrideA,
+                                                          dilationA,
+                                                          CUDNN_CONVOLUTION,
+                                                          //CUDNN_CROSS_CORRELATION,
+                                                          type));
+    }
 
 
     ConvolutionDescriptor(int pad_h, int pad_w, int hstride, int wstride) :

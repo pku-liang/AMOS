@@ -26,6 +26,27 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
         std::make_tuple(7, 7, 1024, 1, 1024, 3, 3, 1, 1, 1, 1)
 };
 
+// Vector saves l, c, n, k, filter, pad, stride
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int,
+                       unsigned int>>
+    conv_1d = {
+        //              l,    c, n,  k, filter, pad, stride
+        std::make_tuple(448,  3, 1, 64,     7,    0,      1),
+        std::make_tuple(112, 64, 1, 192,    3,    0,      1)
+};
+
+
+
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int>>
+    conv_3d = {
+                    //  d, kern_d,  w,  h, c,n=1,  k,  s,   r, pad_d, pad_w, pad_h, dstride, wstride, hstride
+        std::make_tuple(4,    3,  64, 64,  4,  1, 32,  16, 16,     0,     0,    0,       1,        1,      1),
+        std::make_tuple(4,    3,  32, 32,  4,  1, 16,  16, 16,     0,     0,    0,       1,        1,      1)
+};
 
 
 // Vector saves w, h, c, n,

@@ -68,3 +68,17 @@ add_executable(cudnn_depth_conv_benchmark
     )
 
 target_link_libraries(cudnn_depth_conv_benchmark -lcublas -lcurand -lcudnn)
+
+# cudnn_conv3d_benchmark
+add_executable(cudnn_conv3d_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_conv3d_bench.cu
+    )
+
+target_link_libraries(cudnn_conv3d_benchmark -lcublas -lcurand -lcudnn)
+
+# cudnn_conv1d_benchmark
+add_executable(cudnn_conv1d_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_conv1d_bench.cu
+    )
+
+target_link_libraries(cudnn_conv1d_benchmark -lcublas -lcurand -lcudnn)
