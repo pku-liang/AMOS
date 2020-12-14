@@ -9,131 +9,133 @@ from . import _ffi_api
 
 
 def create_session_option(
-  report_profile=False,
-  report_iteration=True,
-  report_iteration_period=100,
-  autoschedule_trial_ratio=0.5,
-  autoschedule_topk=20,
-  autoschedule_new_trial=4,
-  autoschedule_policy="profile",
-  autoschedule_parallel=1,
-  autoschedule_timeout=10.0,
-  autoschedule_log_file="autoschedule_log.txt",
-  profile_parallel=4,
-  profile_timeout=10.0,
-  build_parallel=1,
-  build_timeout=1.0,
-  build_log_file="build_log.txt",
-  evaluate_log_file="evaluate_log.txt",
-  execution_explore_probability=0.5,
-  execution_parallel=1,
-  execution_timeout=100.0,
-  synchronize_subgraph=True,
-  execution_log_file="execution_log.txt"):
-  """Creates a SessionOption
+    report_profile=False,
+    report_iteration=True,
+    report_iteration_period=100,
+    autoschedule_trial_ratio=0.5,
+    autoschedule_topk=20,
+    autoschedule_new_trial=4,
+    autoschedule_policy="profile",
+    autoschedule_parallel=1,
+    autoschedule_timeout=10.0,
+    autoschedule_log_file="autoschedule_log.txt",
+    profile_parallel=4,
+    profile_timeout=10.0,
+    build_parallel=1,
+    build_timeout=1.0,
+    build_log_file="build_log.txt",
+    evaluate_log_file="evaluate_log.txt",
+    execution_explore_probability=0.5,
+    execution_parallel=1,
+    execution_timeout=100.0,
+    synchronize_subgraph=True,
+    execution_log_file="execution_log.txt",
+):
+    """Creates a SessionOption
 
-  Parameters
-  ----------
-  report_profile : bool
+    Parameters
+    ----------
+    report_profile : bool
 
-  report_iteration : bool
+    report_iteration : bool
 
-  report_iteration_period : int
+    report_iteration_period : int
 
-  autoschedule_trial_ratio : double
+    autoschedule_trial_ratio : double
 
-  autoschedule_topk : int
+    autoschedule_topk : int
 
-  autoschedule_new_tria : int
+    autoschedule_new_tria : int
 
-  autoschedule_policy : str
-      "profile" or "model"
+    autoschedule_policy : str
+        "profile" or "model"
 
-  autoschedule_parallel : int
+    autoschedule_parallel : int
 
-  autoschedule_timeout : float
-        in seconds
+    autoschedule_timeout : float
+          in seconds
 
-  autoschedule_log_file : str
+    autoschedule_log_file : str
 
-  profile_parallel : int
+    profile_parallel : int
 
-  profile_timeout : float
-        in seconds
-  
-  build_parallel : int
+    profile_timeout : float
+          in seconds
 
-  build_timeout : float
-        in seconds
+    build_parallel : int
 
-  build_log_file : str
-  
-  evaluate_log_file : str
+    build_timeout : float
+          in seconds
 
-  execution_explore_probability : double
-  
-  execution_parallel : int
+    build_log_file : str
 
-  execution_timeout : float
-        in seconds
+    evaluate_log_file : str
 
-  synchronize_subgraph : bool
+    execution_explore_probability : double
 
-  execution_log_file : str
+    execution_parallel : int
 
-  Returns
-  -------
-  SessionOption
-  """
-  return _ffi_api.create_session_option(
-    report_profile,
-    report_iteration,
-    report_iteration_period,
-    autoschedule_trial_ratio,
-    autoschedule_topk,
-    autoschedule_new_trial,
-    autoschedule_policy,
-    autoschedule_parallel,
-    autoschedule_timeout,
-    autoschedule_log_file,
-    profile_parallel,
-    profile_timeout,
-    build_parallel,
-    build_timeout,
-    build_log_file,
-    evaluate_log_file,
-    execution_explore_probability,
-    execution_parallel,
-    execution_timeout,
-    synchronize_subgraph,
-    execution_log_file)
+    execution_timeout : float
+          in seconds
+
+    synchronize_subgraph : bool
+
+    execution_log_file : str
+
+    Returns
+    -------
+    SessionOption
+    """
+    return _ffi_api.create_session_option(
+        report_profile,
+        report_iteration,
+        report_iteration_period,
+        autoschedule_trial_ratio,
+        autoschedule_topk,
+        autoschedule_new_trial,
+        autoschedule_policy,
+        autoschedule_parallel,
+        autoschedule_timeout,
+        autoschedule_log_file,
+        profile_parallel,
+        profile_timeout,
+        build_parallel,
+        build_timeout,
+        build_log_file,
+        evaluate_log_file,
+        execution_explore_probability,
+        execution_parallel,
+        execution_timeout,
+        synchronize_subgraph,
+        execution_log_file,
+    )
 
 
 def create_session(target, dev_id, log_option):
-  """Creates a TensorGraph Session.
+    """Creates a TensorGraph Session.
 
-  Parameters
-  ----------
-  target : tvm.target.Target or str
-      Accept llvm and cuda.
+    Parameters
+    ----------
+    target : tvm.target.Target or str
+        Accept llvm and cuda.
 
-  dev_id : int
-      The device id for this Session.
+    dev_id : int
+        The device id for this Session.
 
-  log_option: SessionOption
+    log_option: SessionOption
 
-  Returns
-  -------
-  session id: int
-      A global Session id.
+    Returns
+    -------
+    session id: int
+        A global Session id.
 
-  """
-  target = _target.create(target)
-  return _ffi_api.create_session(target, dev_id, log_option)
+    """
+    target = _target.create(target)
+    return _ffi_api.create_session(target, dev_id, log_option)
 
 
 def delete_session(session_id):
-  """Delete a TensorGraph Session.
+    """Delete a TensorGraph Session.
 
     Parameters
     ----------
@@ -143,12 +145,12 @@ def delete_session(session_id):
     Returns
     -------
 
-  """
-  _ffi_api.delete_session(session_id)
+    """
+    _ffi_api.delete_session(session_id)
 
 
 def get_context_from_session(session_id):
-  """Get tvm context from a Session.
+    """Get tvm context from a Session.
 
     Parameters
     ----------
@@ -160,12 +162,12 @@ def get_context_from_session(session_id):
     Context: tvm Context
         The Context of this Session.
 
-  """
-  return _ffi_api.get_context_from_session(session_id)
+    """
+    return _ffi_api.get_context_from_session(session_id)
 
 
 def get_data_from_session(session_id, keys):
-  """Get data from a Session.
+    """Get data from a Session.
 
     Parameters
     ----------
@@ -178,8 +180,8 @@ def get_data_from_session(session_id, keys):
     -------
     list of tvm.ndarray
 
-  """
-  return _ffi_api.get_data_from_session(session_id, keys)
+    """
+    return _ffi_api.get_data_from_session(session_id, keys)
 
 
 # def disable_autoschedule(session_id):
@@ -197,14 +199,21 @@ def get_data_from_session(session_id, keys):
 #   _ffi_api.disable_autoschedule(session_id)
 
 
-def begin_tuning(session_id, task_id, advance_number, reference="", first_stage_number=100000, second_stage_topk_ratio=0.1):
-  """Start the tuning for one task in Session.
+def begin_tuning(
+    session_id,
+    task_id,
+    advance_number,
+    reference="",
+    first_stage_number=100000,
+    second_stage_topk_ratio=0.1,
+):
+    """Start the tuning for one task in Session.
 
     Parameters
     ----------
     session_id : int
         The id of this Session.
-    
+
     task_id : int
 
     advance_number : int
@@ -218,12 +227,14 @@ def begin_tuning(session_id, task_id, advance_number, reference="", first_stage_
     Returns
     -------
 
-  """
-  _ffi_api.begin_tuning(session_id, task_id, advance_number, reference, first_stage_number, second_stage_topk_ratio)
+    """
+    _ffi_api.begin_tuning(
+        session_id, task_id, advance_number, reference, first_stage_number, second_stage_topk_ratio
+    )
 
 
 def end_tuning(session_id, task_id):
-  """End the tuning for one task in Session.
+    """End the tuning for one task in Session.
 
     Parameters
     ----------
@@ -235,26 +246,26 @@ def end_tuning(session_id, task_id):
     Returns
     -------
 
-  """
-  _ffi_api.end_tuning(session_id, task_id)
+    """
+    _ffi_api.end_tuning(session_id, task_id)
 
 
 def test_schedule_reference(session_id, task_id, reference):
-  """Start the tuning for one task in Session.
+    """Start the tuning for one task in Session.
 
     Parameters
     ----------
     session_id : int
         The id of this Session.
-    
+
     task_id : int
 
     reference : str
 
     Returns
     -------
-  """
-  _ffi_api.test_schedule_reference(session_id, task_id, reference)
+    """
+    _ffi_api.test_schedule_reference(session_id, task_id, reference)
 
 
 # def enable_autoschedule(session_id):
@@ -273,7 +284,7 @@ def test_schedule_reference(session_id, task_id, reference):
 
 
 def initialize_weights(session_id, tir_graph, bindings):
-  """Initialize weights for graph in the Session.
+    """Initialize weights for graph in the Session.
 
     Parameters
     ----------
@@ -290,12 +301,12 @@ def initialize_weights(session_id, tir_graph, bindings):
     -------
     session id: int
         A global Session id.
-  """
-  _ffi_api.initialize_weights(session_id, tir_graph, bindings)
+    """
+    _ffi_api.initialize_weights(session_id, tir_graph, bindings)
 
 
 def add_task(session_id, tir_graph):
-  """Add a task in the Session.
+    """Add a task in the Session.
 
     Parameters
     ----------
@@ -309,8 +320,8 @@ def add_task(session_id, tir_graph):
     -------
     task id: int
         A task id.
-  """
-  return _ffi_api.add_task(session_id, tir_graph)
+    """
+    return _ffi_api.add_task(session_id, tir_graph)
 
 
 # def run_graph(session_id, tir_graph, bindings):
@@ -336,8 +347,15 @@ def add_task(session_id, tir_graph):
 #   return _ffi_api.run_graph(session_id, tir_graph, bindings)
 
 
-def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profile_level=0, no_actual_run=False):
-  """Run a task in the Session.
+def run_task(
+    session_id,
+    task_id,
+    bindings,
+    save_to="saved_schedules.txt",
+    profile_level=0,
+    no_actual_run=False,
+):
+    """Run a task in the Session.
 
     Parameters
     ----------
@@ -358,12 +376,12 @@ def run_task(session_id, task_id, bindings, save_to="saved_schedules.txt", profi
 
     Returns
     -------
-  """
-  _ffi_api.run_task(session_id, task_id, bindings, save_to, profile_level, no_actual_run)
+    """
+    _ffi_api.run_task(session_id, task_id, bindings, save_to, profile_level, no_actual_run)
 
 
 def print_subgraphs(session_id, task_id):
-  """Run a task in the Session.
+    """Run a task in the Session.
 
     Parameters
     ----------
@@ -374,8 +392,8 @@ def print_subgraphs(session_id, task_id):
 
     Returns
     -------
-  """
-  _ffi_api.print_subgraphs(session_id, task_id)
+    """
+    _ffi_api.print_subgraphs(session_id, task_id)
 
 
 def parallel_build(schs, args, target, target_host="llvm", name="main", binds={}):

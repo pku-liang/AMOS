@@ -24,15 +24,10 @@ class TransformState(Object):
     intrin_dag Intrin compute dag
     """
 
-    def __init__(self, main_op_map, elem_op_map,
-                 axis_map, target_dag, intrin_dag):
+    def __init__(self, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag):
         self.__init_handle_by_constructor__(
-            _ffi_api.TransformState,
-            main_op_map,
-            elem_op_map,
-            axis_map,
-            target_dag,
-            intrin_dag)
+            _ffi_api.TransformState, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
+        )
 
 
 @tvm._ffi.register_object("auto_tensorize.TransformRequest")
@@ -46,8 +41,7 @@ class TransformRequest(Object):
     time_loops:
     """
 
-    def __init__(self, name, axis_map, reverse_axis_map,
-                 space_loops, time_loops, padding=False):
+    def __init__(self, name, axis_map, reverse_axis_map, space_loops, time_loops, padding=False):
         self.__init_handle_by_constructor__(
             _ffi_api.TransformRequest,
             name,
@@ -55,7 +49,8 @@ class TransformRequest(Object):
             reverse_axis_map,
             space_loops,
             time_loops,
-            padding)
+            padding,
+        )
 
 
 def infer_range(vars_to_infer, original_vars, original_range_map):
@@ -71,8 +66,7 @@ def infer_range(vars_to_infer, original_vars, original_range_map):
     -------
 
     """
-    range_map = _ffi_api.InferRange(
-        vars_to_infer, original_vars, original_range_map)
+    range_map = _ffi_api.InferRange(vars_to_infer, original_vars, original_range_map)
     return range_map
 
 
@@ -88,8 +82,7 @@ def transform_main_op(init, request):
     -------
 
     """
-    n = _ffi_api.TransformMainOp(
-        init, request)
+    n = _ffi_api.TransformMainOp(init, request)
     return n
 
 
@@ -160,11 +153,9 @@ class UnfoldChoiceGenerator(CDParamGenerator):
                 if unique_value not in visited:
                     visited.add(unique_value)
                     self.unfolds.append(bit_vec)
-        
+
         self.choices = list(range(len(self.unfolds)))
-        self.reverse_map = {
-            self.to_hashable(k): v for v, k in enumerate(self.unfolds)
-        }
+        self.reverse_map = {self.to_hashable(k): v for v, k in enumerate(self.unfolds)}
 
         self.directions = [1, -1]
         self.init_Q_table()
@@ -196,10 +187,10 @@ class Record(object):
 
 
 class TransformGenerator(SAEntryGenerator):
-    def __init__(self, intrin_match_result, eps=1e-1,
-                log_file="transform_schedule_generator.log", steps=1):
-        super(TransformGenerator, self).__init__(eps, Record,
-            steps=steps, log_file=log_file)
+    def __init__(
+        self, intrin_match_result, eps=1e-1, log_file="transform_schedule_generator.log", steps=1
+    ):
+        super(TransformGenerator, self).__init__(eps, Record, steps=steps, log_file=log_file)
         self.init_param_generator(intrin_match_result)
         self.init_score_table()
 
@@ -212,10 +203,9 @@ class TransformGenerator(SAEntryGenerator):
         #         match_point_num = match_len
         #     assert match_point_num == match_len
         # self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
-        self.unfold_gen = UnfoldChoiceGenerator(
-            intrin_match_result.axis_map)
+        self.unfold_gen = UnfoldChoiceGenerator(intrin_match_result.axis_map)
         self.generator_lst = [self.unfold_gen]
-    
+
     def init_score_table(self):
         self.score_table = softmax([0.5 for gen in self.generator_lst])
 
@@ -227,19 +217,16 @@ class TransformGenerator(SAEntryGenerator):
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
-            return self.record_cls(
-                    self.unfold_gen.get(policy=policy))
+            return self.record_cls(self.unfold_gen.get(policy=policy))
         else:
             return self.record_cls(
-                        self.unfold_gen.get(
-                            hint=entry.record.unfold_choice[0], policy=policy))
+                self.unfold_gen.get(hint=entry.record.unfold_choice[0], policy=policy)
+            )
 
-    def get_records_mutate_one_generator(
-        self, record, to_mutate, steps):
+    def get_records_mutate_one_generator(self, record, to_mutate, steps):
         unfold = record.unfold_choice
 
-        next_unfold = self.unfold_gen.get_next(
-            unfold[0], to_mutate)
+        next_unfold = self.unfold_gen.get_next(unfold[0], to_mutate)
 
         has_mutate = False
 
@@ -257,7 +244,7 @@ class TransformGenerator(SAEntryGenerator):
             if has_mutate:
                 yield self.record_cls(unfold)
             has_mutate = False
-    
+
     def feedback_value(self, entry, value):
         self.unfold_gen.feedback(*entry.record.unfold_choice, value)
 
@@ -270,7 +257,7 @@ class TransformApplier(object):
             intrin_match_result.elem_op_map,
             intrin_match_result.axis_map,
             intrin_match_result.target_dag,
-            intrin_match_result.intrin_dag
+            intrin_match_result.intrin_dag,
         )
 
     def apply_unfold(self, record, state):
@@ -282,10 +269,8 @@ class TransformApplier(object):
             target_main_op = v
         assert intrin_main_op is not None
         assert target_main_op is not None
-        intrin_axis = (list(intrin_main_op.axis)
-                       + list(intrin_main_op.reduce_axis))
-        target_axis = (list(target_main_op.axis)
-                       + list(target_main_op.reduce_axis))
+        intrin_axis = list(intrin_main_op.axis) + list(intrin_main_op.reduce_axis)
+        target_axis = list(target_main_op.axis) + list(target_main_op.reduce_axis)
         unfold_choice = record.unfold_choice[0]
         choices = []
         tmp = []
@@ -325,7 +310,7 @@ class TransformApplier(object):
             fwd_axis_map[axis] = flatten(unique_choice, unique_stride)
             for i, (a, s) in enumerate(zip(unique_choice, unique_stride)):
                 if i > 0:
-                    rvs_axis_map[a] = axis % unique_stride[i-1] // s
+                    rvs_axis_map[a] = axis % unique_stride[i - 1] // s
                 else:
                     rvs_axis_map[a] = axis // s
             space_loops.extend(unique_choice)
@@ -338,12 +323,7 @@ class TransformApplier(object):
             if axis not in visited:
                 time_loops.append(axis)
 
-        request = TransformRequest(
-            name,
-            fwd_axis_map,
-            rvs_axis_map,
-            space_loops,
-            time_loops)
+        request = TransformRequest(name, fwd_axis_map, rvs_axis_map, space_loops, time_loops)
         unfold_state = transform_main_op(state, request)
         return unfold_state
 
@@ -356,10 +336,8 @@ class TransformApplier(object):
             target_main_op = v
         assert intrin_main_op is not None
         assert target_main_op is not None
-        intrin_axis = (list(intrin_main_op.axis)
-                       + list(intrin_main_op.reduce_axis))
-        target_axis = (list(target_main_op.axis)
-                       + list(target_main_op.reduce_axis))
+        intrin_axis = list(intrin_main_op.axis) + list(intrin_main_op.reduce_axis)
+        target_axis = list(target_main_op.axis) + list(target_main_op.reduce_axis)
 
         choices = []
         tmp = []
@@ -378,8 +356,7 @@ class TransformApplier(object):
             factor = int(axis.dom.extent)
             extent = int(choice.dom.extent)
             outer = (extent + factor - 1) // factor
-            var = tvm.tir.IterVar(
-                [0, outer], axis.var.name + ".o", axis.iter_type)
+            var = tvm.tir.IterVar([0, outer], axis.var.name + ".o", axis.iter_type)
             fwd_axis_map[axis] = choice % factor
             fwd_axis_map[var] = choice // factor
             rvs_axis_map[choice] = var * factor + axis
@@ -397,12 +374,8 @@ class TransformApplier(object):
                 time_loops.append(axis)
 
         request = TransformRequest(
-            name,
-            fwd_axis_map,
-            rvs_axis_map,
-            space_loops,
-            time_loops,
-            padding=need_padding)
+            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, padding=need_padding
+        )
         fold_state = transform_main_op(state, request)
         return fold_state
 

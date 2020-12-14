@@ -66,7 +66,6 @@ TransformRequest::TransformRequest(
     data_ = node;
 }
 
-
 Array<Array<PrimExpr>> ArgsGetter::get(const PrimExpr& e) {
   this->VisitExpr(e);
   return args_;

@@ -35,10 +35,10 @@ def powerx_lst(x, left, right):
     return ret
 
 
-def any_factor_split(value, number, allow_non_divisible='off'):
-    assert allow_non_divisible in ['off', 'power2', 'continuous']
+def any_factor_split(value, number, allow_non_divisible="off"):
+    assert allow_non_divisible in ["off", "power2", "continuous"]
     ret = []
-    assert (isinstance(number, int))
+    assert isinstance(number, int)
     recursive_factor_split(value, [], number, ret, allow_non_divisible)
     return ret
 
@@ -47,11 +47,11 @@ def recursive_factor_split(left, cur, number, ret, policy):
     if number == 1:
         ret.append(cur + [left])
         return
-    if policy == 'power2':
+    if policy == "power2":
         f_lst = get_factor_lst(left)
         f_lst.extend(powerx_lst(2, 1, left))
         f_lst = list(set(f_lst))
-    elif policy == 'continuous':
+    elif policy == "continuous":
         f_lst = list(range(1, left + 1))
     else:
         f_lst = get_factor_lst(left)
@@ -67,7 +67,7 @@ def remap_factors(factor_lst):
     assert isinstance(sample, (list, tuple))
     assert len(sample) > 0
     dim = len(sample) - 1
-    number_count = {i:set() for i in range(dim + 1)}
+    number_count = {i: set() for i in range(dim + 1)}
     # check the factor list
     for v in factor_lst:
         assert isinstance(v, (list, tuple))
@@ -79,8 +79,8 @@ def remap_factors(factor_lst):
         assert len(v) == num_factors
     # remap the factor list
     sorted_factors = sorted(number_count[0])
-    factor_map = {x:i for i, x in enumerate(sorted_factors)}
-    reverse_map = {i:x for i, x in enumerate(sorted_factors)}
+    factor_map = {x: i for i, x in enumerate(sorted_factors)}
+    reverse_map = {i: x for i, x in enumerate(sorted_factors)}
     ret = list(map(lambda factors: [factor_map[x] for x in factors], factor_lst))
     return ret, reverse_map, dim, num_factors - 1
 
@@ -95,7 +95,9 @@ def get_partial_directions(dim):
             d = [0 for _ in range(dim)]
             d[i] = v
             return d
+
         return set_value
+
     return list(map(worker(1), range(dim))) + list(map(worker(-1), range(dim)))
 
 
@@ -123,26 +125,22 @@ def substitute_inputs(org_dag, op_map):
     -------
     ComputeDAG
     """
-    n = _ffi_api.SubstituteInputs(
-        org_dag, op_map)
+    n = _ffi_api.SubstituteInputs(org_dag, op_map)
     return n
 
 
-def reconstruct_dag_as_intrin(
-        target_dag, main_op, recipe, compute_key, shape_key):
+def reconstruct_dag_as_intrin(target_dag, main_op, recipe, compute_key, shape_key):
     inputs = list(main_op.input_tensors)
     outputs = [main_op.output(0)]
     # TODO: consider elem op in dag construction
-    input_names, output_names, nodes, read_graph, feed_graph = \
-        construct_dag(
-            recipe, compute_key, shape_key, inputs, outputs, [], outputs)
-    output_tensors = reduce(
-        lambda x, y: x + y, [nodes[x] for x in output_names], [])
+    input_names, output_names, nodes, read_graph, feed_graph = construct_dag(
+        recipe, compute_key, shape_key, inputs, outputs, [], outputs
+    )
+    output_tensors = reduce(lambda x, y: x + y, [nodes[x] for x in output_names], [])
     output = output_tensors[0]
     replace_map = {main_op: output.op}
     result_dag = substitute_inputs(target_dag, replace_map)
-    return (result_dag,
-            (input_names, output_names, nodes, read_graph, feed_graph))
+    return (result_dag, (input_names, output_names, nodes, read_graph, feed_graph))
 
 
 def can_inline(op, dag):

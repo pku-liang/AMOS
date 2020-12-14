@@ -9,7 +9,6 @@ def intrinsic_match(target: te.Tensor, intrin: te.Tensor, main_capsule: te.Tenso
     # Map<Operation, Array<Map<IterVar, IterVar>>>
     results = dict(zip(flattened[0], flattened[1]))
     results = {
-        op: [dict(zip(m[0], m[1])) for m in itervarmaps]
-        for op, itervarmaps in results.items()
+        op: [dict(zip(m[0], m[1])) for m in itervarmaps] for op, itervarmaps in results.items()
     }
     return results

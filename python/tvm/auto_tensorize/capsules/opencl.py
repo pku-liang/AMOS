@@ -1,7 +1,12 @@
 import tvm
-from ..capsule_base import (CompilationCapsule, register_capsule,
-                            MemoryCapsule, ComputeCapsule,
-                            CompilationRecipe, register_recipe)
+from ..capsule_base import (
+    CompilationCapsule,
+    register_capsule,
+    MemoryCapsule,
+    ComputeCapsule,
+    CompilationRecipe,
+    register_recipe,
+)
 from ..recipe import InstructionScope
 
 
@@ -14,15 +19,16 @@ class arm_dot_vlen_local(ComputeCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("arm_dot_vlen_local"
-                 "Args:",
-                 "---",
-                 "A: matrix pointer for A, type is prefix char*",
-                 "B: matrix pointer for B, type is prefix char*",
-                 "C: dst memory pointer C, type prefix char*",
-                 "L: Reduction size, should be multiple of 4, type is int")
+        usage = (
+            "arm_dot_vlen_local" "Args:",
+            "---",
+            "A: matrix pointer for A, type is prefix char*",
+            "B: matrix pointer for B, type is prefix char*",
+            "C: dst memory pointer C, type prefix char*",
+            "L: Reduction size, should be multiple of 4, type is int",
+        )
         return usage
-    
+
     def get_compute_expression(self, L):
         """
         input_dtypes: list of str
@@ -53,33 +59,67 @@ class arm_dot_vlen_local(ComputeCapsule):
         assert L % 4 == 0
         inputs, outputs = self.get_compute_expression(L)
 
-        input_buffers = [tvm.tir.decl_buffer(X.shape, X.dtype, offset_factor=1,
-                                    data_alignment=4, scope=scope,
-                                    strides=[tvm.te.var(f"{X.name}s")]) for X in inputs]
+        input_buffers = [
+            tvm.tir.decl_buffer(
+                X.shape,
+                X.dtype,
+                offset_factor=1,
+                data_alignment=4,
+                scope=scope,
+                strides=[tvm.te.var(f"{X.name}s")],
+            )
+            for X in inputs
+        ]
 
-        output_buffers = [tvm.tir.decl_buffer(X.shape, X.dtype, offset_factor=1,
-                                    data_alignment=4, scope=scope,
-                                    strides=[tvm.te.var(f"{X.name}s")]) for X in outputs]
+        output_buffers = [
+            tvm.tir.decl_buffer(
+                X.shape,
+                X.dtype,
+                offset_factor=1,
+                data_alignment=4,
+                scope=scope,
+                strides=[tvm.te.var(f"{X.name}s")],
+            )
+            for X in outputs
+        ]
         Ab, Bb = input_buffers
-        Cb, = output_buffers
+        (Cb,) = output_buffers
 
-        bind_map = {x:y for x, y in
-                        zip(inputs + outputs, input_buffers + output_buffers)}
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
 
         def intrin(inps, outs):
             aa, bb = inps
-            cc, = outs
+            (cc,) = outs
 
             def _body():
                 builder = tvm.tir.ir_builder.create()
-                builder.emit(tvm.tir.call_intrin("handle", "tir.capsule_compile", "opencl", "arm_dot_vlen_local", f"arm_dot_vlen_{scope}",
-                                            aa.access_ptr("r"), bb.access_ptr("r"), cc.access_ptr("w"), L))
+                builder.emit(
+                    tvm.tir.call_intrin(
+                        "handle",
+                        "tir.capsule_compile",
+                        "opencl",
+                        "arm_dot_vlen_local",
+                        f"arm_dot_vlen_{scope}",
+                        aa.access_ptr("r"),
+                        bb.access_ptr("r"),
+                        cc.access_ptr("w"),
+                        L,
+                    )
+                )
                 return builder.get()
 
             def _reset():
                 builder = tvm.tir.ir_builder.create()
-                builder.emit(tvm.tir.call_intrin("handle", "tir.capsule_compile", "opencl",
-                                            "arm_dot_reset_local", f"arm_dot_reset_{scope}", cc.access_ptr("w")))
+                builder.emit(
+                    tvm.tir.call_intrin(
+                        "handle",
+                        "tir.capsule_compile",
+                        "opencl",
+                        "arm_dot_reset_local",
+                        f"arm_dot_reset_{scope}",
+                        cc.access_ptr("w"),
+                    )
+                )
                 return builder.get()
 
             return _body(), _reset(), _body()
@@ -130,8 +170,7 @@ class arm_dot_vlen_local(ComputeCapsule):
         for v in args:
             assert isinstance(v, str)
         prefix = self.get_instruction_prefix()
-        inst = "%s(%s, %s, %s, %s)" % (
-            prefix, args[0], args[1], args[2], args[3])
+        inst = "%s(%s, %s, %s, %s)" % (prefix, args[0], args[1], args[2], args[3])
         return inst
 
 
@@ -144,10 +183,7 @@ class arm_dot_reset_local(CompilationCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("arm_dot_reset_local"
-                 "Args:",
-                 "---",
-                 "C: pointer, the type is prefix char*")
+        usage = ("arm_dot_reset_local" "Args:", "---", "C: pointer, the type is prefix char*")
         return usage
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
@@ -190,8 +226,7 @@ class arm_dot_reset_local(CompilationCapsule):
         for v in args:
             assert isinstance(v, str)
         prefix = self.get_instruction_prefix()
-        inst = "%s(%s)" % (
-            prefix, args[0])
+        inst = "%s(%s)" % (prefix, args[0])
         return inst
 
     def get_header(self):
@@ -203,17 +238,14 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
     scope = InstructionScope.thread
 
     def __init__(self):
-        self.capsules = {
-            "arm_dot": arm_dot_vlen_local
-        }
+        self.capsules = {"arm_dot": arm_dot_vlen_local}
         self.main_capsule_name = "arm_dot"
         self.anchor_point = "arm_dot"
         self.edges = {}
         self.input_dtypes = {}
         self.output_dtypes = {}
 
-    def get_memory_scope_realize(
-            self, dtype, scope, constant_size, attributes):
+    def get_memory_scope_realize(self, dtype, scope, constant_size, attributes):
         """
         dtype: str
             e.g. int8

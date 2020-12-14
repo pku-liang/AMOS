@@ -1,5 +1,3 @@
-
-
 class Entry(object):
     def __init__(self, record, value):
         self.record = record

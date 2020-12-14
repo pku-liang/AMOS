@@ -125,11 +125,9 @@ class TransformRequest : public ObjectRef {
    * \param axis_map Map for axis
    * \param reverse_axis_map Reverse map for axis
    */
-  TVM_DLL TransformRequest(String name,
-                           Map<te::IterVar, PrimExpr> axis_map,
+  TVM_DLL TransformRequest(String name, Map<te::IterVar, PrimExpr> axis_map,
                            Map<te::IterVar, PrimExpr> reverse_axis_map,
-                           Array<te::IterVar> space_loops,
-                           Array<te::IterVar> time_loops,
+                           Array<te::IterVar> space_loops, Array<te::IterVar> time_loops,
                            bool need_padding);
 
   TVM_DEFINE_OBJECT_REF_METHODS(TransformRequest, ObjectRef, TransformRequestNode);

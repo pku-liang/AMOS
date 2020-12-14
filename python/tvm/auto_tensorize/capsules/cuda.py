@@ -1,8 +1,14 @@
 import tvm
-from ..capsule_base import (CompilationCapsule, register_capsule,
-                            MemoryCapsule, ComputeCapsule, ElementwiseComputeCapsule,
-                            ElementwiseMemoryCapsule,
-                            CompilationRecipe, register_recipe)
+from ..capsule_base import (
+    CompilationCapsule,
+    register_capsule,
+    MemoryCapsule,
+    ComputeCapsule,
+    ElementwiseComputeCapsule,
+    ElementwiseMemoryCapsule,
+    CompilationRecipe,
+    register_recipe,
+)
 from ..recipe import InstructionScope
 
 
@@ -15,19 +21,27 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("nvcuda::wmma::store_matrix_sync"
-                 "Args:",
-                 "---",
-                 "ptr: dst memory pointer",
-                 "fragment: src fragment",
-                 "ldm: leading dimension length",
-                 "layout: layout of accumulator matrix")
+        usage = (
+            "nvcuda::wmma::store_matrix_sync" "Args:",
+            "---",
+            "ptr: dst memory pointer",
+            "fragment: src fragment",
+            "ldm: leading dimension length",
+            "layout: layout of accumulator matrix",
+        )
         return usage
 
     def get_intrinsic(
-            self, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size, ldm, layout,
-                transpose=False):
+        self,
+        input_shapes,
+        output_shapes,
+        input_dtypes,
+        output_dtypes,
+        problem_size,
+        ldm,
+        layout,
+        transpose=False,
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -49,33 +63,31 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         assert len(problem_size) == 3
         assert len(input_shapes[0]) == 2
         assert len(output_shapes[0]) == 2
-        assert layout in [
-            "nvcuda::wmma::mem_row_major",
-            "nvcuda::wmma::mem_col_major"]
+        assert layout in ["nvcuda::wmma::mem_row_major", "nvcuda::wmma::mem_col_major"]
         inputs, outputs = self.get_compute_expression(
-            input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size)
+            input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+        )
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in input_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in input_shapes]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="local",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(inputs, data_alignments)]
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(inputs, data_alignments)
+        ]
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in output_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in output_shapes]
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="global",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(outputs, data_alignments)]
-        bind_map = {x:y for x, y in
-                        zip(inputs + outputs, input_buffers + output_buffers)}
+                x.shape, x.dtype, scope="global", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(outputs, data_alignments)
+        ]
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
+
         def intrin_func(ins, outs):
             ib = tvm.tir.ir_builder.create()
             BA = ins[0]
@@ -94,7 +106,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
                     BA.elem_offset // store_elems,
                     BC.access_ptr("w"),
                     ldm,
-                    layout
+                    layout,
                 )
             )
             return ib.get()
@@ -158,10 +170,8 @@ class WMMAStoreMatrixSync(MemoryCapsule):
             assert isinstance(v, str)
         args[7] = args[7][1:-1]  # get rid of ""
         prefix = self.get_instruction_prefix()
-        assert args[7] in [
-            "nvcuda::wmma::mem_row_major", "nvcuda::wmma::mem_col_major"]
-        inst = "%s(%s, %s[%s], %s, %s)" % (
-            prefix, args[5], args[0], args[4], args[6], args[7])
+        assert args[7] in ["nvcuda::wmma::mem_row_major", "nvcuda::wmma::mem_col_major"]
+        inst = "%s(%s, %s[%s], %s, %s)" % (prefix, args[5], args[0], args[4], args[6], args[7])
         return inst
 
 
@@ -178,8 +188,8 @@ class WMMAAddBias(ElementwiseComputeCapsule):
         return usage
 
     def get_compute_expression(
-            self, input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size):
+        self, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -200,19 +210,18 @@ class WMMAAddBias(ElementwiseComputeCapsule):
         assert len(output_shapes) == 1
         assert len(input_dtypes) == 2
         assert len(output_dtypes) == 1
-        A = tvm.te.placeholder(
-            input_shapes[0], name="A", dtype=input_dtypes[0])
-        B = tvm.te.placeholder(
-            input_shapes[1], name="B", dtype=input_dtypes[1])
+        A = tvm.te.placeholder(input_shapes[0], name="A", dtype=input_dtypes[0])
+        B = tvm.te.placeholder(input_shapes[1], name="B", dtype=input_dtypes[1])
         C = tvm.te.compute(
             output_shapes[0],
-            lambda *indices:
-                A(*indices) + B(*indices).astype(output_dtypes[0]), name="C")
+            lambda *indices: A(*indices) + B(*indices).astype(output_dtypes[0]),
+            name="C",
+        )
         return [A, B], [C]
 
     def get_compute_expression_with_inputs(
-            self, inputs, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size):
+        self, inputs, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+    ):
         """
         inputs: list of tvm.te.Tensor
         output_shapes: list of tuple/list of int
@@ -230,18 +239,18 @@ class WMMAAddBias(ElementwiseComputeCapsule):
         assert len(inputs) == 1
         assert len(output_shapes) == 1
         assert len(output_dtypes) == 1
-        A, = inputs
-        B = tvm.te.placeholder(
-            input_shapes[1], name="B", dtype=input_dtypes[1])
+        (A,) = inputs
+        B = tvm.te.placeholder(input_shapes[1], name="B", dtype=input_dtypes[1])
         C = tvm.te.compute(
             output_shapes[0],
-            lambda *indices:
-                A(*indices) + B(*indices).astype(output_dtypes[0]), name="C")
+            lambda *indices: A(*indices) + B(*indices).astype(output_dtypes[0]),
+            name="C",
+        )
         return [A, B], [C]
 
     def get_intrinsic(
-            self, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size, ldm, layout):
+        self, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size, ldm, layout
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -266,34 +275,32 @@ class WMMAAddBias(ElementwiseComputeCapsule):
         assert len(problem_size) == 3
         m, n, k = problem_size
         inputs, outputs = self.get_compute_expression(
-            input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size
+            input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
         )
 
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         a_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
         b_elems = int(input_shapes[1][0]) * int(input_shapes[1][1])
         c_elems = int(output_shapes[0][0]) * int(output_shapes[0][1])
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in input_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in input_shapes]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="local",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(inputs, data_alignments)]
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(inputs, data_alignments)
+        ]
 
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in output_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in output_shapes]
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="local",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(outputs, data_alignments)]
-        bind_map = {x:y for x, y in
-                        zip(inputs + outputs, input_buffers + output_buffers)}
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(outputs, data_alignments)
+        ]
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
 
         def intrin_func(ins, outs):
             ib = tvm.tir.ir_builder.create()
@@ -318,8 +325,7 @@ class WMMAAddBias(ElementwiseComputeCapsule):
             )
             return ib.get()
 
-        return tvm.te.decl_tensor_intrin(
-            outputs[0].op, intrin_func, binds=bind_map)
+        return tvm.te.decl_tensor_intrin(outputs[0].op, intrin_func, binds=bind_map)
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
         """
@@ -340,7 +346,7 @@ class WMMAAddBias(ElementwiseComputeCapsule):
             ret["storage_scope"] = "nvcuda::wmma::accumulator"
             ret["target"] = "cuda"
             ret["recipe_mnemonic"] = self.belong_recipe_name
-            ret["storage_layout"]= layout
+            ret["storage_layout"] = layout
             ret["data_type"] = ""
         return ret
 
@@ -372,9 +378,8 @@ class WMMAAddBias(ElementwiseComputeCapsule):
             assert isinstance(v, str)
         inst = (
             "0;{for (int _t=0; _t<%s[%s].num_elements; ++_t)"
-            " {%s[%s].x[_t] = %s[%s].x[_t] + float(%s[%s].x[_t]);}}") % (
-            args[0], args[1], args[0], args[1],
-            args[2], args[3], args[4], args[5])
+            " {%s[%s].x[_t] = %s[%s].x[_t] + float(%s[%s].x[_t]);}}"
+        ) % (args[0], args[1], args[0], args[1], args[2], args[3], args[4], args[5])
         return inst
 
 
@@ -387,19 +392,27 @@ class WMMALoadMatrixSync(MemoryCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("nvcuda::wmma::load_matrix_sync"
-                 "Args:",
-                 "---",
-                 "fragment: dst fragment",
-                 "ptr: src memory pointer",
-                 "ldm: leading dimension length",
-                 "optional layout: layout for accumulator")
+        usage = (
+            "nvcuda::wmma::load_matrix_sync" "Args:",
+            "---",
+            "fragment: dst fragment",
+            "ptr: src memory pointer",
+            "ldm: leading dimension length",
+            "optional layout: layout for accumulator",
+        )
         return usage
 
     def get_intrinsic(
-            self, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size,
-                ldm, layout, scope="shared"):
+        self,
+        input_shapes,
+        output_shapes,
+        input_dtypes,
+        output_dtypes,
+        problem_size,
+        ldm,
+        layout,
+        scope="shared",
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -425,32 +438,33 @@ class WMMALoadMatrixSync(MemoryCapsule):
             "nvcuda::wmma::row_major",
             "nvcuda::wmma::col_major",
             "nvcuda::wmma::mem_row_major",
-            "nvcuda::wmma::mem_col_major",]
+            "nvcuda::wmma::mem_col_major",
+        ]
         m, n, k = problem_size
         inputs, outputs = self.get_compute_expression(
-            input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size)
+            input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+        )
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         load_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in input_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in input_shapes]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope=scope,
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(inputs, data_alignments)]
+                x.shape, x.dtype, scope=scope, data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(inputs, data_alignments)
+        ]
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in output_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in output_shapes]
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="local",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(outputs, data_alignments)]
-        bind_map = {x:y for x, y in
-                        zip(inputs + outputs, input_buffers + output_buffers)}
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(outputs, data_alignments)
+        ]
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
+
         def intrin_func(ins, outs):
             ib = tvm.tir.ir_builder.create()
             BA = ins[0]
@@ -532,14 +546,10 @@ class WMMALoadMatrixSync(MemoryCapsule):
             assert isinstance(v, str)
         args[7] = args[7][1:-1]  # get rid of ""
         prefix = self.get_instruction_prefix()
-        if args[7] in ["nvcuda::wmma::mem_row_major",
-                       "nvcuda::wmma::mem_col_major"]:
-            inst = "%s(%s[%s], %s, %s, %s)" % (
-                prefix, args[0], args[4], args[5], args[6], args[7])
-        elif args[7] in ["nvcuda::wmma::row_major",
-                         "nvcuda::wmma::col_major"]:
-            inst = "%s(%s[%s], %s, %s)" % (
-                prefix, args[0], args[4], args[5], args[6])
+        if args[7] in ["nvcuda::wmma::mem_row_major", "nvcuda::wmma::mem_col_major"]:
+            inst = "%s(%s[%s], %s, %s, %s)" % (prefix, args[0], args[4], args[5], args[6], args[7])
+        elif args[7] in ["nvcuda::wmma::row_major", "nvcuda::wmma::col_major"]:
+            inst = "%s(%s[%s], %s, %s)" % (prefix, args[0], args[4], args[5], args[6])
         else:
             raise RuntimeError("Unknown memory layout: %s" % args[7])
         return inst
@@ -558,8 +568,8 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
         return usage
 
     def get_compute_expression(
-            self, input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size):
+        self, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -580,17 +590,15 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
         assert len(output_shapes) == 1
         assert len(input_dtypes) == 1
         assert len(output_dtypes) == 1
-        A = tvm.te.placeholder(
-            input_shapes[0], name="A", dtype=input_dtypes[0])
+        A = tvm.te.placeholder(input_shapes[0], name="A", dtype=input_dtypes[0])
         B = tvm.te.compute(
-            output_shapes[0],
-            lambda *indices:
-                A(*indices).astype(output_dtypes[0]), name="B")
+            output_shapes[0], lambda *indices: A(*indices).astype(output_dtypes[0]), name="B"
+        )
         return [A], [B]
 
     def get_compute_expression_with_inputs(
-            self, inputs, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size):
+        self, inputs, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+    ):
         """
         inputs: list of tvm.te.Tensor
         output_shapes: list of tuple/list of int
@@ -610,13 +618,14 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
         assert len(output_dtypes) == 1
         B = tvm.te.compute(
             output_shapes[0],
-            lambda *indices:
-                inputs[0](*indices).astype(output_dtypes[0]), name="B")
+            lambda *indices: inputs[0](*indices).astype(output_dtypes[0]),
+            name="B",
+        )
         return inputs, [B]
 
     def get_intrinsic(
-            self, input_shapes, output_shapes,
-                input_dtypes, output_dtypes, problem_size, ldm, layout):
+        self, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size, ldm, layout
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -641,30 +650,28 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
         assert len(problem_size) == 3
         m, n, k = problem_size
         inputs, outputs = self.get_compute_expression(
-            input_shapes, output_shapes,
-            input_dtypes, output_dtypes, problem_size
+            input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
         )
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in input_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in input_shapes]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="local",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(inputs, data_alignments)]
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(inputs, data_alignments)
+        ]
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignments = [
-            int(elem_bytes * x[1]) for x in output_shapes]
+        data_alignments = [int(elem_bytes * x[1]) for x in output_shapes]
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="local",
-                data_alignment=y, offset_factor=offset_factor)
-            for x, y in zip(outputs, data_alignments)]
-        bind_map = {x:y for x, y in
-                        zip(inputs + outputs, input_buffers + output_buffers)}
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(outputs, data_alignments)
+        ]
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
 
         def intrin_func(ins, outs):
             ib = tvm.tir.ir_builder.create()
@@ -681,13 +688,12 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
                     BA.elem_offset // store_elems,
                     BB.data,
                     BB.elem_offset // store_elems,
-                    layout
+                    layout,
                 )
             )
             return ib.get()
 
-        return tvm.te.decl_tensor_intrin(
-            outputs[0].op, intrin_func, binds=bind_map)
+        return tvm.te.decl_tensor_intrin(outputs[0].op, intrin_func, binds=bind_map)
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
         """
@@ -741,9 +747,8 @@ class WMMACastFp32ToTf32(ElementwiseMemoryCapsule):
             assert isinstance(v, str)
         prefix = self.get_instruction_prefix()
         inst = (
-            "0;{for (int _t=0; _t<%s[%s].num_elements; ++_t)"
-            " {%s[%s].x[_t] = %s(%s[%s].x[_t]);}}") % (
-            args[0], args[1], args[0], args[1], prefix, args[2], args[3])
+            "0;{for (int _t=0; _t<%s[%s].num_elements; ++_t)" " {%s[%s].x[_t] = %s(%s[%s].x[_t]);}}"
+        ) % (args[0], args[1], args[0], args[1], prefix, args[2], args[3])
         return inst
 
 
@@ -757,13 +762,14 @@ class WMMALoadMatrixSyncTf32(CompilationCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("nvcuda::wmma::load_matrix_sync::tf32"
-                 "Args:",
-                 "---",
-                 "fragment: dst fragment",
-                 "ptr: src memory pointer",
-                 "ldm: leading dimension length",
-                 "optional layout: layout for accumulator")
+        usage = (
+            "nvcuda::wmma::load_matrix_sync::tf32" "Args:",
+            "---",
+            "fragment: dst fragment",
+            "ptr: src memory pointer",
+            "ldm: leading dimension length",
+            "optional layout: layout for accumulator",
+        )
         return usage
 
     get_buffer_memory_scope_info = WMMALoadMatrixSync.get_buffer_memory_scope_info
@@ -772,18 +778,20 @@ class WMMALoadMatrixSyncTf32(CompilationCapsule):
     def _assemble_epilogue(self, *args):
         frag_arr_name, frag_index = args
         frag = f"{frag_arr_name}[{frag_index}]"
-        return '\n'.join([
-            f"for (int t = 0; t < {frag}.num_elements; t++) {{",
-            f"    {frag}.x[t] = wmma::__float_to_tf32({frag}.x[t]);",
-            f"}}",
-        ])
+        return "\n".join(
+            [
+                f"for (int t = 0; t < {frag}.num_elements; t++) {{",
+                f"    {frag}.x[t] = wmma::__float_to_tf32({frag}.x[t]);",
+                f"}}",
+            ]
+        )
 
     _assemble_instruction_body = WMMALoadMatrixSync.assemble_instruction
 
     def assemble_instruction(self, args):
         inst = self._assemble_instruction_body(args)
         epilogue = self._assemble_epilogue(args[0], args[4])
-        full_inst = '\n'.join([inst, epilogue])
+        full_inst = "\n".join([inst, epilogue])
         return full_inst
 
 
@@ -796,11 +804,12 @@ class WMMAFillFragment(ComputeCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("nvcuda::wmma::fill_fragment"
-                 "Args:",
-                 "---",
-                 "fragment: dst fragment",
-                 "v: filling value")
+        usage = (
+            "nvcuda::wmma::fill_fragment" "Args:",
+            "---",
+            "fragment: dst fragment",
+            "v: filling value",
+        )
         return usage
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
@@ -853,8 +862,7 @@ class WMMAFillFragment(ComputeCapsule):
         for v in args:
             assert isinstance(v, str)
         prefix = self.get_instruction_prefix()
-        inst = "%s(%s[%s], %s)" % (
-            prefix, args[0], args[4], args[5])
+        inst = "%s(%s[%s], %s)" % (prefix, args[0], args[4], args[5])
         return inst
 
 
@@ -867,19 +875,20 @@ class WMMAMmaSync(ComputeCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("nvcuda::wmma::mma_sync"
-                 "Args:",
-                 "---",
-                 "fragment: dst fragment",
-                 "fragment: a fragment",
-                 "fragment: b fragment",
-                 "fragment: c fragment",
-                 "satf: saturate to inf")
+        usage = (
+            "nvcuda::wmma::mma_sync" "Args:",
+            "---",
+            "fragment: dst fragment",
+            "fragment: a fragment",
+            "fragment: b fragment",
+            "fragment: c fragment",
+            "satf: saturate to inf",
+        )
         return usage
 
     def get_compute_expression(
-            self, input_dtypes, output_dtypes, problem_size,
-                trans_A=False, trans_B=False, trans_C=False):
+        self, input_dtypes, output_dtypes, problem_size, trans_A=False, trans_B=False, trans_C=False
+    ):
         """
         input_dtypes: list of str
         output_dtypes: list of str
@@ -900,10 +909,8 @@ class WMMAMmaSync(ComputeCapsule):
         A_shape = (m, k) if not trans_A else (k, m)
         B_shape = (k, n) if not trans_B else (n, k)
         C_shape = (m, n) if not trans_C else (n, m)
-        A = tvm.te.placeholder(
-            A_shape, name="wmma_A", dtype=input_dtypes[0])
-        B = tvm.te.placeholder(
-            B_shape, name="wmma_B", dtype=input_dtypes[1])
+        A = tvm.te.placeholder(A_shape, name="wmma_A", dtype=input_dtypes[0])
+        B = tvm.te.placeholder(B_shape, name="wmma_B", dtype=input_dtypes[1])
         rk = tvm.te.reduce_axis([0, k], name="rk")
 
         def get_indices(i, j, r, op):
@@ -923,17 +930,26 @@ class WMMAMmaSync(ComputeCapsule):
 
         C = tvm.te.compute(
             C_shape,
-            lambda i, j:
-                tvm.te.sum(
-                    (A(*get_indices(i, j, rk, "A")) *
-                     B(*get_indices(i, j, rk, "B"))).astype(output_dtypes[0]),
-                    axis=rk),
-            name="wmma_C")
+            lambda i, j: tvm.te.sum(
+                (A(*get_indices(i, j, rk, "A")) * B(*get_indices(i, j, rk, "B"))).astype(
+                    output_dtypes[0]
+                ),
+                axis=rk,
+            ),
+            name="wmma_C",
+        )
         return [A, B], [C]
 
     def get_compute_expression_with_inputs(
-            self, inputs, input_dtypes, output_dtypes, problem_size,
-                trans_A=False, trans_B=False, trans_C=False):
+        self,
+        inputs,
+        input_dtypes,
+        output_dtypes,
+        problem_size,
+        trans_A=False,
+        trans_B=False,
+        trans_C=False,
+    ):
         """
         inputs: list of tvm.te.Tensor
         output_dtypes: list of str
@@ -972,17 +988,19 @@ class WMMAMmaSync(ComputeCapsule):
 
         C = tvm.te.compute(
             C_shape,
-            lambda i, j:
-                tvm.te.sum(
-                    (A(*get_indices(i, j, rk, "A")) *
-                     B(*get_indices(i, j, rk, "B"))).astype(output_dtypes[0]),
-                    axis=rk),
-            name="wmma_C")
+            lambda i, j: tvm.te.sum(
+                (A(*get_indices(i, j, rk, "A")) * B(*get_indices(i, j, rk, "B"))).astype(
+                    output_dtypes[0]
+                ),
+                axis=rk,
+            ),
+            name="wmma_C",
+        )
         return [A, B], [C]
 
     def get_intrinsic(
-            self, input_dtypes, output_dtypes, problem_size,
-                trans_A=False, trans_B=False, trans_C=False):
+        self, input_dtypes, output_dtypes, problem_size, trans_A=False, trans_B=False, trans_C=False
+    ):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int
@@ -1005,30 +1023,42 @@ class WMMAMmaSync(ComputeCapsule):
             problem_size,
             trans_A=trans_A,
             trans_B=trans_B,
-            trans_C=trans_C
+            trans_C=trans_C,
         )
 
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         data_alignments = [
             int(elem_bytes * (m if trans_A else k)),
-            int(elem_bytes * (k if trans_B else n))]
+            int(elem_bytes * (k if trans_B else n)),
+        ]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, name="buffer_" + x.name, scope="local",
-                data_alignment=y, offset_factor=offset_factor
-            ) for x, y in zip(inputs, data_alignments)]
+                x.shape,
+                x.dtype,
+                name="buffer_" + x.name,
+                scope="local",
+                data_alignment=y,
+                offset_factor=offset_factor,
+            )
+            for x, y in zip(inputs, data_alignments)
+        ]
 
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
         data_alignment = int(elem_bytes * (m if trans_C else n))
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, name="buffer_" + x.name, scope="local",
-                data_alignment=data_alignment, offset_factor=offset_factor
-            ) for x in outputs]
-        bind_map = {x:y for x, y in
-                        zip(inputs + outputs, input_buffers + output_buffers)}
+                x.shape,
+                x.dtype,
+                name="buffer_" + x.name,
+                scope="local",
+                data_alignment=data_alignment,
+                offset_factor=offset_factor,
+            )
+            for x in outputs
+        ]
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
 
         def intrin_func(ins, outs):
             BA, BB = ins
@@ -1043,8 +1073,12 @@ class WMMAMmaSync(ComputeCapsule):
                         "cuda",
                         self.belong_recipe_name,
                         "nvcuda::wmma::fill_fragment",
-                        BC.data, m, n, k, BC.elem_offset // (m*n),
-                        tvm.tir.const(0.0, output_dtypes[0])
+                        BC.data,
+                        m,
+                        n,
+                        k,
+                        BC.elem_offset // (m * n),
+                        tvm.tir.const(0.0, output_dtypes[0]),
                     )
                 )
                 return ib.get()
@@ -1059,22 +1093,21 @@ class WMMAMmaSync(ComputeCapsule):
                         self.belong_recipe_name,
                         "nvcuda::wmma::mma_sync",
                         BC.data,
-                        BC.elem_offset // (m*n),
+                        BC.elem_offset // (m * n),
                         BA.data,
-                        BA.elem_offset // (m*k),
+                        BA.elem_offset // (m * k),
                         BB.data,
-                        BB.elem_offset // (n*k),
+                        BB.elem_offset // (n * k),
                         BC.data,
-                        BC.elem_offset // (m*n),
-                        False
+                        BC.elem_offset // (m * n),
+                        False,
                     )
                 )
                 return ib.get()
 
             return update(), init(), update()
 
-        return tvm.te.decl_tensor_intrin(
-            outputs[0].op, intrin_func, binds=bind_map)
+        return tvm.te.decl_tensor_intrin(outputs[0].op, intrin_func, binds=bind_map)
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
         """
@@ -1145,8 +1178,16 @@ class WMMAMmaSync(ComputeCapsule):
             assert isinstance(v, str)
         prefix = self.get_instruction_prefix()
         inst = "%s(%s[%s], %s[%s], %s[%s], %s[%s])" % (
-            prefix, args[0], args[1], args[2], args[3], args[4],
-            args[5], args[6], args[7])
+            prefix,
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            args[4],
+            args[5],
+            args[6],
+            args[7],
+        )
         return inst
 
 
@@ -1159,14 +1200,15 @@ class WMMABmmaSync(ComputeCapsule):
         usage string: str
             help to understand the instruction this capsule contains
         """
-        usage = ("nvcuda::wmma::bmma_sync"
-                 "Args:",
-                 "---",
-                 "fragment: dst fragment",
-                 "fragment: a fragment",
-                 "fragment: b fragment",
-                 "fragment: c fragment",
-                 "satf: saturate to inf")
+        usage = (
+            "nvcuda::wmma::bmma_sync" "Args:",
+            "---",
+            "fragment: dst fragment",
+            "fragment: a fragment",
+            "fragment: b fragment",
+            "fragment: c fragment",
+            "satf: saturate to inf",
+        )
         return usage
 
     get_compute_expression = WMMAMmaSync.get_compute_expression
@@ -1205,18 +1247,20 @@ class WMMABaseRecipe(CompilationRecipe):
             the compute expression can be tracked
             through [output.op.body for output in outputs]
         """
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[self.main_capsule_name]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
         return capsule.get_compute_expression(
             self.input_dtypes[self.main_capsule_name],
-            self.output_dtypes[self.main_capsule_name], problem_size,
-            trans_A=tA, trans_B=tB, trans_C=tC
+            self.output_dtypes[self.main_capsule_name],
+            problem_size,
+            trans_A=tA,
+            trans_B=tB,
+            trans_C=tC,
         )
 
-    def get_capsule_compute_expression(
-            self, compute_key, shape_key, capsule_key):
+    def get_capsule_compute_expression(self, compute_key, shape_key, capsule_key):
         """
         ---
         Returns:
@@ -1224,7 +1268,7 @@ class WMMABaseRecipe(CompilationRecipe):
             the compute expression can be tracked
             through [output.op.body for output in outputs]
         """
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
@@ -1235,35 +1279,42 @@ class WMMABaseRecipe(CompilationRecipe):
         if capsule_key == "mma":
             return capsule.get_compute_expression(
                 self.input_dtypes[capsule_key],
-                self.output_dtypes[capsule_key], problem_size,
-                trans_A=tA, trans_B=tB, trans_C=tC
+                self.output_dtypes[capsule_key],
+                problem_size,
+                trans_A=tA,
+                trans_B=tB,
+                trans_C=tC,
             )
         elif capsule_key == "load_a":
             return capsule.get_compute_expression(
-                [A_shape], [A_shape],
+                [A_shape],
+                [A_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "load_b":
             return capsule.get_compute_expression(
-                [B_shape], [B_shape],
+                [B_shape],
+                [B_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "store":
             return capsule.get_compute_expression(
-                [C_shape], [C_shape],
+                [C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
 
     def get_dag_compute_expression_with_inputs(
-            self, compute_key, shape_key, capsule_keys, read_graph):
+        self, compute_key, shape_key, capsule_keys, read_graph
+    ):
         """
         ---
         Returns:
@@ -1272,7 +1323,7 @@ class WMMABaseRecipe(CompilationRecipe):
             through [output.op.body for output in outputs]
         """
         assert len(capsule_keys) > 0
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         problem_size = self.get_problem_size(shape_key)
         m, n, k = problem_size
         A_shape = (m, k) if not tA else (k, m)
@@ -1280,10 +1331,11 @@ class WMMABaseRecipe(CompilationRecipe):
         C_shape = (m, n) if not tC else (m, n)
         cache = {
             "a": tvm.te.placeholder(A_shape, name="A", dtype=self.input_dtypes["a"][0]),
-            "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0])
+            "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0]),
         }
         dag_inputs = []
         dag_outputs = []
+
         def helper(capsule_key):
             if capsule_key in cache:
                 return
@@ -1298,38 +1350,46 @@ class WMMABaseRecipe(CompilationRecipe):
                     inputs.extend(cache[parent])
 
                 if capsule_key == "mma":
-                        _, ret = capsule.get_compute_expression_with_inputs(
+                    _, ret = capsule.get_compute_expression_with_inputs(
                         inputs,
                         self.input_dtypes[capsule_key],
-                        self.output_dtypes[capsule_key], problem_size,
-                        trans_A=tA, trans_B=tB, trans_C=tC
-                        )
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                        trans_A=tA,
+                        trans_B=tB,
+                        trans_C=tC,
+                    )
                 elif capsule_key == "load_a":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [A_shape], [A_shape],
+                        inputs,
+                        [A_shape],
+                        [A_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                 elif capsule_key == "load_b":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [B_shape], [B_shape],
+                        inputs,
+                        [B_shape],
+                        [B_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                 elif capsule_key == "store":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [C_shape], [C_shape],
+                        inputs,
+                        [C_shape],
+                        [C_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                 else:
                     raise RuntimeError("Unknown capsule key: %s" % capsule_key)
             else:
-                tmp, ret = self.get_capsule_compute_expression(
-                    compute_key, shape_key, capsule_key)
+                tmp, ret = self.get_capsule_compute_expression(compute_key, shape_key, capsule_key)
                 dag_inputs.extend(tmp)
 
             cache[capsule_key] = ret
@@ -1342,8 +1402,8 @@ class WMMABaseRecipe(CompilationRecipe):
         return dag_inputs, dag_outputs, cache
 
     def get_capsule_compute_expression_with_shape(
-            self, compute_key, shape_key, capsule_key,
-                input_shapes, output_shapes):
+        self, compute_key, shape_key, capsule_key, input_shapes, output_shapes
+    ):
         """
         ---
         Returns:
@@ -1355,18 +1415,18 @@ class WMMABaseRecipe(CompilationRecipe):
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
         if capsule_key == "mma":
-            raise RuntimeError(
-                "Can't get expression with customized shape for main capsule.")
+            raise RuntimeError("Can't get expression with customized shape for main capsule.")
         elif capsule_key == "load_a":
             assert len(input_shapes) == 1
             assert len(output_shapes) == 1
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "load_b":
             assert len(input_shapes) == 1
@@ -1374,10 +1434,11 @@ class WMMABaseRecipe(CompilationRecipe):
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "store":
             assert len(input_shapes) == 1
@@ -1385,10 +1446,11 @@ class WMMABaseRecipe(CompilationRecipe):
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
@@ -1399,7 +1461,7 @@ class WMMABaseRecipe(CompilationRecipe):
         Returns:
         input_shapes, output_shapes: list of list/tuple of int
         """
-        m, n, k = [int(x) for x in shape_key.split('x')]
+        m, n, k = [int(x) for x in shape_key.split("x")]
         return [m, n, k]
 
     def get_intrinsic(self, compute_key, shape_key, capsule_key):
@@ -1408,7 +1470,7 @@ class WMMABaseRecipe(CompilationRecipe):
         Returns:
         tvm.te.TensorIntrin
         """
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
@@ -1418,46 +1480,53 @@ class WMMABaseRecipe(CompilationRecipe):
         C_shape = (m, n) if not tC else (m, n)
         if capsule_key == "load_a":
             ldm = m if tA else k
-            layout = ("nvcuda::wmma::col_major"
-                       if tA else "nvcuda::wmma::row_major")
+            layout = "nvcuda::wmma::col_major" if tA else "nvcuda::wmma::row_major"
             return capsule.get_intrinsic(
-                [A_shape], [A_shape],
+                [A_shape],
+                [A_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         elif capsule_key == "load_b":
             ldm = k if tB else n
-            layout = ("nvcuda::wmma::col_major"
-                       if tB else "nvcuda::wmma::row_major")
+            layout = "nvcuda::wmma::col_major" if tB else "nvcuda::wmma::row_major"
             return capsule.get_intrinsic(
-                [B_shape], [B_shape],
+                [B_shape],
+                [B_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         elif capsule_key == "mma":
             return capsule.get_intrinsic(
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
                 problem_size,
-                trans_A=tA, trans_B=tB, trans_C=tC
+                trans_A=tA,
+                trans_B=tB,
+                trans_C=tC,
             )
         elif capsule_key == "store":
             ldm = m if tC else n
-            layout = ("nvcuda::wmma::mem_col_major"
-                       if tB else "nvcuda::wmma::mem_row_major")
+            layout = "nvcuda::wmma::mem_col_major" if tB else "nvcuda::wmma::mem_row_major"
             return capsule.get_intrinsic(
-                [C_shape], [C_shape],
+                [C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
 
-    def get_memory_scope_realize(
-            self, dtype, scope, constant_size, attributes):
+    def get_memory_scope_realize(self, dtype, scope, constant_size, attributes):
         """
         dtype: str
             e.g. float16
@@ -1480,30 +1549,39 @@ class WMMABaseRecipe(CompilationRecipe):
         if scope == "nvcuda::wmma::matrix_a":
             assert "storage_layout" in attributes
             storage_layout = attributes["storage_layout"]
-            storage = ("nvcuda::wmma::fragment<"
-                       + scope + ", "
-                       + storage_shape + ", "
-                       + dtype + ", "
-                       + storage_layout + ">")
+            storage = (
+                "nvcuda::wmma::fragment<"
+                + scope
+                + ", "
+                + storage_shape
+                + ", "
+                + dtype
+                + ", "
+                + storage_layout
+                + ">"
+            )
             assert constant_size % (m * k) == 0
             storage_size = constant_size // (m * k)
             return [storage, storage_size]
         elif scope == "nvcuda::wmma::matrix_b":
             assert "storage_layout" in attributes
             storage_layout = attributes["storage_layout"]
-            storage = ("nvcuda::wmma::fragment<"
-                       + scope + ", "
-                       + storage_shape + ", "
-                       + dtype + ", "
-                       + storage_layout + ">")
+            storage = (
+                "nvcuda::wmma::fragment<"
+                + scope
+                + ", "
+                + storage_shape
+                + ", "
+                + dtype
+                + ", "
+                + storage_layout
+                + ">"
+            )
             assert constant_size % (n * k) == 0
             storage_size = constant_size // (n * k)
             return [storage, storage_size]
         elif scope == "nvcuda::wmma::accumulator":
-            storage = ("nvcuda::wmma::fragment<"
-                       + scope + ", "
-                       + storage_shape + ", "
-                       + dtype + ">")
+            storage = "nvcuda::wmma::fragment<" + scope + ", " + storage_shape + ", " + dtype + ">"
             assert constant_size % (m * n) == 0
             storage_size = constant_size // (m * n)
             return [storage, storage_size]
@@ -1521,13 +1599,13 @@ class WMMAFp16Fp32(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -1537,7 +1615,7 @@ class WMMAFp16Fp32(WMMABaseRecipe):
             "mma": ["float16", "float16"],
             "store": ["float32"],
             "a": ["float16"],
-            "b": ["float16"]
+            "b": ["float16"],
         }
         self.output_dtypes = {
             "load_a": ["float16"],
@@ -1545,26 +1623,24 @@ class WMMAFp16Fp32(WMMABaseRecipe):
             "mma": ["float32"],
             "store": ["float32"],
             "a": ["float16"],
-            "b": ["float16"]
+            "b": ["float16"],
         }
 
     def get_name(self):
         return "wmma_fp16_fp32"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         ret = []
         choice = ["n", "t"]  # n: not transpose, t: transpose
         for i in choice:
             for j in choice:
                 for k in choice:
-                    ret.append(i+j+k)
+                    ret.append(i + j + k)
         return ret
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["16x16x16", "32x8x16", "8x32x16"]
 
 
@@ -1575,13 +1651,13 @@ class WMMAFp16Fp16(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -1591,7 +1667,7 @@ class WMMAFp16Fp16(WMMABaseRecipe):
             "mma": ["float16", "float16"],
             "store": ["float16"],
             "a": ["float16"],
-            "b": ["float16"]
+            "b": ["float16"],
         }
         self.output_dtypes = {
             "load_a": ["float16"],
@@ -1599,26 +1675,24 @@ class WMMAFp16Fp16(WMMABaseRecipe):
             "mma": ["float16"],
             "store": ["float16"],
             "a": ["float16"],
-            "b": ["float16"]
+            "b": ["float16"],
         }
 
     def get_name(self):
         return "wmma_fp16_fp16"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         ret = []
         choice = ["n", "t"]  # n: not transpose, t: transpose
         for i in choice:
             for j in choice:
                 for k in choice:
-                    ret.append(i+j+k)
+                    ret.append(i + j + k)
         return ret
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["16x16x16", "32x8x16", "8x32x16"]
 
 
@@ -1631,7 +1705,7 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             "load_bias": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
             "bias": WMMAAddBias,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
@@ -1639,7 +1713,7 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             "store": ["bias"],
             "load_a": ["a"],
             "load_b": ["b"],
-            "load_bias": ["c"]
+            "load_bias": ["c"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "bias"
@@ -1652,7 +1726,7 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             "store": ["float32"],
             "a": ["float16"],
             "b": ["float16"],
-            "c": ["float16"]
+            "c": ["float16"],
         }
         self.output_dtypes = {
             "load_a": ["float16"],
@@ -1663,14 +1737,13 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             "store": ["float32"],
             "a": ["float16"],
             "b": ["float16"],
-            "c": ["float16"]
+            "c": ["float16"],
         }
-    
+
     def get_name(self):
         return "wmma_fp16_fp32_bias"
-    
-    def get_capsule_compute_expression(
-            self, compute_key, shape_key, capsule_key):
+
+    def get_capsule_compute_expression(self, compute_key, shape_key, capsule_key):
         """
         ---
         Returns:
@@ -1678,7 +1751,7 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             the compute expression can be tracked
             through [output.op.body for output in outputs]
         """
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
@@ -1689,50 +1762,58 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
         if capsule_key == "mma":
             return capsule.get_compute_expression(
                 self.input_dtypes[capsule_key],
-                self.output_dtypes[capsule_key], problem_size,
-                trans_A=tA, trans_B=tB, trans_C=tC
+                self.output_dtypes[capsule_key],
+                problem_size,
+                trans_A=tA,
+                trans_B=tB,
+                trans_C=tC,
             )
         elif capsule_key == "load_a":
             return capsule.get_compute_expression(
-                [A_shape], [A_shape],
+                [A_shape],
+                [A_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "load_b":
             return capsule.get_compute_expression(
-                [B_shape], [B_shape],
+                [B_shape],
+                [B_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "load_bias":
             return capsule.get_compute_expression(
-                [C_shape], [C_shape],
+                [C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "store":
             return capsule.get_compute_expression(
-                [C_shape], [C_shape],
+                [C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "bias":
             return capsule.get_compute_expression(
-                [C_shape, C_shape], [C_shape],
+                [C_shape, C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
 
     def get_capsule_compute_expression_with_shape(
-            self, compute_key, shape_key, capsule_key,
-                input_shapes, output_shapes):
+        self, compute_key, shape_key, capsule_key, input_shapes, output_shapes
+    ):
         """
         ---
         Returns:
@@ -1744,18 +1825,18 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
         if capsule_key == "mma":
-            raise RuntimeError(
-                "Can't get expression with customized shape for main capsule.")
+            raise RuntimeError("Can't get expression with customized shape for main capsule.")
         elif capsule_key == "load_a":
             assert len(input_shapes) == 1
             assert len(output_shapes) == 1
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "load_b":
             assert len(input_shapes) == 1
@@ -1763,10 +1844,11 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "load_bias":
             assert len(input_shapes) == 1
@@ -1774,10 +1856,11 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "store":
             assert len(input_shapes) == 1
@@ -1785,25 +1868,28 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             for ii, io in zip(input_shapes, output_shapes):
                 assert ii == io
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         elif capsule_key == "bias":
             assert len(input_shapes) == 2, input_shapes
             assert len(output_shapes) == 1, output_shapes
             return capsule.get_compute_expression(
-                input_shapes, output_shapes,
+                input_shapes,
+                output_shapes,
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size
+                problem_size,
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
 
     def get_dag_compute_expression_with_inputs(
-            self, compute_key, shape_key, capsule_keys, read_graph):
+        self, compute_key, shape_key, capsule_keys, read_graph
+    ):
         """
         ---
         Returns:
@@ -1812,7 +1898,7 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
             through [output.op.body for output in outputs]
         """
         assert len(capsule_keys) > 0
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         problem_size = self.get_problem_size(shape_key)
         m, n, k = problem_size
         A_shape = (m, k) if not tA else (k, m)
@@ -1821,10 +1907,11 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
         cache = {
             "a": tvm.te.placeholder(A_shape, name="A", dtype=self.input_dtypes["a"][0]),
             "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0]),
-            "c": tvm.te.placeholder(B_shape, name="C", dtype=self.input_dtypes["c"][0])
+            "c": tvm.te.placeholder(B_shape, name="C", dtype=self.input_dtypes["c"][0]),
         }
         dag_inputs = []
         dag_outputs = []
+
         def helper(capsule_key):
             if capsule_key in cache:
                 return
@@ -1837,72 +1924,85 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
                     helper(parent)
                     assert parent in cache
                     inputs.extend(cache[parent])
-                
+
                 if capsule_key == "mma":
-                        _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, self.input_dtypes[capsule_key],
-                        self.output_dtypes[capsule_key], problem_size,
-                        trans_A=tA, trans_B=tB, trans_C=tC
-                        )
-                elif capsule_key == "load_a":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [A_shape], [A_shape],
+                        inputs,
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
+                        trans_A=tA,
+                        trans_B=tB,
+                        trans_C=tC,
+                    )
+                elif capsule_key == "load_a":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        [A_shape],
+                        [A_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
                     )
                 elif capsule_key == "load_b":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [B_shape], [B_shape],
+                        inputs,
+                        [B_shape],
+                        [B_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                 elif capsule_key == "store":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [C_shape], [C_shape],
+                        inputs,
+                        [C_shape],
+                        [C_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                 elif capsule_key == "load_bias":
                     _, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [C_shape], [C_shape],
+                        inputs,
+                        [C_shape],
+                        [C_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                 elif capsule_key == "bias":
                     tmp, ret = capsule.get_compute_expression_with_inputs(
-                        inputs, [C_shape, C_shape], [C_shape],
+                        inputs,
+                        [C_shape, C_shape],
+                        [C_shape],
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size
+                        problem_size,
                     )
                     dag_inputs.append(tmp[-1])
                 else:
                     raise RuntimeError("Unknown capsule key: %s" % capsule_key)
             else:
-                tmp, ret = self.get_capsule_compute_expression(
-                    compute_key, shape_key, capsule_key)
+                tmp, ret = self.get_capsule_compute_expression(compute_key, shape_key, capsule_key)
                 dag_inputs.extend(tmp)
-            
+
             cache[capsule_key] = ret
-        
+
         for capsule_key in capsule_keys:
             helper(capsule_key)
             assert capsule_key in cache
             dag_outputs.extend(cache[capsule_key])
-        
+
         return dag_inputs, dag_outputs, cache
-    
+
     def get_intrinsic(self, compute_key, shape_key, capsule_key):
         """
         ---
         Returns:
         tvm.te.TensorIntrin
         """
-        tA, tB, tC = [x == 't' for x in compute_key]
+        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
@@ -1912,60 +2012,73 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
         C_shape = (m, n) if not tC else (m, n)
         if capsule_key == "load_a":
             ldm = m if tA else k
-            layout = ("nvcuda::wmma::col_major"
-                       if tA else "nvcuda::wmma::row_major")
+            layout = "nvcuda::wmma::col_major" if tA else "nvcuda::wmma::row_major"
             return capsule.get_intrinsic(
-                [A_shape], [A_shape],
+                [A_shape],
+                [A_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         elif capsule_key == "load_b":
             ldm = k if tB else n
-            layout = ("nvcuda::wmma::col_major"
-                       if tB else "nvcuda::wmma::row_major")
+            layout = "nvcuda::wmma::col_major" if tB else "nvcuda::wmma::row_major"
             return capsule.get_intrinsic(
-                [B_shape], [B_shape],
+                [B_shape],
+                [B_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         elif capsule_key == "load_bias":
             ldm = k if tB else n
-            layout = ("nvcuda::wmma::mem_col_major"
-                       if tB else "nvcuda::wmma::mem_row_major")
+            layout = "nvcuda::wmma::mem_col_major" if tB else "nvcuda::wmma::mem_row_major"
             return capsule.get_intrinsic(
-                [C_shape], [C_shape],
+                [C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout, scope="global"
+                problem_size,
+                ldm,
+                layout,
+                scope="global",
             )
         elif capsule_key == "mma":
             return capsule.get_intrinsic(
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
                 problem_size,
-                trans_A=tA, trans_B=tB, trans_C=tC
+                trans_A=tA,
+                trans_B=tB,
+                trans_C=tC,
             )
         elif capsule_key == "store":
             ldm = m if tC else n
-            layout = ("nvcuda::wmma::mem_col_major"
-                       if tB else "nvcuda::wmma::mem_row_major")
+            layout = "nvcuda::wmma::mem_col_major" if tB else "nvcuda::wmma::mem_row_major"
             return capsule.get_intrinsic(
-                [C_shape], [C_shape],
+                [C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         elif capsule_key == "bias":
             ldm = m if tC else n
-            layout = ("nvcuda::wmma::mem_col_major"
-                       if tB else "nvcuda::wmma::mem_row_major")
+            layout = "nvcuda::wmma::mem_col_major" if tB else "nvcuda::wmma::mem_row_major"
             return capsule.get_intrinsic(
-                [C_shape, C_shape], [C_shape],
+                [C_shape, C_shape],
+                [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size, ldm, layout
+                problem_size,
+                ldm,
+                layout,
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
@@ -1978,13 +2091,13 @@ class WMMAInt8Int32(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -1994,7 +2107,7 @@ class WMMAInt8Int32(WMMABaseRecipe):
             "mma": ["int8", "int8"],
             "store": ["int32"],
             "a": ["int8"],
-            "b": ["int8"]
+            "b": ["int8"],
         }
         self.output_dtypes = {
             "load_a": ["int8"],
@@ -2002,20 +2115,18 @@ class WMMAInt8Int32(WMMABaseRecipe):
             "mma": ["int32"],
             "store": ["int32"],
             "a": ["int8"],
-            "b": ["int8"]
+            "b": ["int8"],
         }
 
     def get_name(self):
         return "wmma_int8_int32"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         return ["ntn"]
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["32x8x16", "16x16x16", "8x32x16"]
 
 
@@ -2026,13 +2137,13 @@ class WMMAInt4Int32(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -2042,7 +2153,7 @@ class WMMAInt4Int32(WMMABaseRecipe):
             "mma": ["int4", "int4"],
             "store": ["int32"],
             "a": ["int4"],
-            "b": ["int4"]
+            "b": ["int4"],
         }
         self.output_dtypes = {
             "load_a": ["int4"],
@@ -2050,20 +2161,18 @@ class WMMAInt4Int32(WMMABaseRecipe):
             "mma": ["int32"],
             "store": ["int32"],
             "a": ["int4"],
-            "b": ["int4"]
+            "b": ["int4"],
         }
 
     def get_name(self):
         return "wmma_int4_int32"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         return ["ntn"]
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["8x8x32"]
 
     def get_special_dtype(self, dtype):
@@ -2079,13 +2188,13 @@ class WMMABin1Int32(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMABmmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -2095,7 +2204,7 @@ class WMMABin1Int32(WMMABaseRecipe):
             "mma": ["int1", "int1"],
             "store": ["int32"],
             "a": ["int1"],
-            "b": ["int1"]
+            "b": ["int1"],
         }
         self.output_dtypes = {
             "load_a": ["int1"],
@@ -2103,20 +2212,18 @@ class WMMABin1Int32(WMMABaseRecipe):
             "mma": ["int32"],
             "store": ["int32"],
             "a": ["int1"],
-            "b": ["int1"]
+            "b": ["int1"],
         }
 
     def get_name(self):
         return "wmma_bin1_int32"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         return ["nnn", "nnt"]
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["8x8x128"]
 
     def get_special_dtype(self, dtype):
@@ -2132,13 +2239,13 @@ class WMMABf16Fp32(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -2148,7 +2255,7 @@ class WMMABf16Fp32(WMMABaseRecipe):
             "mma": ["bfloat16", "bfloat16"],
             "store": ["float32"],
             "a": ["bfloat16"],
-            "b": ["bfloat16"]
+            "b": ["bfloat16"],
         }
         self.output_dtypes = {
             "load_a": ["bfloat16"],
@@ -2156,20 +2263,18 @@ class WMMABf16Fp32(WMMABaseRecipe):
             "mma": ["float32"],
             "store": ["float32"],
             "a": ["bfloat16"],
-            "b": ["bfloat16"]
+            "b": ["bfloat16"],
         }
 
     def get_name(self):
         return "wmma_bf16_fp32"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         return ["nnn", "nnt"]
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["16x16x16", "8x32x16", "32x8x16"]
 
     def get_special_dtype(self, dtype):
@@ -2178,10 +2283,12 @@ class WMMABf16Fp32(WMMABaseRecipe):
         }.get(dtype, "")
 
     def get_header(self):
-        return ''.join([
-            "#include <mma.h>\n",
-            "#include <cuda_bf16.h>\n",
-        ])
+        return "".join(
+            [
+                "#include <mma.h>\n",
+                "#include <cuda_bf16.h>\n",
+            ]
+        )
 
 
 @register_recipe("cuda", "wmma_tf32_fp32")
@@ -2193,7 +2300,7 @@ class WMMATf32Fp32(WMMABaseRecipe):
             "cast_a": WMMACastFp32ToTf32,
             "cast_b": WMMACastFp32ToTf32,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["cast_a", "cast_b"],
@@ -2201,7 +2308,7 @@ class WMMATf32Fp32(WMMABaseRecipe):
             "cast_a": ["load_a"],
             "cast_b": ["load_b"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -2213,7 +2320,7 @@ class WMMATf32Fp32(WMMABaseRecipe):
             "mma": ["tf32", "tf32"],
             "store": ["float32"],
             "a": ["float32"],
-            "b": ["float32"]
+            "b": ["float32"],
         }
         self.output_dtypes = {
             "load_a": ["float32"],
@@ -2223,20 +2330,18 @@ class WMMATf32Fp32(WMMABaseRecipe):
             "mma": ["float32"],
             "store": ["float32"],
             "a": ["float32"],
-            "b": ["float32"]
+            "b": ["float32"],
         }
 
     def get_name(self):
         return "wmma_tf32_fp32"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         return ["nnn", "nnt"]
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["16x16x8"]
 
 
@@ -2247,13 +2352,13 @@ class WMMAFp64Fp64(WMMABaseRecipe):
             "load_a": WMMALoadMatrixSync,
             "load_b": WMMALoadMatrixSync,
             "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync
+            "store": WMMAStoreMatrixSync,
         }
         self.edges = {
             "mma": ["load_a", "load_b"],
             "store": ["mma"],
             "load_a": ["a"],
-            "load_b": ["b"]
+            "load_b": ["b"],
         }
         self.main_capsule_name = "mma"
         self.anchor_point = "mma"
@@ -2263,7 +2368,7 @@ class WMMAFp64Fp64(WMMABaseRecipe):
             "mma": ["float64", "float64"],
             "store": ["float64"],
             "a": ["float64"],
-            "b": ["float64"]
+            "b": ["float64"],
         }
         self.output_dtypes = {
             "load_a": ["float64"],
@@ -2271,19 +2376,16 @@ class WMMAFp64Fp64(WMMABaseRecipe):
             "mma": ["float64"],
             "store": ["float64"],
             "a": ["float64"],
-            "b": ["float64"]
+            "b": ["float64"],
         }
 
     def get_name(self):
         return "wmma_fp64_fp64"
 
     def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str
-        """
+        """Return all compute keys. Keys are str"""
         return ["nnn", "nnt"]
 
     def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str
-        """
+        """Return all shape keys. Keys are str"""
         return ["8x8x4"]
-

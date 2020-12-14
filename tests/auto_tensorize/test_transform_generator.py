@@ -11,18 +11,19 @@ TEST_CASES = OrderedDict()
 def register_test(func):
     name = func.__name__
     prefix = "test"
-    assert name[:len(prefix)] == prefix
+    assert name[: len(prefix)] == prefix
     try:
-        number = int(name[len(prefix):])
+        number = int(name[len(prefix) :])
 
         def _inner(*args, **kwargs):
             print(func.__doc__)
             func(*args, **kwargs)
+
         assert number not in TEST_CASES, "Repeated test case number %d" % number
         TEST_CASES[number] = _inner
     except ValueError as e:
         print(e)
-        print("Can't convert to number", name[len(prefix):])
+        print("Can't convert to number", name[len(prefix) :])
 
 
 def conv2d(N, C, H, W, K, R, S, stride, padding):
@@ -38,16 +39,14 @@ def conv2d(N, C, H, W, K, R, S, stride, padding):
     Q = (W - S) // stride + 1
     Conv = tvm.te.compute(
         [N, K, P, Q],
-        lambda n, k, p, q:
-            tvm.te.sum((A[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
-                        ).astype("float32"), axis=[rc, rr, rs]),
-        name="Conv"
+        lambda n, k, p, q: tvm.te.sum(
+            (A[n, rc, p + rr, q + rs] * B[k, rc, rr, rs]).astype("float32"), axis=[rc, rr, rs]
+        ),
+        name="Conv",
     )
     bias = tvm.te.placeholder([N, K, P, Q], dtype="float32", name="bias")
     E = tvm.te.compute(
-        [N, K, P, Q],
-        lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bn, bk, bp, bq],
-        name="E"
+        [N, K, P, Q], lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bn, bk, bp, bq], name="E"
     )
     return [A, B, bias, E]
 
@@ -55,8 +54,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding):
 def get_tvm_arrays(tensors, ctx):
     ret = []
     for t in tensors:
-        np_ary = np.random.uniform(-1, 1, [int(x)
-                                           for x in t.shape]).astype(t.dtype)
+        np_ary = np.random.uniform(-1, 1, [int(x) for x in t.shape]).astype(t.dtype)
         tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
@@ -75,32 +73,25 @@ def test1():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref +
-                         list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
     func_ref(*inputs_arrays, *outputs_arrays_ref)
 
-    main_op_map = {
-        intrin_dag.op_lst[0]: target_dag.op_lst[0]
-    }
-    elem_op_map = {
-        intrin_dag.op_lst[1]: target_dag.op_lst[1]
-    }
+    main_op_map = {intrin_dag.op_lst[0]: target_dag.op_lst[0]}
+    elem_op_map = {intrin_dag.op_lst[1]: target_dag.op_lst[1]}
     ii, jj = intrin_dag.op_lst[0].axis
-    kk, = intrin_dag.op_lst[0].reduce_axis
+    (kk,) = intrin_dag.op_lst[0].reduce_axis
     n, k, p, q = target_dag.op_lst[0].axis
     rc, rr, rs = target_dag.op_lst[0].reduce_axis
     axis_map = {
         ii: [n, n, n, p, p, q, q],
         jj: [k, k, k, k, k, k, k],
-        kk: [rc, rr, rs, rc, rs, rc, rr]
+        kk: [rc, rr, rs, rc, rs, rc, rr],
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
-        main_op_map, elem_op_map,
-        axis_map, target_dag, intrin_dag
+        recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
     gen = at.TransformGenerator(match_result)
@@ -124,20 +115,14 @@ def test1():
         new_inputs = new_target_dag.get_inputs()
         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
 
-        func = tvm.build(sch, new_inputs +
-                         list(new_target_dag.tensors), "llvm")
+        func = tvm.build(sch, new_inputs + list(new_target_dag.tensors), "llvm")
         outputs_arrays = get_tvm_arrays(list(new_target_dag.tensors), ctx)
         func(*inputs_arrays, *outputs_arrays)
         for a, b in zip(outputs_arrays_ref, outputs_arrays):
             try:
-                testing.assert_allclose(
-                    a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+                testing.assert_allclose(a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
             except Exception as e:
-                print(
-                    tvm.lower(
-                        sch,
-                        new_inputs + list(new_target_dag.tensors),
-                        simple_mode=True))
+                print(tvm.lower(sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
                 print(e)
 
         gen.feedback(record, np.random.random())
@@ -157,31 +142,25 @@ def test2():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref +
-                         list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
     func_ref(*inputs_arrays, *outputs_arrays_ref)
 
-    main_op_map = {
-        intrin_dag.op_lst[0]: target_dag.op_lst[0]
-    }
-    elem_op_map = {
-    }
+    main_op_map = {intrin_dag.op_lst[0]: target_dag.op_lst[0]}
+    elem_op_map = {}
     ii, jj = intrin_dag.op_lst[0].axis
-    kk, = intrin_dag.op_lst[0].reduce_axis
+    (kk,) = intrin_dag.op_lst[0].reduce_axis
     n, k, p, q = target_dag.op_lst[0].axis
     rc, rr, rs = target_dag.op_lst[0].reduce_axis
     axis_map = {
         ii: [n, n, n, p, p, q, q],
         jj: [k, k, k, k, k, k, k],
-        kk: [rc, rr, rs, rc, rs, rc, rr]
+        kk: [rc, rr, rs, rc, rs, rc, rr],
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
-        main_op_map, elem_op_map,
-        axis_map, target_dag, intrin_dag
+        recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
     gen = at.TransformGenerator(match_result)
@@ -207,30 +186,24 @@ def test2():
             new_target_main_op = v
         assert new_target_main_op is not None
 
-        new_target_dag, _ = at.reconstruct_dag_as_intrin(
-            new_target_dag, new_target_main_op, recipe, compute_key, shape_key)
+        new_target_dag = reconstruct_dag_as_intrin(
+            new_target_dag, new_target_main_op, recipe, compute_key, shape_key
+        )
         print("new dag len:", len(new_target_dag.op_lst))
 
-        print("new dag load A op:",
-              new_target_dag.op_lst[2].axis, new_target_dag.op_lst[2].body)
-        print("new dag load B op:",
-              new_target_dag.op_lst[5].axis, new_target_dag.op_lst[5].body)
-        print("new dag main op:",
-              new_target_dag.op_lst[6].axis, new_target_dag.op_lst[6].body)
-        print("new dag store op:",
-              new_target_dag.op_lst[7].axis, new_target_dag.op_lst[7].body)
+        print("new dag load A op:", new_target_dag.op_lst[2].axis, new_target_dag.op_lst[2].body)
+        print("new dag load B op:", new_target_dag.op_lst[5].axis, new_target_dag.op_lst[5].body)
+        print("new dag main op:", new_target_dag.op_lst[6].axis, new_target_dag.op_lst[6].body)
+        print("new dag store op:", new_target_dag.op_lst[7].axis, new_target_dag.op_lst[7].body)
 
         new_inputs = new_target_dag.get_inputs()
         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
-        print(tvm.lower(
-            sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
-        func = tvm.build(sch, new_inputs +
-                         list(new_target_dag.tensors), "llvm")
+        print(tvm.lower(sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
+        func = tvm.build(sch, new_inputs + list(new_target_dag.tensors), "llvm")
         outputs_arrays = get_tvm_arrays(list(new_target_dag.tensors), ctx)
         func(*inputs_arrays, *outputs_arrays)
         for a, b in zip(outputs_arrays_ref, outputs_arrays):
-            testing.assert_allclose(
-                a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+            testing.assert_allclose(a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
 
         gen.feedback(record, np.random.random())
     print("Pass!\n")
@@ -249,31 +222,25 @@ def test3():
 
     inputs_ref = target_dag.get_inputs()
     sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    func_ref = tvm.build(sch_ref, inputs_ref +
-                         list(target_dag.tensors), "llvm")
+    func_ref = tvm.build(sch_ref, inputs_ref + list(target_dag.tensors), "llvm")
     ctx = tvm.cpu()
     inputs_arrays = get_tvm_arrays(inputs_ref, ctx)
     outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
     func_ref(*inputs_arrays, *outputs_arrays_ref)
 
-    main_op_map = {
-        intrin_dag.op_lst[0]: target_dag.op_lst[0]
-    }
-    elem_op_map = {
-    }
+    main_op_map = {intrin_dag.op_lst[0]: target_dag.op_lst[0]}
+    elem_op_map = {}
     ii, jj = intrin_dag.op_lst[0].axis
-    kk, = intrin_dag.op_lst[0].reduce_axis
+    (kk,) = intrin_dag.op_lst[0].reduce_axis
     n, k, p, q = target_dag.op_lst[0].axis
     rc, rr, rs = target_dag.op_lst[0].reduce_axis
     axis_map = {
         ii: [n, n, n, p, p, q, q],
         jj: [k, k, k, k, k, k, k],
-        kk: [rc, rr, rs, rc, rs, rc, rr]
+        kk: [rc, rr, rs, rc, rs, rc, rr],
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
-        main_op_map, elem_op_map,
-        axis_map, target_dag, intrin_dag
+        recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
     gen = at.TransformGenerator(match_result)
@@ -291,18 +258,17 @@ def test3():
         assert new_target_main_op is not None
 
         new_target_dag, _ = at.reconstruct_dag_as_intrin(
-            new_target_dag, new_target_main_op, recipe, compute_key, shape_key)
+            new_target_dag, new_target_main_op, recipe, compute_key, shape_key
+        )
 
         new_inputs = new_target_dag.get_inputs()
         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
 
-        func = tvm.build(sch, new_inputs +
-                         list(new_target_dag.tensors), "llvm")
+        func = tvm.build(sch, new_inputs + list(new_target_dag.tensors), "llvm")
         outputs_arrays = get_tvm_arrays(list(new_target_dag.tensors), ctx)
         func(*inputs_arrays, *outputs_arrays)
         for a, b in zip(outputs_arrays_ref, outputs_arrays):
-            testing.assert_allclose(
-                a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
+            testing.assert_allclose(a.asnumpy(), b.asnumpy(), atol=1e-3, rtol=1e-2)
 
         gen.feedback(record, np.random.random())
         print(gen.score_table)
@@ -311,6 +277,7 @@ def test3():
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", help="test case", type=int, default=1)
     parser.add_argument("--all", help="test all", action="store_true")
@@ -323,7 +290,6 @@ if __name__ == "__main__":
             v()
             print("Pass!")
     else:
-        assert args.case in TEST_CASES, "Can't find case %s." % (
-            str(args.case))
+        assert args.case in TEST_CASES, "Can't find case %s." % (str(args.case))
         case = TEST_CASES[args.case]
         case()

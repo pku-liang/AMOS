@@ -5,7 +5,9 @@ from tvm import auto_scheduler
 import numpy as np
 
 
-def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key):
+def conv2d_implicit_gemm_nchw(
+    N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key
+):
     dtype = "float16"
     out_dtype = "float16"
     OC = (C + k - 1) // k
@@ -26,7 +28,6 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
 
     def get_c(val):
         return val // (R * S)
-
 
     def get_h(val):
         n = get_n(val)
@@ -52,52 +53,51 @@ def conv2d_implicit_gemm_nchw(N, C, H, W, K, R, S, stride, padding, m, n, k, com
 
     Pad = tvm.te.compute(
         [N, C, H + 2 * padding, W + 2 * padding],
-        lambda i, c, h, w:
-            tvm.tir.if_then_else(
-                tvm.tir.all(h >= padding, h - padding < H, w >= padding, w - padding < W),
-                A[i, c, h - padding, w - padding],
-                tvm.tir.const(0.0, dtype)
-            ),
-        name="Pad"
+        lambda i, c, h, w: tvm.tir.if_then_else(
+            tvm.tir.all(h >= padding, h - padding < H, w >= padding, w - padding < W),
+            A[i, c, h - padding, w - padding],
+            tvm.tir.const(0.0, dtype),
+        ),
+        name="Pad",
     )
 
     A1 = tvm.te.compute(
         [TM, TK, m, k],
-        lambda i, j, ii, jj:
-            tvm.tir.if_then_else(
-                tvm.tir.all(i * m + ii < GM, j * k + jj < GK),
-                A[get_n(i * m + ii),
-                  get_c(j * k + jj),
-                  get_h(i * m + ii) * stride + get_r(j * k + jj),
-                  get_w(i * m + ii) * stride + get_s(j * k + jj)],
-                tvm.tir.const(0.0, dtype)),
-            name="A1")
+        lambda i, j, ii, jj: tvm.tir.if_then_else(
+            tvm.tir.all(i * m + ii < GM, j * k + jj < GK),
+            A[
+                get_n(i * m + ii),
+                get_c(j * k + jj),
+                get_h(i * m + ii) * stride + get_r(j * k + jj),
+                get_w(i * m + ii) * stride + get_s(j * k + jj),
+            ],
+            tvm.tir.const(0.0, dtype),
+        ),
+        name="A1",
+    )
     B1 = tvm.te.compute(
         [TN, TK, n, k],
-        lambda i, j, ii, jj:
-            tvm.tir.if_then_else(
-                tvm.tir.all(i * n + ii < GN, j * k + jj < GK),
-                B[i * n + ii,
-                  get_c(j * k + jj),
-                  get_r(j * k + jj),
-                  get_s(j * k + jj)],
-                tvm.tir.const(0.0, dtype)),
-            name="B1")
+        lambda i, j, ii, jj: tvm.tir.if_then_else(
+            tvm.tir.all(i * n + ii < GN, j * k + jj < GK),
+            B[i * n + ii, get_c(j * k + jj), get_r(j * k + jj), get_s(j * k + jj)],
+            tvm.tir.const(0.0, dtype),
+        ),
+        name="B1",
+    )
     rk1 = tvm.te.reduce_axis([0, TK], name="rk1")
     rk2 = tvm.te.reduce_axis([0, k], name="rk2")
     C1 = tvm.te.compute(
         [TM, TN, m, n],
-        lambda i, j, ii, jj:
-            tvm.te.sum(
-                (A1[i, rk1, ii, rk2] * B1[j, rk1, jj, rk2]).astype(out_dtype),
-            axis=[rk1, rk2]))
-    
+        lambda i, j, ii, jj: tvm.te.sum(
+            (A1[i, rk1, ii, rk2] * B1[j, rk1, jj, rk2]).astype(out_dtype), axis=[rk1, rk2]
+        ),
+    )
+
     recipe = at.WMMAFp16Fp16()
-    input_names, output_names, nodes, read_graph, feed_graph = \
-        at.construct_dag(
-            recipe, compute_key, shape_key, [A1, B1], [C1], [], [C1])
-    output_tensors = reduce(
-        lambda x, y: x + y, [nodes[x] for x in output_names], [])
+    input_names, output_names, nodes, read_graph, feed_graph = at.construct_dag(
+        recipe, compute_key, shape_key, [A1, B1], [C1], [], [C1]
+    )
+    output_tensors = reduce(lambda x, y: x + y, [nodes[x] for x in output_names], [])
     C1 = output_tensors[0]
 
     # def assemble(i, ph, pw):
@@ -124,7 +124,8 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
     compute_key = "ntn"
     shape_key = "x".join([str(x) for x in [m, n, k]])
     A, B, C2 = conv2d_implicit_gemm_nchw(
-        N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key)
+        N, C, H, W, K, R, S, stride, padding, m, n, k, compute_key, shape_key
+    )
 
     store = C2  # .op.input_tensors[0]
     Mma = store.op.input_tensors[0]
@@ -135,34 +136,15 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
         load_A.op: at.OperationRole.load_op,
         load_B.op: at.OperationRole.load_op,
         Mma.op: at.OperationRole.main_op,
-        store.op: at.OperationRole.output_op
+        store.op: at.OperationRole.output_op,
     }
     recipe_key = "wmma_fp16_fp16"
-    capsule_map = {
-        load_A.op: "load_a",
-        load_B.op: "load_b",
-        Mma.op: "mma",
-        store.op: "store"
-    }
-    reserve_inner_axis_count = {
-        load_A.op: 2,
-        load_B.op: 2,
-        Mma.op: 2,
-        store.op: 2
-    }
-    main_op_reserve_reduce_axis = [
-        1
-    ]
-    main_op_reserve_reduce_axis_factor = [
-        16
-    ]
-    load_from_shared = {
-        load_A.op: 1,
-        load_B.op: 1
-    }
-    store_to_shared = {
-        store.op: 0
-    }
+    capsule_map = {load_A.op: "load_a", load_B.op: "load_b", Mma.op: "mma", store.op: "store"}
+    reserve_inner_axis_count = {load_A.op: 2, load_B.op: 2, Mma.op: 2, store.op: 2}
+    main_op_reserve_reduce_axis = [1]
+    main_op_reserve_reduce_axis_factor = [16]
+    load_from_shared = {load_A.op: 1, load_B.op: 1}
+    store_to_shared = {store.op: 0}
     recipe_stage = at.RecipeStage(
         operation_role,
         "cuda",
@@ -175,19 +157,18 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
         main_op_reserve_reduce_axis_factor,
         load_from_shared,
         store_to_shared,
-        at.InstructionScope.warp
+        at.InstructionScope.warp,
     )
+
     def task_func():
         return [A, B, C2]
 
-    registered_func = auto_scheduler.register_workload(
-        log_file[:-5], f=task_func)
+    registered_func = auto_scheduler.register_workload(log_file[:-5], f=task_func)
 
     target = tvm.target.Target("cuda")
 
     # the last layer in resnet
-    task = auto_scheduler.create_task(
-        log_file[:-5], (), target, recipe=recipe_stage)
+    task = auto_scheduler.create_task(log_file[:-5], (), target, recipe=recipe_stage)
 
     # Inspect the computational graph
     print(task.compute_dag)
@@ -210,6 +191,7 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
 
     from tvm.auto_scheduler.cost_model import RandomModel, XGBModel
     from tvm.auto_scheduler.search_policy import SketchPolicy
+
     cost_model = RandomModel()
     search_policy = SketchPolicy(task, cost_model)
     # sch, args = auto_scheduler.auto_schedule(task, search_policy=search_policy, tuning_options=tune_option)
@@ -255,12 +237,9 @@ def run(N, C, H, W, K, R, S, stride, padding, log_file):
 
     # Evaluate execution time
     evaluator = func.time_evaluator(func.entry_name, ctx, min_repeat_ms=500)
-    cost = (np.median(evaluator(data_tvm, weight_tvm, gemm_tvm).results) * 1000)
-    print(
-        "Execution time of this operator: %.3f ms"
-        % cost
-    )
-    print("GFLOPS=%f" % (N*C*H*W*K*R*S/stride/stride*2/cost*1e3/1e9))
+    cost = np.median(evaluator(data_tvm, weight_tvm, gemm_tvm).results) * 1000
+    print("Execution time of this operator: %.3f ms" % cost)
+    print("GFLOPS=%f" % (N * C * H * W * K * R * S / stride / stride * 2 / cost * 1e3 / 1e9))
     return cost
 
 
@@ -307,8 +286,17 @@ if __name__ == "__main__":
             print(N, C, H, W, K, R, S, stride, padding)
             try:
                 res = run(
-                    N, C, H, W, K, R, S, stride, padding,
-                    "Conv2d_batch_" + str(batch) + "_layer" + str(i+beg) + ".json")
+                    N,
+                    C,
+                    H,
+                    W,
+                    K,
+                    R,
+                    S,
+                    stride,
+                    padding,
+                    "Conv2d_batch_" + str(batch) + "_layer" + str(i + beg) + ".json",
+                )
                 results[-1].append(res)
             except Exception as e:
                 results[-1].append("inf")

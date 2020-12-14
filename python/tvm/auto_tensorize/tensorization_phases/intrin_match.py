@@ -15,9 +15,18 @@ class IntrinMatchResult(object):
     target_dag: ComputeDAG
     intrin_dag: ComputeDAG
     """
-    def __init__(self, recipe, compute_key, shape_key,
-                 main_op_map, elem_op_map,
-                 axis_map, target_dag, intrin_dag):
+
+    def __init__(
+        self,
+        recipe,
+        compute_key,
+        shape_key,
+        main_op_map,
+        elem_op_map,
+        axis_map,
+        target_dag,
+        intrin_dag,
+    ):
         self.recipe = recipe
         self.compute_key = compute_key
         self.shape_key = shape_key
