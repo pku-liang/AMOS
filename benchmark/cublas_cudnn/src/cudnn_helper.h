@@ -73,6 +73,10 @@ public:
                             dim[2] * dim[3] * dim[4],
                             dim[3] * dim[4],
                             dim[4],
+                            1};
+            CHECK_CUDNN_ERROR(cudnnSetTensorNdDescriptor(*desc, type, 5,
+                                                     dimA, strideA));
+        }
         else if (dim.size() == 3) {
             int dimA[] = {dim[0], dim[1], dim[2]};
             int strideA[] = {dim[1] * dim[2],
@@ -87,8 +91,24 @@ public:
 
     cudnnTensorDescriptor_t desc() const { return *desc_; }
 
+};
+
+template<typename T>
+class TensorDescriptorNdArray {
     std::shared_ptr<cudnnTensorDescriptor_t> desc_array_;
 
+    struct ArrayDeleter {
+        int num_;
+        ArrayDeleter(int num) : num_(num) {}
+
+        void operator()(cudnnTensorDescriptor_t *desc_array) {
+            for (int i = 0; i < num_; ++i) {
+                cudnnDestroyTensorDescriptor(desc_array[i]);
+            }
+
+            delete[] desc_array;
+        }
+    };
 
     public:
 
