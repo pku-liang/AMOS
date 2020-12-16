@@ -353,7 +353,11 @@ te::Operation MainOpTransformer::transform_main_op(
     var_to_infer.Set(new_var, new_arg);
     Map<Var, Range> new_range = InferRange(var_to_infer, original_vars, original_range_map);
     //// new reduce loops
-    te::IterVar new_iter(new_range.at(new_var), new_var, IterVarType::kCommReduce);
+    Range iter_range = new_range.at(new_var);
+    if (request->need_padding) {
+      iter_range = arg->dom;
+    }
+    te::IterVar new_iter(iter_range, new_var, IterVarType::kCommReduce);
     reduce_loops.push_back(
       new_iter
     );

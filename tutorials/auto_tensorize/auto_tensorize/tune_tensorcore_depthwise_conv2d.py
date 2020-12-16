@@ -8,7 +8,7 @@ from itertools import product
 """
 
 
-def depth_wise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
+def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     print("OK")
     assert(K % C == 0)
     pH = H + 2 * padding
@@ -55,12 +55,12 @@ def depth_wise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     )
     # print("OKx2!")
 
-    Conv_reshaped = tvm.te.compute(
-        [N, K, P, Q],
-        lambda n, k, p, q:
-            Conv[n, k//(K//C), k%(K//C), p, q],
-        name="Reshaped"
-    )
+    # Conv_reshaped = tvm.te.compute(
+    #     [N, K, P, Q],
+    #     lambda n, k, p, q:
+    #         Conv[n, k//(K//C), k%(K//C), p, q],
+    #     name="Reshaped"
+    # )
     # print("OKx3!")
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
     # E = tvm.te.compute(
@@ -68,7 +68,7 @@ def depth_wise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     #     lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
     #     name="E"
     # )
-    return [A, B, Conv_reshaped]#Conv_reshaped]
+    return [A, B, Conv]#Conv_reshaped]
 
 
 def tensorize_tensorcore_fp16fp16(
@@ -79,7 +79,7 @@ def tensorize_tensorcore_fp16fp16(
     compute_key = "nnn"
     shape_key = "16x16x16"
     intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
-    A, B, Conv = depth_wise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
+    A, B, Conv = depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 
     # hand-craft the match results
@@ -93,9 +93,9 @@ def tensorize_tensorcore_fp16fp16(
     rr, rs = target_dag.op_lst[2].reduce_axis
     
     axis_map = {
-        ii: [n, n, p, q, n, n, p, q],
-        jj: [k_i, k_i, k_i, k_i, k_o, k_o, k_o, k_o],
-        kk: [rr, rs, rs, rr, rr, rs, rs, rr]
+        ii: [n, n, p, q],
+        jj: [k_i, k_i, k_i, k_i],
+        kk: [rr, rs, rs, rr]
     }
     match_result = at.IntrinMatchResult(
         recipe, compute_key, shape_key,
@@ -106,9 +106,15 @@ def tensorize_tensorcore_fp16fp16(
     # fix transform decisions
     gen = at.TransformGenerator(match_result)
     record = gen.get(policy="random")
-    record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+    record.unfold_choice = ([1, 1, 1, 1], record.unfold_choice[1])
     app = at.TransformApplier(match_result)
     new_state = app.apply(record)
+
+    new_target_dag = new_state.target_dag
+    new_inputs = new_target_dag.get_inputs()
+    sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
+    print(tvm.lower(
+        sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
 
     log_file = "Yolo-layer-%d-batch-%d-%s-%s.log" % (
         layer, N, compute_key, shape_key)
