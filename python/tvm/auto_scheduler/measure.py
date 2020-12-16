@@ -58,7 +58,7 @@ from .utils import (
 )
 
 # The maximum length of error message
-MAX_ERROR_MSG_LEN = 512
+MAX_ERROR_MSG_LEN = 512**2
 
 # We use fork and a global variable to copy arguments between processes.
 # This can avoid expensive serialization of TVM IR when using multiprocessing.Pool
