@@ -2354,6 +2354,184 @@ class WMMATf32Fp32(WMMABaseRecipe):
         """Return all shape keys. Keys are str"""
         return ["16x16x8"]
 
+    def get_capsule_compute_expression(self, compute_key, shape_key, capsule_key):
+        try:
+            return super().get_capsule_compute_expression(compute_key, shape_key, capsule_key)
+        except RuntimeError:
+            tA, tB, __ = [x == "t" for x in compute_key]
+            capsule_class = self.capsules[capsule_key]
+            capsule = capsule_class(self.get_name())
+            problem_size = self.get_problem_size(shape_key)
+            m, n, k = problem_size
+            A_shape = (m, k) if not tA else (k, m)
+            B_shape = (k, n) if not tB else (n, k)
+
+            if capsule_key == "cast_a":
+                return capsule.get_compute_expression(
+                    [A_shape],
+                    [A_shape],
+                    self.input_dtypes[capsule_key],
+                    self.output_dtypes[capsule_key],
+                    problem_size,
+                )
+            elif capsule_key == "cast_b":
+                return capsule.get_compute_expression(
+                    [B_shape],
+                    [B_shape],
+                    self.input_dtypes[capsule_key],
+                    self.output_dtypes[capsule_key],
+                    problem_size,
+                )
+            else:
+                raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+
+    def get_dag_compute_expression_with_inputs(
+        self, compute_key, shape_key, capsule_keys, read_graph
+    ):
+        """
+        ---
+        Returns:
+        inputs, outputs: list of tvm.te.tensor.Tensor
+            the compute expression can be tracked
+            through [output.op.body for output in outputs]
+        """
+        assert len(capsule_keys) > 0
+        tA, tB, tC = [x == "t" for x in compute_key]
+        problem_size = self.get_problem_size(shape_key)
+        m, n, k = problem_size
+        A_shape = (m, k) if not tA else (k, m)
+        B_shape = (k, n) if not tB else (n, k)
+        C_shape = (m, n) if not tC else (m, n)
+        cache = {
+            "a": tvm.te.placeholder(A_shape, name="A", dtype=self.input_dtypes["a"][0]),
+            "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0]),
+        }
+        dag_inputs = []
+        dag_outputs = []
+
+        def helper(capsule_key):
+            if capsule_key in cache:
+                return
+            capsule_class = self.capsules[capsule_key]
+            capsule = capsule_class(self.get_name())
+
+            if capsule_key in read_graph:
+                inputs = []
+                for parent in read_graph[capsule_key]:
+                    helper(parent)
+                    assert parent in cache
+                    inputs.extend(cache[parent])
+
+                if capsule_key == "mma":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                        trans_A=tA,
+                        trans_B=tB,
+                        trans_C=tC,
+                    )
+                elif capsule_key == "load_a":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        [A_shape],
+                        [A_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                    )
+                elif capsule_key == "load_b":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        [B_shape],
+                        [B_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                    )
+                elif capsule_key == "cast_a":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        [A_shape],
+                        [A_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                    )
+                elif capsule_key == "cast_b":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        [B_shape],
+                        [B_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                    )
+                elif capsule_key == "store":
+                    _, ret = capsule.get_compute_expression_with_inputs(
+                        inputs,
+                        [C_shape],
+                        [C_shape],
+                        self.input_dtypes[capsule_key],
+                        self.output_dtypes[capsule_key],
+                        problem_size,
+                    )
+                else:
+                    raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+            else:
+                tmp, ret = self.get_capsule_compute_expression(compute_key, shape_key, capsule_key)
+                dag_inputs.extend(tmp)
+
+            cache[capsule_key] = ret
+
+        for capsule_key in capsule_keys:
+            helper(capsule_key)
+            assert capsule_key in cache
+            dag_outputs.extend(cache[capsule_key])
+
+        return dag_inputs, dag_outputs, cache
+
+
+    def get_capsule_compute_expression_with_shape(
+        self, compute_key, shape_key, capsule_key, input_shapes, output_shapes
+    ):
+        try:
+            return super().get_capsule_compute_expression_with_shape(
+                compute_key, shape_key, capsule_key, input_shapes, output_shapes
+            )
+        except RuntimeError:
+            capsule_class = self.capsules[capsule_key]
+            capsule = capsule_class(self.get_name())
+            problem_size = self.get_problem_size(shape_key)
+            if capsule_key == "cast_a":
+                assert len(input_shapes) == 1
+                assert len(output_shapes) == 1
+                for ii, io in zip(input_shapes, output_shapes):
+                    assert ii == io
+                return capsule.get_compute_expression(
+                    input_shapes,
+                    output_shapes,
+                    self.input_dtypes[capsule_key],
+                    self.output_dtypes[capsule_key],
+                    problem_size,
+                )
+            elif capsule_key == "cast_b":
+                assert len(input_shapes) == 1
+                assert len(output_shapes) == 1
+                for ii, io in zip(input_shapes, output_shapes):
+                    assert ii == io
+                return capsule.get_compute_expression(
+                    input_shapes,
+                    output_shapes,
+                    self.input_dtypes[capsule_key],
+                    self.output_dtypes[capsule_key],
+                    problem_size,
+                )
+            else:
+                raise RuntimeError("Unknown capsule key: %s" % capsule_key)
+        except Exception as e:
+            print(e)
 
 @register_recipe("cuda", "wmma_fp64_fp64")
 class WMMAFp64Fp64(WMMABaseRecipe):
