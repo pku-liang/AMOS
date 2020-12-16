@@ -53,7 +53,7 @@ def depth_wise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
                         ).astype("float16"), axis=[rr, rs]),
         name="Conv"
     )
-    print("OKx2!")
+    # print("OKx2!")
 
     Conv_reshaped = tvm.te.compute(
         [N, K, P, Q],
@@ -61,7 +61,7 @@ def depth_wise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
             Conv[n, k//(K//C), k%(K//C), p, q],
         name="Reshaped"
     )
-    print("OKx3!")
+    # print("OKx3!")
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
     # E = tvm.te.compute(
     #     [N, K, P, Q],
@@ -93,9 +93,9 @@ def tensorize_tensorcore_fp16fp16(
     rr, rs = target_dag.op_lst[2].reduce_axis
     
     axis_map = {
-        ii: [n, n, p, q],
-        jj: [k_i, k_i, k_i, k_i],
-        kk: [rr, rs, rs, rr]
+        ii: [n, n, p, q, n, n, p, q],
+        jj: [k_i, k_i, k_i, k_i, k_o, k_o, k_o, k_o],
+        kk: [rr, rs, rs, rr, rr, rs, rs, rr]
     }
     match_result = at.IntrinMatchResult(
         recipe, compute_key, shape_key,
@@ -106,7 +106,7 @@ def tensorize_tensorcore_fp16fp16(
     # fix transform decisions
     gen = at.TransformGenerator(match_result)
     record = gen.get(policy="random")
-    record.unfold_choice = ([1, 1, 1, 1], record.unfold_choice[1])
+    record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
     app = at.TransformApplier(match_result)
     new_state = app.apply(record)
 
