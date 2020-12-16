@@ -45,20 +45,21 @@ template <typename T1, typename T2> class cudnnCNN {
 public:
   cudnnCNN(int w, int h, int c, int n, int k, int r, int s, int pad_w, int pad_h, 
            int wstride, int hstride, int dilation_h, int dilation_w, 
-           bool use_tensor_core)
+           bool use_tensor_core, int vec)
       : cudnn_handle_(), conv_desc_(pad_h, pad_w, hstride, wstride, std::vector<int>{dilation_h, dilation_w}) {
     int out_h, out_w, out_c, out_n;
 
     cudnnTensorFormat_t format;
-    // For int8 inference, the supported format is NHWC
-    if (std::is_same<T1, uint8_t>::value) {
+    if (std::is_same<T1, uint8_t>::value && vec != 1) {
+      format = CUDNN_TENSOR_NCHW_VECT_C;
+    } else if (std::is_same<T1, uint8_t>::value && vec == 1) {
       format = CUDNN_TENSOR_NHWC;
     } else {
       format = CUDNN_TENSOR_NCHW;
     }
 
-    x_desc_ = TensorDescriptor4d<T1>(format, n, c, h, w);
-    w_desc_ = FilterDescriptor4d<T1>(format, k, c, r, s);
+    x_desc_ = TensorDescriptor4d<T1>(format, n, c, h, w, vec);
+    w_desc_ = FilterDescriptor4d<T1>(format, k, c, r, s, vec);
 
     cudnnMathType_t algo =
         use_tensor_core ? CUDNN_TENSOR_OP_MATH : CUDNN_DEFAULT_MATH;
@@ -69,7 +70,7 @@ public:
         conv_desc_.desc(), x_desc_.desc(), w_desc_.desc(), &out_n, &out_c,
         &out_h, &out_w));
 
-    h_desc_ = TensorDescriptor4d<T1>(format, out_n, out_c, out_h, out_w);
+    h_desc_ = TensorDescriptor4d<T1>(format, out_n, out_c, out_h, out_w, vec);
 
     output_dims_ = {out_w, out_h, out_c, out_n};
 
@@ -147,10 +148,10 @@ public:
 template <typename T1, typename T2>
 int time_cnn(int k, int c, int r, int s, int n, int h, int w, int pad_h,
              int pad_w, int hstride, int wstride, int dilation_h, int dilation_w, int num_repeats,
-             curandGenerator_t curand_gen, bool use_tensor_core) {
+             curandGenerator_t curand_gen, bool use_tensor_core, int vec = 1) {
 
   cudnnCNN<T1, T2> cnn(w, h, c, n, k, r, s, pad_w, pad_h, 
-    wstride, hstride, dilation_h, dilation_w, use_tensor_core);
+    wstride, hstride, dilation_h, dilation_w, use_tensor_core, vec);
 
   // Allocate memory for filter
   auto filter = rand<T1>(std::vector<int>{s, r, c, k}, curand_gen);
@@ -206,8 +207,8 @@ int main(int argc, char **argv) {
 
     std::cout
         << "w,h,c,n,k,f_w,f_h,pad_w,pad_h,stride_w,stride_h,dilation_w,dilation_h,fp32 time "
-           "(usec),fp16 time (usec),int8 time "
-           "(usec),fp16 tensor core time (usec),int8 tensor core time (usec)"
+           "(usec),fp16 time,int8 time,INT8x4,INT8x32"
+           ",fp16 tensor core,int8 tensor core, INT8x4 tensor core, INT8x32 tensor core"
         << std::endl;
 
     int pad_kernels_count = 0;
@@ -296,6 +297,24 @@ int main(int argc, char **argv) {
         catch (std::exception& e) {
           std::cout << "," << "N/A";
         }
+        try {
+          fwd_time = time_cnn<uint8_t, int>(
+              k, padded_c, r, s, n, padded_h, padded_w, pad_h, pad_w, 
+              hstride, wstride, dilation_h, dilation_w, num_repeats, curand_gen, false, 4);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        }
+        catch (std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+        try {
+          fwd_time = time_cnn<uint8_t, int>(
+              k, padded_c, r, s, n, padded_h, padded_w, pad_h, pad_w, 
+              hstride, wstride, dilation_h, dilation_w, num_repeats, curand_gen, false, 32);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        }
+        catch (std::exception& e) {
+          std::cout << "," << "N/A";
+        }
       }
 
       // fp16 tensor core benchmark
@@ -332,6 +351,22 @@ int main(int argc, char **argv) {
           fwd_time = time_cnn<uint8_t, int>(
               k, padded_c, r, s, n, padded_h, padded_w, pad_h, pad_w, 
               hstride, wstride, dilation_h, dilation_w, num_repeats, curand_gen, true);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        } catch(std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+        try{
+          fwd_time = time_cnn<uint8_t, int>(
+              k, padded_c, r, s, n, padded_h, padded_w, pad_h, pad_w, 
+              hstride, wstride, dilation_h, dilation_w, num_repeats, curand_gen, true, 4);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        } catch(std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+        try{
+          fwd_time = time_cnn<uint8_t, int>(
+              k, padded_c, r, s, n, padded_h, padded_w, pad_h, pad_w, 
+              hstride, wstride, dilation_h, dilation_w, num_repeats, curand_gen, true, 32);
           std::cout << "," << std::setprecision(6) << fwd_time;
         } catch(std::exception& e) {
           std::cout << "," << "N/A";

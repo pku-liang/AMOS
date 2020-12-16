@@ -195,14 +195,16 @@ public:
 
     TensorDescriptor4d() {}
     TensorDescriptor4d(const cudnnTensorFormat_t tensor_format,
-                       const int n, const int c, const int h, const int w) {
+                       const int n, const int c, const int h, const int w, int vec = 1) {
         cudnnDataType_t type;
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
-#if CUDNN_MAJOR >= 6
-        } else if (std::is_same<T, uint8_t>::value) {
+        } else if (std::is_same<T, uint8_t>::value && vec == 1) {
             type = CUDNN_DATA_INT8;
-#endif
+        } else if (std::is_same<T, uint8_t>::value && vec == 4) {
+            type = CUDNN_DATA_INT8x4;
+        } else if (std::is_same<T, uint8_t>::value && vec == 32) {
+            type = CUDNN_DATA_INT8x32;
         } else if (std::is_same<T, uint16_t>::value) {
             type = CUDNN_DATA_HALF;
         } else {
@@ -241,16 +243,18 @@ public:
     FilterDescriptor4d() {}
 
     FilterDescriptor4d(const cudnnTensorFormat_t tensor_format,
-                       int k, int c, int h, int w) {
+                       int k, int c, int h, int w, int vec = 1) {
         cudnnDataType_t type;
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
         } else if (std::is_same<T, int>::value) {
             type = CUDNN_DATA_INT32;
-#if CUDNN_MAJOR >= 6
-        } else if (std::is_same<T, uint8_t>::value) {
+        } else if (std::is_same<T, uint8_t>::value && vec == 1) {
             type = CUDNN_DATA_INT8;
-#endif
+        } else if (std::is_same<T, uint8_t>::value && vec == 4) {
+            type = CUDNN_DATA_INT8x4;
+        } else if (std::is_same<T, uint8_t>::value && vec == 32) {
+            type = CUDNN_DATA_INT8x32;
         } else if (std::is_same<T, uint16_t>::value) {
             type = CUDNN_DATA_HALF;
         } else {
@@ -288,7 +292,7 @@ public:
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
         } else if (std::is_same<T, uint8_t>::value) {
-            type = CUDNN_DATA_INT8;
+            type = CUDNN_DATA_INT32;
         } else if (std::is_same<T, uint16_t>::value) {
             type = CUDNN_DATA_HALF;
         } else if (std::is_same<T, int>::value) {
@@ -319,7 +323,7 @@ public:
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
         } else if (std::is_same<T, uint8_t>::value) {
-            type = CUDNN_DATA_INT8;
+            type = CUDNN_DATA_INT32;
         } else if (std::is_same<T, uint16_t>::value) {
             type = CUDNN_DATA_HALF;
         } else if (std::is_same<T, int>::value) {
@@ -345,12 +349,11 @@ public:
         desc_(new cudnnConvolutionDescriptor_t, ConvolutionDescriptorDeleter()) {
 
         CHECK_CUDNN_ERROR(cudnnCreateConvolutionDescriptor(desc_.get()));
-#if CUDNN_MAJOR >= 6
         cudnnDataType_t type;
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
         } else if (std::is_same<T, uint8_t>::value) {
-            type = CUDNN_DATA_INT8;
+            type = CUDNN_DATA_INT32;
         } else if (std::is_same<T, uint16_t>::value) {
             type = CUDNN_DATA_HALF;
         } else if (std::is_same<T, int>::value) {
@@ -369,18 +372,6 @@ public:
                                                           dilations[1],
                                                           CUDNN_CONVOLUTION,
                                                           type));
-#else
-        CHECK_CUDNN_ERROR(cudnnSetConvolution2dDescriptor(*desc_,
-                                                          pad_h,
-                                                          pad_w,
-                                                          hstride,
-                                                          wstride,
-                                                          dilations[0],
-                                                          dilations[1],
-                                                          CUDNN_CONVOLUTION));
-
-#endif
-
     }
 
     
@@ -388,12 +379,11 @@ public:
         desc_(new cudnnConvolutionDescriptor_t, ConvolutionDescriptorDeleter()) {
 
         CHECK_CUDNN_ERROR(cudnnCreateConvolutionDescriptor(desc_.get()));
-#if CUDNN_MAJOR >= 6
         cudnnDataType_t type;
         if (std::is_same<T, float>::value) {
             type = CUDNN_DATA_FLOAT;
         } else if (std::is_same<T, uint8_t>::value) {
-            type = CUDNN_DATA_INT8;
+            type = CUDNN_DATA_INT32;
         } else if (std::is_same<T, uint16_t>::value) {
             type = CUDNN_DATA_HALF;
         } else if (std::is_same<T, int>::value) {
@@ -412,18 +402,6 @@ public:
                                                           1,
                                                           CUDNN_CONVOLUTION,
                                                           type));
-#else
-        CHECK_CUDNN_ERROR(cudnnSetConvolution2dDescriptor(*desc_,
-                                                          pad_h,
-                                                          pad_w,
-                                                          hstride,
-                                                          wstride,
-                                                          1,
-                                                          1,
-                                                          CUDNN_CONVOLUTION));
-
-#endif
-
     }
 
     cudnnConvolutionDescriptor_t desc() const { return *desc_; };

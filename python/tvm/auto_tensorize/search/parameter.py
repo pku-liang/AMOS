@@ -186,7 +186,7 @@ class SAEntryGenerator(EntryGenerator):
         for i in range(max_num//4):
             choice = np.random.randint(0, num_cand)
             if np.random.random() < ps[choice]:
-                return cand[i]
+                return cand[choice]
         # no chosen, return the best
         return cand[0]
 

@@ -184,7 +184,7 @@ Array<IterVarMap> enumerate_mappings(Array<IterVar> target_axes, Array<IterVar> 
 
   do {
     std::vector<IterVar> comb;
-    for (int i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n; ++i) {
       if (!selector[i]) continue;
       comb.push_back(target_axes_vec[i]);
     }
