@@ -133,31 +133,33 @@ class UnfoldChoiceGenerator(CDParamGenerator):
             if k not in value_map:
                 value_map[k] = k_value
                 k_value *= 3
-        choices = bi_product(num_items)
-        visited = set()
-        for bit_vec in choices:
-            tmp_set = {}
-            for ind, v in enumerate(bit_vec):
-                if v:
-                    for k, lst in axis_map.items():
-                        if k not in tmp_set:
-                            tmp_set[k] = set()
-                        tmp_set[k].add(lst[ind])
-            if tmp_set:
-                unique_value = 0
-                for k, s in tmp_set.items():
-                    tmp_value = 0
-                    for v in s:
-                        tmp_value += value_map[v]
-                    unique_value += tmp_value * value_map[k]
-                if unique_value not in visited:
-                    visited.add(unique_value)
-                    self.unfolds.append(bit_vec)
+        # choices = bi_product(num_items)
+        # visited = set()
+        # for bit_vec in choices:
+        #     tmp_set = {}
+        #     for ind, v in enumerate(bit_vec):
+        #         if v:
+        #             for k, lst in axis_map.items():
+        #                 if k not in tmp_set:
+        #                     tmp_set[k] = set()
+        #                 tmp_set[k].add(lst[ind])
+        #     if tmp_set:
+        #         unique_value = 0
+        #         for k, s in tmp_set.items():
+        #             tmp_value = 0
+        #             for v in s:
+        #                 tmp_value += value_map[v]
+        #             unique_value += tmp_value * value_map[k]
+        #         if unique_value not in visited:
+        #             visited.add(unique_value)
+        #             self.unfolds.append(bit_vec)
 
+        self.unfolds = [[1 for _ in range(num_items)]]
         self.choices = list(range(len(self.unfolds)))
         self.reverse_map = {self.to_hashable(k): v for v, k in enumerate(self.unfolds)}
 
-        self.directions = [1, -1]
+        # self.directions = [1, -1]
+        self.directions = [0]
         self.init_Q_table()
 
     def map_to_hidden(self, factors):

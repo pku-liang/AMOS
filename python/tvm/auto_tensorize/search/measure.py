@@ -77,9 +77,12 @@ def get_tvm_arrays(tensors, ctx):
         if str(dtype) == "bfloat16":
             # For now, just simply use float16
             dtype = "float16"
-        np_ary = np.random.uniform(-1, 1, [int(x)
+        if str(dtype) in ["int4", "int1"]:
+            tvm_ary = tvm.nd.empty([int(x) for x in t.shape], dtype, ctx)
+        else:
+            np_ary = np.random.uniform(-1, 1, [int(x)
                                            for x in t.shape]).astype(dtype)
-        tvm_ary = tvm.nd.array(np_ary, ctx)
+            tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
 
@@ -102,10 +105,6 @@ def evaluate_schedule(sch, args, measure_opt):
 def evaluate_params_worker(dump):
     global EVALUTE_INPUTS
     schedule_app, params, measure_opt = EVALUTE_INPUTS
-    target = measure_opt.target
-    dev_id = measure_opt.dev_id
-    number = measure_opt.number
-    min_repeat_ms = measure_opt.min_repeat_ms
 
     target_dag = schedule_app.target_dag
     inputs = target_dag.get_inputs()

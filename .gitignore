@@ -239,3 +239,4 @@ conda/pkg
 *.nix
 
 tmp
+experiments
