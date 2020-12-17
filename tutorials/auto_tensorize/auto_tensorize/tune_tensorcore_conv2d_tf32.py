@@ -47,14 +47,14 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp64fp64(
+def tensorize_tensorcore_tf32fp32(
     N, C, H, W, K, R, S, stride,
     padding, dilation, layer
 ):
     recipe = at.WMMATf32Fp32()
     compute_key = "nnn"
     shape_key = "16x16x8"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 
@@ -122,7 +122,7 @@ def tensorize_tensorcore_fp64fp64(
 
 def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer):
-    tensorize_tensorcore_fp64fp64(
+    tensorize_tensorcore_tf32fp32(
         N, C, H, W, K, R, S, stride,
         padding, dilation, layer)
 
