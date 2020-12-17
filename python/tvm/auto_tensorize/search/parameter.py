@@ -343,7 +343,7 @@ def find_optimized_parameters(
     match_results, schedule_gen, schedule_app,
         measure_opt, checker, trials, batch_size=32,
         policy="", builder=tg_parallel_builder_build,
-        runner=pebble_local_runner_run):
+        runner=pebble_local_runner_run, verbose=False):
     best_value = 1 / MAX_FLOAT
     best_params = None
     if measure_opt.use_rpc:
@@ -369,7 +369,8 @@ def find_optimized_parameters(
         run_results = runner(
             build_results, measure_opt)
         for params, res in zip(params_lst, run_results):
-            # print(res)
+            if verbose:
+                print(res)
             value = 1 / np.mean([x.value for x in res.costs])  # use absolute performance
             if value > 1 / MAX_FLOAT:  # valid results
                 schedule_gen.feedback(params, value)
