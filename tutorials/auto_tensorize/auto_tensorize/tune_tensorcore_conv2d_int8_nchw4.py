@@ -58,7 +58,7 @@ def tensorize_tensorcore_s8s8(
     recipe = at.WMMAInt8Int32()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d_pack4(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 

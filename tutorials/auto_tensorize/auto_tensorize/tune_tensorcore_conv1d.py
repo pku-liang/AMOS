@@ -48,7 +48,7 @@ def tensorize_tensorcore_fp16fp16(
     recipe = at.WMMAFp16Fp16()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
                       # N, C, L, K, KL, stride, padding, dilation
     A, B, Conv = conv1d(N, C, L, K, KL, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])

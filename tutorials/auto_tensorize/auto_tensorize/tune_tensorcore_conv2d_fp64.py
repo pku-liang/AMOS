@@ -54,7 +54,7 @@ def tensorize_tensorcore_fp64fp64(
     recipe = at.WMMAFp64Fp64()
     compute_key = "nnn"
     shape_key = "8x8x4"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 

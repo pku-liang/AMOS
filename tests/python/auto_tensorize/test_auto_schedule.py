@@ -100,7 +100,7 @@ def test1():
     recipe = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -486,7 +486,7 @@ def test2():
     recipe = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -922,7 +922,7 @@ def test3():
     recipe = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -1179,7 +1179,7 @@ def test4():
     recipe = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 

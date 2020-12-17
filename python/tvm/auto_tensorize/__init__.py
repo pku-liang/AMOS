@@ -9,4 +9,3 @@ from .recipe import OperationRole, RecipeStage, InstructionScope
 from .capsules import *
 from .tensorization_phases import *
 from .search import *
-from .matcher import intrinsic_match

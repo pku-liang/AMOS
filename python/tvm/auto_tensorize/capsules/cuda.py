@@ -1635,8 +1635,7 @@ class WMMAFp16Fp32(WMMABaseRecipe):
         choice = ["n", "t"]  # n: not transpose, t: transpose
         for i in choice:
             for j in choice:
-                for k in choice:
-                    ret.append(i + j + k)
+                ret.append(i + j + "n")
         return ret
 
     def get_all_shape_keys(self):
@@ -1687,8 +1686,7 @@ class WMMAFp16Fp16(WMMABaseRecipe):
         choice = ["n", "t"]  # n: not transpose, t: transpose
         for i in choice:
             for j in choice:
-                for k in choice:
-                    ret.append(i + j + k)
+                    ret.append(i + j + "n")
         return ret
 
     def get_all_shape_keys(self):
@@ -2083,6 +2081,18 @@ class WMMAFp16Fp32Bias(WMMABaseRecipe):
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)
 
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str"""
+        ret = []
+        choice = ["n", "t"]  # n: not transpose, t: transpose
+        for i in choice:
+            for j in choice:
+                ret.append(i + j + "n")
+        return ret
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str"""
+        return ["16x16x16", "32x8x16", "8x32x16"]
 
 @register_recipe("cuda", "wmma_int8_int32")
 class WMMAInt8Int32(WMMABaseRecipe):
@@ -2220,7 +2230,7 @@ class WMMABin1Int32(WMMABaseRecipe):
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str"""
-        return ["nnn", "nnt"]
+        return ["nnn"]
 
     def get_all_shape_keys(self):
         """Return all shape keys. Keys are str"""
@@ -2271,7 +2281,7 @@ class WMMABf16Fp32(WMMABaseRecipe):
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str"""
-        return ["nnn", "nnt"]
+        return ["nnn"]
 
     def get_all_shape_keys(self):
         """Return all shape keys. Keys are str"""
@@ -2291,58 +2301,58 @@ class WMMABf16Fp32(WMMABaseRecipe):
         )
 
 
-@register_recipe("cuda", "wmma_tf32_fp32")
-class WMMATf32Fp32(WMMABaseRecipe):
-    def __init__(self):
-        self.capsules = {
-            "load_a": WMMALoadMatrixSync,
-            "load_b": WMMALoadMatrixSync,
-            "cast_a": WMMACastFp32ToTf32,
-            "cast_b": WMMACastFp32ToTf32,
-            "mma": WMMAMmaSync,
-            "store": WMMAStoreMatrixSync,
-        }
-        self.edges = {
-            "mma": ["cast_a", "cast_b"],
-            "store": ["mma"],
-            "cast_a": ["load_a"],
-            "cast_b": ["load_b"],
-            "load_a": ["a"],
-            "load_b": ["b"],
-        }
-        self.main_capsule_name = "mma"
-        self.anchor_point = "mma"
-        self.input_dtypes = {
-            "load_a": ["float32"],
-            "load_b": ["float32"],
-            "cast_a": ["float32"],
-            "cast_b": ["float32"],
-            "mma": ["tf32", "tf32"],
-            "store": ["float32"],
-            "a": ["float32"],
-            "b": ["float32"],
-        }
-        self.output_dtypes = {
-            "load_a": ["float32"],
-            "load_b": ["float32"],
-            "cast_a": ["tf32"],
-            "cast_b": ["tf32"],
-            "mma": ["float32"],
-            "store": ["float32"],
-            "a": ["float32"],
-            "b": ["float32"],
-        }
+# @register_recipe("cuda", "wmma_tf32_fp32")
+# class WMMATf32Fp32(WMMABaseRecipe):
+#     def __init__(self):
+#         self.capsules = {
+#             "load_a": WMMALoadMatrixSync,
+#             "load_b": WMMALoadMatrixSync,
+#             "cast_a": WMMACastFp32ToTf32,
+#             "cast_b": WMMACastFp32ToTf32,
+#             "mma": WMMAMmaSync,
+#             "store": WMMAStoreMatrixSync,
+#         }
+#         self.edges = {
+#             "mma": ["cast_a", "cast_b"],
+#             "store": ["mma"],
+#             "cast_a": ["load_a"],
+#             "cast_b": ["load_b"],
+#             "load_a": ["a"],
+#             "load_b": ["b"],
+#         }
+#         self.main_capsule_name = "mma"
+#         self.anchor_point = "mma"
+#         self.input_dtypes = {
+#             "load_a": ["float32"],
+#             "load_b": ["float32"],
+#             "cast_a": ["float32"],
+#             "cast_b": ["float32"],
+#             "mma": ["tf32", "tf32"],
+#             "store": ["float32"],
+#             "a": ["float32"],
+#             "b": ["float32"],
+#         }
+#         self.output_dtypes = {
+#             "load_a": ["float32"],
+#             "load_b": ["float32"],
+#             "cast_a": ["tf32"],
+#             "cast_b": ["tf32"],
+#             "mma": ["float32"],
+#             "store": ["float32"],
+#             "a": ["float32"],
+#             "b": ["float32"],
+#         }
 
-    def get_name(self):
-        return "wmma_tf32_fp32"
+#     def get_name(self):
+#         return "wmma_tf32_fp32"
 
-    def get_all_compute_keys(self):
-        """Return all compute keys. Keys are str"""
-        return ["nnn", "nnt"]
+#     def get_all_compute_keys(self):
+#         """Return all compute keys. Keys are str"""
+#         return ["nnn"]
 
-    def get_all_shape_keys(self):
-        """Return all shape keys. Keys are str"""
-        return ["16x16x8"]
+#     def get_all_shape_keys(self):
+#         """Return all shape keys. Keys are str"""
+#         return ["16x16x8"]
 
 
 @register_recipe("cuda", "wmma_fp64_fp64")
@@ -2384,7 +2394,7 @@ class WMMAFp64Fp64(WMMABaseRecipe):
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str"""
-        return ["nnn", "nnt"]
+        return ["nnn"]
 
     def get_all_shape_keys(self):
         """Return all shape keys. Keys are str"""

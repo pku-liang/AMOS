@@ -1,3 +1,6 @@
+from .intrin_match import *
+
+
 from .compute_transform import (
     IntrinMatchResult,
     infer_range,

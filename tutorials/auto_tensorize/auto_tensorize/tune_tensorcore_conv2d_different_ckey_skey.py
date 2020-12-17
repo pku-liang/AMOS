@@ -52,7 +52,7 @@ def tensorize_tensorcore_fp16fp16(
     padding, dilation, layer, compute_key, shape_key
 ):
     recipe = at.WMMAFp16Fp16()
-    intrin_dag = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 

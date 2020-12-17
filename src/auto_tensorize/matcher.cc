@@ -57,15 +57,19 @@ bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsu
   // std::cout << __LINE__ << "RecipeDAGMatcher::_match " << target << " " << intrin << " " <<
   // std::endl; std::cout << __LINE__ << "bounds (t&i) " << target_bounds << " " << intrin_bounds <<
   // std::endl;
+  if (target->dtype != intrin->dtype) {
+    return false;
+  }
   const ComputeOpNode* target_op = target->op.as<ComputeOpNode>();
   const ComputeOpNode* intrin_op = intrin->op.as<ComputeOpNode>();
 
   if (intrin_op == nullptr) {
-    const PlaceholderOpNode* target_op = target->op.as<PlaceholderOpNode>();
+    // const PlaceholderOpNode* target_op = target->op.as<PlaceholderOpNode>();
     const PlaceholderOpNode* intrin_op = intrin->op.as<PlaceholderOpNode>();
     CHECK(intrin_op != nullptr) << "Intrin tensor is neither from a ComputeOp "
                                 << "nor a PlaceholderOp" << intrin << ".";
-    return target_op != nullptr;
+    // return target_op != nullptr;
+    return true;
   }
 
   const PrimExpr target_expr = target_op->body[target->value_index];
@@ -82,7 +86,7 @@ bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsu
     if (possible_index_mappings.size() == 0) {  // expr matching failed
       return false;
     }
-    results.Set(intrin->op, possible_index_mappings);
+    results.Set(target->op, possible_index_mappings);
   } else {
     // std::cout << __LINE__ << "Checking elementwise..." << std::endl;
     CapsuleExprMatcher expr_matcher(buffer_map);

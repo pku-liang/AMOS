@@ -398,7 +398,7 @@ class CompilationRecipe(object):
         ins, outs, cache = self.get_dag_compute_expression_with_inputs(
             compute_key, shape_key, outputs, read_graph
         )
-        return compute_dag_from_tensors(outs)
+        return compute_dag_from_tensors(outs), cache[self.main_capsule_name]
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str"""
@@ -701,6 +701,12 @@ class CompilationRecipeRegisterPool(object):
             raise RuntimeError(("Recipe not found: target=%s, mnemonic=%s" % (target, mnemonic)))
         return self.registries[target][mnemonic]
 
+    def enumerate(self, target):
+        if target in self.registries:
+            return self.registries[target].values()
+        else:
+            return []
+
 
 COMPILATION_RECIPE_REGISTER_POOL = CompilationRecipeRegisterPool()
 
@@ -714,6 +720,10 @@ def register_recipe(target, mnemonic, override=False):
         return recipe_class
 
     return register
+
+
+def query_recipe(target):
+    return COMPILATION_RECIPE_REGISTER_POOL.enumerate(target)
 
 
 @tvm._ffi.register_func("auto_tensorize.query_capsule_memory_scope")
