@@ -126,11 +126,11 @@ compare if the output from CUTLASS kernel is same as the reference implicit GEMM
 
 // The code section below describes datatype for input, output tensors and computation between
 // elements 
-using ElementAccumulator = float;                  // Data type of accumulator
-using ElementComputeEpilogue = float;              // Data type of epilogue computation (alpha, beta)
+using ElementAccumulator = cutlass::half_t;                  // Data type of accumulator
+using ElementComputeEpilogue = cutlass::half_t;              // Data type of epilogue computation (alpha, beta)
 using ElementInputA = cutlass::half_t;             // Data type of elements in input tensor
 using ElementInputB = cutlass::half_t;             // Data type of elements in input tensor
-using ElementOutput = float;                       // Data type of elements in output tensor
+using ElementOutput = cutlass::half_t;                       // Data type of elements in output tensor
 
 using LayoutInputA = cutlass::layout::TensorNHWC;
 using LayoutInputB = cutlass::layout::TensorNHWC;
