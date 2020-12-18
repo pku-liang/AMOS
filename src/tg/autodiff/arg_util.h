@@ -24,12 +24,23 @@ namespace tvm {
 using namespace te;
 namespace tg {
 
+ /*
+  * TODO: (yicheng): for intrin index match, use a better way to do relaxed matching
+  * We allow some relaxed cases to be matched: (note x1 is left, x2 is right)
+  * 0. x1 matches positive int const
+  * 1. we always assume a pre-simplify before check expr equal
+  * 2. if x1 matches with x2, then x1 + beta / beta + x1 matches with x2, beta is int
+  * 3. if x1 matches with x2, then x1 * alpha / alpha * x1 matches with x2, alpha is positive int
+  * 4. if x1 matches with x2, then x1 - beta matches with x2, beta is int
+  */ 
 class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)> {
  private:
   bool check_name_;
+  bool relax_const_;
 
  public:
-  CheckExprEqual(bool check_name = false) : check_name_(check_name) {}
+  CheckExprEqual(bool check_name = false, bool relax_const = false)
+    : check_name_(check_name), relax_const_(relax_const) {}
 
   bool check_equal(const PrimExpr& a, const PrimExpr& b) { return VisitExpr(a, b); }
 
@@ -41,8 +52,13 @@ class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)
   if (other_op == nullptr) {          \
     return false;                     \
   }
+
   // list of functions to override.
   bool VisitExpr_(const VarNode* op, const PrimExpr& target) override {
+    const IntImmNode* as_int = target.as<IntImmNode>();
+    if (as_int != nullptr && as_int->value > 0) {
+      return true;
+    }
     type_check(VarNode) if (check_name_) { return op->name_hint == other_op->name_hint; }
     else {
       return true;
@@ -104,14 +120,48 @@ class CheckExprEqual : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)
   }
 
   bool VisitExpr_(const AddNode* op, const PrimExpr& target) override {
+    /*
+     * Note: We always assume a pre-simplify before check_equal
+     */ 
+    if (relax_const_) {
+      const IntImmNode* a_as_int = op->a.as<IntImmNode>();
+      const IntImmNode* b_as_int = op->b.as<IntImmNode>();
+      if (a_as_int != nullptr) {
+        return VisitExpr(op->b, target);
+      } else if (b_as_int != nullptr) {
+        return VisitExpr(op->a, target);
+      }
+    }
     type_check(AddNode) return (VisitExpr(op->a, other_op->a) && VisitExpr(op->b, other_op->b));
   }
 
   bool VisitExpr_(const SubNode* op, const PrimExpr& target) override {
+    /*
+     * Note: We always assume a pre-simplify before check_equal
+     */ 
+    if (relax_const_) {
+      const IntImmNode* b_as_int = op->b.as<IntImmNode>();
+      // only consider if b is int
+      if (b_as_int != nullptr) {
+        return VisitExpr(op->a, target);
+      }
+    }
     type_check(SubNode) return (VisitExpr(op->a, other_op->a) && VisitExpr(op->b, other_op->b));
   }
 
   bool VisitExpr_(const MulNode* op, const PrimExpr& target) override {
+    /*
+     * Note: We always assume a pre-simplify before check_equal
+     */ 
+    if (relax_const_) {
+      const IntImmNode* a_as_int = op->a.as<IntImmNode>();
+      const IntImmNode* b_as_int = op->b.as<IntImmNode>();
+      if (a_as_int != nullptr && a_as_int->value > 0) {
+        return VisitExpr(op->b, target);
+      } else if (b_as_int != nullptr && b_as_int->value > 0) {
+        return VisitExpr(op->a, target);
+      }
+    }
     type_check(MulNode) return (VisitExpr(op->a, other_op->a) && VisitExpr(op->b, other_op->b));
   }
 

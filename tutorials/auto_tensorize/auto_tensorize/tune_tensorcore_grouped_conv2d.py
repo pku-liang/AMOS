@@ -9,7 +9,6 @@ from itertools import product
 
 
 def grouped_conv2d(N, C, H, W, K, R, S, stride, padding, dilation, groups):
-    print("OK")
     assert(K % groups == 0)
     assert(C % groups == 0)
     pH = H + 2 * padding
@@ -47,18 +46,25 @@ def grouped_conv2d(N, C, H, W, K, R, S, stride, padding, dilation, groups):
     Conv = tvm.te.compute(
         [N, groups, K//groups, P, Q],
         lambda n, k_o, k_i, p, q:
-            tvm.te.sum((A_reshaped[n, k_o, rc, p+rr, q+rs] * B_reshaped[k_o, k_i, rc, rr, rs]
+            tvm.te.sum((A_reshaped[n, k_o, rc, p*stride+rr, q*stride+rs] * B_reshaped[k_o, k_i, rc, rr, rs]
                         ).astype("float16"), axis=[rc, rr, rs]),
         name="Conv"
     )
-    # print("OKx3!")
+
+    Conv_reshaped = tvm.te.compute(
+        [N, K, P, Q],
+        lambda n, k, p, q:
+            Conv[n, k//(K//groups), k%(K//groups), p, q],
+        name="Reshaped"
+    )
+
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
     # E = tvm.te.compute(
     #     [N, K, P, Q],
     #     lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
     #     name="E"
     # )
-    return [A, B, Conv]#Conv_reshaped]
+    return [A, B, Conv_reshaped]
 
 
 def tensorize_tensorcore_fp16fp16(

@@ -255,7 +255,10 @@ class SAEntryGenerator(EntryGenerator):
         self.logger.close()
         self.init_logger()
 
-    def load_from_file(self, file_name):
+    def load_from_file(self, file_name, clear=False):
+        if clear:
+            print("Clearing...")
+            self.clear("")
         print("Loading from file %s..." % file_name, flush=True)
         # assert file_name != self.log_file, "Please do not use the same log file."
         assert not self.entries, "Please clear the generator first (be caution!)."

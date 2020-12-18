@@ -38,7 +38,7 @@ def conv2d_pack4(N, C, H, W, K, R, S, stride, padding, dilation):
     Conv = tvm.te.compute(
         [N, pK, P, Q, CI],
         lambda n, pk, p, q, ci:
-            tvm.te.sum((Pad[n, rc, p+rr, q+rs, rci] * B[pk, rc, rr, rs, rci, ci]
+            tvm.te.sum((Pad[n, rc, p*stride+rr, q*stride+rs, rci] * B[pk, rc, rr, rs, rci, ci]
                         ).astype("int32"), axis=[rc, rr, rs, rci]),
         name="Conv"
     )

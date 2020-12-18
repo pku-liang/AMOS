@@ -177,7 +177,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     Conv = tvm.te.compute(
         [N, K, P, Q],
         lambda n, k, p, q:
-            tvm.te.sum((Pad[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
+            tvm.te.sum((Pad[n, rc, p*stride+rr, q*stride+rs] * B[k, rc, rr, rs]
                         ).astype("float16"), axis=[rc, rr, rs]),
         name="Conv"
     )
@@ -333,25 +333,6 @@ def test5(
         print(r.recipe, r.compute_key, r.shape_key)
     
     match_result = match_results[0]
-    # # hand-craft the match results
-    # main_op_map = {
-    #     intrin_dag.op_lst[0]: target_dag.op_lst[1]
-    # }
-    # elem_op_map = {}
-    # ii, jj = intrin_dag.op_lst[0].axis
-    # kk, = intrin_dag.op_lst[0].reduce_axis
-    # n, k, p, q = target_dag.op_lst[1].axis
-    # rc, rr, rs = target_dag.op_lst[1].reduce_axis
-    # axis_map = {
-    #     ii: [n, n, n, p, p, q, q],
-    #     jj: [k, k, k, k, k, k, k],
-    #     kk: [rc, rr, rs, rc, rs, rc, rr]
-    # }
-    # match_result = at.IntrinMatchResult(
-    #     recipe, compute_key, shape_key,
-    #     main_op_map, elem_op_map,
-    #     axis_map, target_dag, intrin_dag
-    # )
 
     # fix transform decisions
     gen = at.TransformGenerator(match_result)
@@ -393,6 +374,126 @@ def test5(
 
     cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
     print("Cost is %f ms" % cost)
+
+
+class AutoTensorizeResult(object):
+    def __init__(self, sch_gen, sch_app, params, perf):
+        self.sch_gen = sch_gen
+        self.sch_app = sch_app
+        self.params = params
+        self.perf = perf
+
+    def defined(self):
+        return ((self.sch_gen is not None)
+                and (self.sch_app is not None)
+                and (self.params is not None)
+                and (self.perf is not None))
+
+
+def auto_tensorize(target_dag, target,
+        log_file,
+        measure_opt,
+        trials=200,
+        builder=at.pebble_local_builder_build,
+        runner=at.pebble_local_runner_run,
+        verbose=False):
+    # refactor target
+    measure_opt.target = target
+    match_results = at.get_match_results(target_dag, target)
+    for r in match_results:
+        print(r.recipe, r.compute_key, r.shape_key)
+    if len(match_results) == 0:
+        print("This workload has no matched intrinsic for target" % target, flush=True)
+        return AutoTensorizeResult(None, None, None, None)
+    # here is match intrin policy
+    match_result = match_results[0]
+    print(match_result.axis_map)
+
+    gen = at.TransformGenerator(match_result)
+    record = gen.get(policy="random")
+    # here is transform policy
+    record.unfold_choice = (
+        [1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
+    app = at.TransformApplier(match_result)
+    new_state = app.apply(record)
+
+    if str(target) == "cuda":
+        schedule_gen = at.CUDAScheduleGenerator(
+            match_result, new_state, log_file=log_file)
+        if os.path.exists(log_file) and os.path.isfile(log_file):
+            schedule_gen.load_from_file(log_file)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
+        checker = at.CUDAProgramChecker()
+    else:
+        raise RuntimeError("Do not support target: %s" % target)
+    
+    # use tuning to find params
+    value, params = at.find_optimized_parameters(
+        match_result, schedule_gen, schedule_app,
+        measure_opt, checker, trials,  # policy="random",
+        builder=builder,
+        runner=runner,
+        verbose=verbose)
+
+    return AutoTensorizeResult(
+        schedule_gen,
+        schedule_app,
+        params,
+        value
+    )
+
+
+def get_schedule(sch_app, params):
+    target_dag = sch_app.target_dag
+    inputs = target_dag.get_inputs()
+    sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+
+    args = inputs + list(target_dag.tensors)
+    sch = sch_app.apply(sch, params)
+    return sch, args
+
+
+@register_test
+def test6(
+):
+    (N, C, H, W, K, R, S, stride,
+    padding, dilation, layer) = (
+        1, 3, 14, 14, 64, 7, 7, 2, 3, 1, 15
+    )
+
+    A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
+    target_dag = at.compute_dag_from_tensors([Conv])
+    target = "cuda"
+
+    log_file = "Yolo-layer-%d-batch-%d.log" % (
+        layer, N)
+
+    trials = 10
+    measure_opt = at.MeasureOptions(
+        target=target, timeout=20, number=200, min_repeat_ms=500)
+
+    result = auto_tensorize(
+        target_dag, target, log_file, measure_opt, trials=trials, verbose=False)
+    if not result.defined():
+        print("Can't do tensorize.")
+        return
+    schedule_gen = result.sch_gen
+    schedule_app = result.sch_app
+
+    # load from file
+    schedule_gen.load_from_file(log_file, clear=True)
+    entry = schedule_gen.get_best_entry()
+    # we store 1/time_cost in file
+    params, value = entry.record, 1 / entry.value
+    print(value)
+    print(params.to_json())
+
+    cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
+    print("Cost is %f ms" % cost)
+
+    sch, args = get_schedule(schedule_app, params)
+    # print(tvm.lower(sch, args, simple_mode=True))
 
 
 if __name__ == "__main__":

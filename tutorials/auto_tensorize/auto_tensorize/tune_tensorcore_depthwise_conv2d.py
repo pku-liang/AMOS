@@ -40,7 +40,7 @@ def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     Conv = tvm.te.compute(
         [N, C, K//C, P, Q],
         lambda n, k_o, k_i, p, q:
-            tvm.te.sum((Pad[n, k_o, p+rr, q+rs] * B_reshaped[k_o, k_i, rr, rs]
+            tvm.te.sum((Pad[n, k_o, p*stride+rr, q*stride+rs] * B_reshaped[k_o, k_i, rr, rs]
                         ).astype("float16"), axis=[rr, rs]),
         name="Conv"
     )

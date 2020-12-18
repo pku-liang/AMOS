@@ -209,7 +209,7 @@ Array<IterVarMap> enumerate_mappings(Array<IterVar> target_axes, Array<IterVar> 
 bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx) {
   // std::cout << __LINE__ << "IndexExprMatcher::_match_index " << target_idx << " " << intrin_idx
   // << std::endl;
-  tg::CheckExprEqual check_equal(true);
+  tg::CheckExprEqual check_equal(true, true);
   size_t n_dim_target = target_idx.size();
   size_t n_dim_intrin = intrin_idx.size();
 
@@ -218,7 +218,9 @@ bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> 
     bool i_matched = false;
     for (size_t k = 0; k < n_dim_target; ++k) {
       PrimExpr target_i = target_idx[k];
-      if (check_equal(intrin_i, target_i)) {
+      // for relaxed matching, the order is important
+      // target index is more general than intrin index
+      if (check_equal(target_i, intrin_i)) {
         target_idx.Set(k, make_zero(target_idx[0].dtype()));
         i_matched = true;
         break;

@@ -40,7 +40,7 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation):
     Conv = tvm.te.compute(
         [N, K, outD, P, Q],
         lambda n, k, d, p, q:
-            tvm.te.sum((Pad[n, rc, d+rd, p+rr, q+rs] * B[k, rc, rd, rr, rs]
+            tvm.te.sum((Pad[n, rc, d+rd, p*stride+rr, q*stride+rs] * B[k, rc, rd, rr, rs]
                         ).astype("float16"), axis=[rc, rd, rr, rs]),
         name="Conv"
     )

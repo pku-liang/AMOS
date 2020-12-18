@@ -30,7 +30,7 @@ def conv1d(N, C, L, K, KL, stride, padding, dilation):
     Conv = tvm.te.compute(
             [N, K, outL],
             lambda n, k, l:
-                tvm.te.sum((Pad[n, rc, l+rr] * B[k, rc, rr]).astype("float16"), axis=[rc, rr]),
+                tvm.te.sum((Pad[n, rc, l*stride+rr] * B[k, rc, rr]).astype("float16"), axis=[rc, rr]),
             name="Conv"
             )
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
