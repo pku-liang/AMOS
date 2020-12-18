@@ -139,19 +139,21 @@ void CudnnConv::InitAlgo(cudnnHandle_t handle) {
     CHECK_EXIT(sts, "cudnnSetConvolutionMathType");
     cout << "conv_type: " << conv_type_str[conv_type()] << endl;
 
-    cudnnConvolutionFwdAlgoPerf_t perf;
+    cudnnConvolutionFwdAlgoPerf_t perf[10];
     if (conv_type() == CUDNN_DATA_INT32) {
         algo_ = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
     } else {
+        int returnedAlgoCount = -1;
         sts = cudnnGetConvolutionForwardAlgorithm_v7(handle, 
                                                   input_desc_,
                                                   weight_desc_,
                                                   conv_desc_,
                                                   output_desc_,
-                                                  CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM,
-                                                  0,
-                                                  &perf);
-        algo_ = perf.algo;
+                                                  10,
+                                                  &returnedAlgoCount,
+                                                  perf);
+        std::cout << "returnedAlgoCount: " << returnedAlgoCount << std::endl;
+        algo_ = perf[0].algo;
         CHECK_EXIT(sts, "Fail in getting cudnnGetConvolutionForwardAlgorithm");
     }
 
