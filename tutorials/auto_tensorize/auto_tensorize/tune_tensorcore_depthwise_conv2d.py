@@ -9,7 +9,6 @@ from itertools import product
 
 
 def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
-    print("OK")
     assert(K % C == 0)
     pH = H + 2 * padding
     pW = W + 2 * padding
@@ -32,20 +31,12 @@ def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
         lambda k_o, k_i, r, s: B[k_o * (K//C) + k_i, r, s]
     )
 
-    # rc = tvm.te.reduce_axis([0, C], name="rc")
     rr = tvm.te.reduce_axis([0, R], name="rr")
     rs = tvm.te.reduce_axis([0, S], name="rs")
 
     P = (pH - R) // stride + 1
     Q = (pW - S) // stride + 1
-    # Conv = tvm.te.compute(
-    #     [N, K, P, Q],
-    #     lambda n, k, p, q:
-    #         tvm.te.sum((Pad[n, k//(K//C), p+rr, q+rs] * B[k, rr, rs]
-    #                     ).astype("float16"), axis=[rr, rs]),
-    #     name="Conv"
-    # )
-    # print("OKx2!")
+
     Conv = tvm.te.compute(
         [N, C, K//C, P, Q],
         lambda n, k_o, k_i, p, q:
@@ -53,22 +44,21 @@ def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
                         ).astype("float16"), axis=[rr, rs]),
         name="Conv"
     )
-    # print("OKx2!")
 
-    # Conv_reshaped = tvm.te.compute(
-    #     [N, K, P, Q],
-    #     lambda n, k, p, q:
-    #         Conv[n, k//(K//C), k%(K//C), p, q],
-    #     name="Reshaped"
-    # )
-    # print("OKx3!")
+    Conv_reshaped = tvm.te.compute(
+        [N, K, P, Q],
+        lambda n, k, p, q:
+            Conv[n, k//(K//C), k%(K//C), p, q],
+        name="Reshaped"
+    )
+
     # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
     # E = tvm.te.compute(
     #     [N, K, P, Q],
     #     lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
     #     name="E"
     # )
-    return [A, B, Conv]#Conv_reshaped]
+    return [A, B, Conv_reshaped]
 
 
 def tensorize_tensorcore_fp16fp16(
@@ -110,13 +100,7 @@ def tensorize_tensorcore_fp16fp16(
     app = at.TransformApplier(match_result)
     new_state = app.apply(record)
 
-    new_target_dag = new_state.target_dag
-    new_inputs = new_target_dag.get_inputs()
-    sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
-    print(tvm.lower(
-        sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
-
-    log_file = "Yolo-layer-%d-batch-%d-%s-%s.log" % (
+    log_file = "MobileNetV2-layer-%d-batch-%d-%s-%s.log" % (
         layer, N, compute_key, shape_key)
 
     # prepare schedulers
@@ -126,7 +110,7 @@ def tensorize_tensorcore_fp16fp16(
         schedule_gen.load_from_file(log_file)
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
-    trials = 400
+    trials = 2000
     measure_opt = at.MeasureOptions(
         target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
@@ -149,65 +133,49 @@ def tensorize_tensorcore_fp16fp16(
 
     cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
     print("Cost is %f ms" % cost)
+    return cost
 
 
 def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer):
-    tensorize_tensorcore_fp16fp16(
+    return tensorize_tensorcore_fp16fp16(
         N, C, H, W, K, R, S, stride,
         padding, dilation, layer)
 
 
-# yolo_shapes_b1 = [
-#     # yolo
-#     # (1, 3, 448, 448, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
-#     # (1, 64, 112, 112, 192, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
-#     # (1, 192, 56, 56, 128, 192, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
-#     # (1, 128, 56, 56, 256, 128, 3, 3, 1, 1, 1, 1, 1),  # conv4   3
-#     # (1, 256, 56, 56, 256, 256, 1, 1, 1, 1, 0, 1, 1),  # conv5   4
-#     # (1, 256, 56, 56, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
-#     # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv7   6
-#     # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv8   7
-#     # # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv9
-#     # # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv10
-#     # # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv11
-#     # # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv12
-#     # # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv13
-#     # # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv14
-#     # (1, 512, 28, 28, 512, 512, 1, 1, 1, 1, 0, 1, 1),  # conv15      8
-#     # (1, 512, 28, 28, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv16     9
-#     # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv17    10
-#     # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv18     11
-#     # # # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv19
-#     # # # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv20
-#     # (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv21   12
-#     # (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 2, 1, 1, 1),  # conv22   13
-#     # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv23     14
-#     # # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv24
-# ]
-
-
  # (N, C, H, W, K, _, R, S, _, stride, padding, dilation, _)
-depth_wise_conv_shapes = [
-    (1, 64, 448, 448, 256, 64, 3, 3, 1, 1, 1, 1, 1)
+mobilenet_v2_shapes = [
+    (1, 32, 112, 112, 32, 32, 3, 3, 1, 1, 1, 1, 32),
+    (1, 16, 112, 112, 16 * 6, 16, 3, 3, 1, 2, 1, 1, 16),
+    (1, 24, 56, 56, 24 * 6, 24, 3, 3, 1, 2, 1, 1, 24),
+    (1, 32, 28, 28, 32 * 6, 32, 3, 3, 1, 2, 1, 1, 32),
+    (1, 64, 14, 14, 64 * 6, 64, 3, 3, 1, 1, 1, 1, 64),
+    (1, 96, 14, 14, 96 * 6, 96, 3, 3, 1, 2, 1, 1, 96),
+    (1, 160, 7, 7, 160 * 6, 160, 3, 3, 1, 1, 1, 1, 160),
 ]
 
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 15
+    num = 7
     for batch in batches:
-        for i, shape in enumerate(depth_wise_conv_shapes):
+        costs = []
+        for i, shape in enumerate(mobilenet_v2_shapes):
             (_, C, H, W, K, _, R, S, _, stride,
                 padding, dilation, _) = shape
             N = batch
             print("\n\nProblem size:")
             print(N, C, H, W, K, R, S, stride, padding)
             try:
-                run(
+                cost = run(
                     N, C, H, W, K, R, S, stride,
                     padding, dilation,
                     i
                 )
+                costs.append(cost)
             except Exception as e:
                 print("Fail to run\n", str(e))
+                costs.append(float("inf"))
+        print("\nBatch=", batch)
+        for cost in costs:
+            print(cost)

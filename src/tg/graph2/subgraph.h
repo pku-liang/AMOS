@@ -22,6 +22,9 @@ namespace tvm {
 
 namespace tg {
 
+/*
+ * The operation type definition
+ */
 enum class OpType : int8_t {
   tUnknown = -1,
   tLightReduce = 0,
@@ -30,6 +33,10 @@ enum class OpType : int8_t {
   tConst = 3
 };
 
+/*
+ * Calculate the operational desnity
+ * d = gflop / (input bytes + output bytes)
+ */
 double calculate_operational_density(te::Operation op);
 
 class OpTypeGetter : public tir::ExprVisitor {
@@ -87,6 +94,9 @@ class GraphPartitionMarker {
   std::pair<Map<IntKey, IntKey>, Map<te::Operation, IntKey>> get_partition_mark(
       const Array<te::Tensor>& root_tensors, const GraphMark& graph_mark_);
 
+  /* 
+   * Get all the keys of minigraphs that are producer of given minigraph
+   */
   Array<IntKey> get_inputs_of_minigraph(IntKey minigraph) {
       // ASSERT(minigraph_read_relations_.count(minigraph->value)) << "Can't find MiniGraph " << minigraph->value << " in MiniGraph Relations.\n";
       Array<IntKey> ret;
@@ -98,6 +108,9 @@ class GraphPartitionMarker {
       return ret;
   }
 
+  /* 
+   * Get all the keys of subgraphs that are producers for each subgraph
+   */
   Map<IntKey, Array<IntKey>> get_subgraph_read_relations() {
       Map<IntKey, Array<IntKey>> ret;
       for (auto kv : subgraph_read_relations_) {

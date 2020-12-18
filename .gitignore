@@ -240,3 +240,6 @@ conda/pkg
 
 tmp
 experiments
+*log.txt
+evaluate_pool
+saved_schedules.txt

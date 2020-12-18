@@ -8,8 +8,12 @@ namespace tvm {
 
 namespace tg {
 
+// operational density:
+// d = gflop / (input bytes + output bytes)
 double calculate_operational_density(te::Operation op) {
+  // we only consider compute op
   if (const te::ComputeOpNode* as_compute = op.as<te::ComputeOpNode>()) {
+    // record the product of trip counts of all the spatial loops
     double loops = 1;
     for (auto iv : as_compute->axis) {
       const te::IntImmNode* as_int = iv->dom->extent.as<te::IntImmNode>();
@@ -17,10 +21,12 @@ double calculate_operational_density(te::Operation op) {
         loops *= as_int->value;
       }
     }
+    // record the size of output in bytes
     double output_elements_write_bytes = loops * op.output(0)->dtype.bytes();
 
     double inputs_elements_read_bytes = 0;
     for (auto inp : as_compute->InputTensors()) {
+      // record the produce of extents of all the input dimensions
       double tmp = 1;
       for (auto s : inp->shape) {
         const te::IntImmNode* as_int = s.as<te::IntImmNode>();
@@ -28,14 +34,18 @@ double calculate_operational_density(te::Operation op) {
           tmp *= as_int->value;
         }
       }
+      // calculate the input size in bytes
       tmp *= inp->dtype.bytes();
+      // sum up
       inputs_elements_read_bytes += tmp;
     }
 
+    // get the flops within the op (unit: GFLOP)
     double gflop = get_gflop(op);
     return gflop * 1e9 / (inputs_elements_read_bytes + output_elements_write_bytes);
 
   } else {
+    // other ops, just return 0
     return 0;
   }
 }

@@ -1,0 +1,19 @@
+CXX := nvcc
+TARGET := conv2d_winograd_cudnn
+CUDNN_PATH := /usr/local/cuda
+HEADERS := -I $(CUDNN_PATH)/include
+LIBS := -L $(CUDNN_PATH)/lib64 -L/usr/local/lib
+# LIBDEVICE := --dont-use-profile -ldir $(CUDNN_PATH)/nvvm/libdevice
+LIBDEVICE :=
+CXXFLAGS := -arch=sm_80 -std=c++11 -O2
+
+all: conv
+
+conv: $(TARGET).cu
+	$(CXX) $(CXXFLAGS) $(LIBDEVICE) $(HEADERS) $(LIBS) $(TARGET).cu -o $(TARGET) \
+	-lcudnn
+
+.phony: clean
+
+clean:
+	rm $(TARGET) || echo -n ""
