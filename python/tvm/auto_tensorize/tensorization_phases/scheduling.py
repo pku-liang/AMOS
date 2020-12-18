@@ -1,6 +1,6 @@
 import tvm
 import numpy as np
-from .utils import *
+from ..utils import *
 from ..target import *
 from ..search import CDParamGenerator, Entry, SAEntryGenerator
 from ..recipe import OperationRole, RecipeStage, InstructionScope

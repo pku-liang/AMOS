@@ -7,7 +7,7 @@ from ..capsule_base import ComputeDAG
 from .intrin_match import IntrinMatchResult
 from .. import _ffi_api
 from ..search import CDParamGenerator, Entry, SAEntryGenerator
-from .utils import bi_product, substitute_inputs, softmax
+from ..utils import bi_product, substitute_inputs, softmax
 from functools import reduce
 
 

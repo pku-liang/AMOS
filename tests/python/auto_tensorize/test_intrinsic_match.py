@@ -376,84 +376,6 @@ def test5(
     print("Cost is %f ms" % cost)
 
 
-class AutoTensorizeResult(object):
-    def __init__(self, sch_gen, sch_app, params, perf):
-        self.sch_gen = sch_gen
-        self.sch_app = sch_app
-        self.params = params
-        self.perf = perf
-
-    def defined(self):
-        return ((self.sch_gen is not None)
-                and (self.sch_app is not None)
-                and (self.params is not None)
-                and (self.perf is not None))
-
-
-def auto_tensorize(target_dag, target,
-        log_file,
-        measure_opt,
-        trials=200,
-        builder=at.pebble_local_builder_build,
-        runner=at.pebble_local_runner_run,
-        verbose=False):
-    # refactor target
-    measure_opt.target = target
-    match_results = at.get_match_results(target_dag, target)
-    for r in match_results:
-        print(r.recipe, r.compute_key, r.shape_key)
-    if len(match_results) == 0:
-        print("This workload has no matched intrinsic for target" % target, flush=True)
-        return AutoTensorizeResult(None, None, None, None)
-    # here is match intrin policy
-    match_result = match_results[0]
-    print(match_result.axis_map)
-
-    gen = at.TransformGenerator(match_result)
-    record = gen.get(policy="random")
-    # here is transform policy
-    record.unfold_choice = (
-        [1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
-    app = at.TransformApplier(match_result)
-    new_state = app.apply(record)
-
-    if str(target) == "cuda":
-        schedule_gen = at.CUDAScheduleGenerator(
-            match_result, new_state, log_file=log_file)
-        if os.path.exists(log_file) and os.path.isfile(log_file):
-            schedule_gen.load_from_file(log_file)
-        sc_info = schedule_gen.get_schedule_compute_info()
-        schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
-        checker = at.CUDAProgramChecker()
-    else:
-        raise RuntimeError("Do not support target: %s" % target)
-    
-    # use tuning to find params
-    value, params = at.find_optimized_parameters(
-        match_result, schedule_gen, schedule_app,
-        measure_opt, checker, trials,  # policy="random",
-        builder=builder,
-        runner=runner,
-        verbose=verbose)
-
-    return AutoTensorizeResult(
-        schedule_gen,
-        schedule_app,
-        params,
-        value
-    )
-
-
-def get_schedule(sch_app, params):
-    target_dag = sch_app.target_dag
-    inputs = target_dag.get_inputs()
-    sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-
-    args = inputs + list(target_dag.tensors)
-    sch = sch_app.apply(sch, params)
-    return sch, args
-
-
 @register_test
 def test6(
 ):
@@ -473,8 +395,8 @@ def test6(
     measure_opt = at.MeasureOptions(
         target=target, timeout=20, number=200, min_repeat_ms=500)
 
-    result = auto_tensorize(
-        target_dag, target, log_file, measure_opt, trials=trials, verbose=False)
+    result = at.auto_tensorize(
+        target_dag, target, log_file, measure_opt, trials=trials, verbose=True)
     if not result.defined():
         print("Can't do tensorize.")
         return
@@ -492,7 +414,7 @@ def test6(
     cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
     print("Cost is %f ms" % cost)
 
-    sch, args = get_schedule(schedule_app, params)
+    sch, args = at.get_schedule(schedule_app, params)
     # print(tvm.lower(sch, args, simple_mode=True))
 
 

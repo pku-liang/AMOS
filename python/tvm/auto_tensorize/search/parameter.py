@@ -3,13 +3,12 @@ import time
 import heapq
 from .measure import *
 from .record import Entry
-from ..tensorization_phases.utils import *
+from ..utils import *
 import queue
 import logging
 import json
 import sys
 import os
-
 
 
 class ParamGenerator(object):

@@ -1,3 +1,4 @@
+from .auto_tensorize import *
 from .capsule_base import (
     register_capsule,
     register_recipe,
