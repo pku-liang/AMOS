@@ -78,15 +78,11 @@ public:
     cudnnConvolutionFwdAlgoPerf_t fwd_perf;
     int ret_count;
 
-    if (std::is_same<T1, uint8_t>::value) {
-      // Note: cuDNN only supports IMPLICIT_PRECOMP_GEMM for int8 data type.
-      fwd_algo_ = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
-    } else {
-      CHECK_CUDNN_ERROR(cudnnFindConvolutionForwardAlgorithm(
-          cudnn_handle_.handle(), x_desc_.desc(), w_desc_.desc(),
-          conv_desc_.desc(), h_desc_.desc(), 1, &ret_count, &fwd_perf));
-      fwd_algo_ = fwd_perf.algo;
-    }
+    CHECK_CUDNN_ERROR(cudnnFindConvolutionForwardAlgorithm(
+        cudnn_handle_.handle(), x_desc_.desc(), w_desc_.desc(),
+        conv_desc_.desc(), h_desc_.desc(), 1, &ret_count, &fwd_perf));
+    fwd_algo_ = fwd_perf.algo;
+
 
     if (use_tensor_core) {
       // Tensor Op math only supports IMPLICIT_PRECOMP_GEMM algorithm

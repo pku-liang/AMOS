@@ -77,15 +77,10 @@ public:
     cudnnConvolutionFwdAlgoPerf_t fwd_perf;
     int ret_count;
 
-    if (std::is_same<T1, uint8_t>::value) {
-      // Note: cuDNN only supports IMPLICIT_PRECOMP_GEMM for int8 data type.
-      fwd_algo_ = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
-    } else {
-      CHECK_CUDNN_ERROR(cudnnFindConvolutionForwardAlgorithm(
-          cudnn_handle_.handle(), x_desc_.desc(), w_desc_.desc(),
-          conv_desc_.desc(), h_desc_.desc(), 1, &ret_count, &fwd_perf));
-      fwd_algo_ = fwd_perf.algo;
-    }
+    CHECK_CUDNN_ERROR(cudnnFindConvolutionForwardAlgorithm(
+        cudnn_handle_.handle(), x_desc_.desc(), w_desc_.desc(),
+        conv_desc_.desc(), h_desc_.desc(), 1, &ret_count, &fwd_perf));
+    fwd_algo_ = fwd_perf.algo;
 
     if (use_tensor_core) {
       // Tensor Op math only supports IMPLICIT_PRECOMP_GEMM algorithm
@@ -164,20 +159,44 @@ int time_cnn(int k, int c, int r, int s, int n, int h, int w, int pad_h,
   // Warm up
   cnn.forward(input, filter, output);
 
-  cudaDeviceSynchronize();
-  auto start = std::chrono::steady_clock::now();
+  bool use_chrono = true;
+  if (use_chrono) {
+    cudaDeviceSynchronize();
+    auto start = std::chrono::steady_clock::now();
+  
+    for (int i = 0; i < num_repeats; ++i) {
+      cnn.forward(input, filter, output);
+    }
+  
+    cudaDeviceSynchronize();
+    auto end = std::chrono::steady_clock::now();
+    int fwd_time = static_cast<int>(
+        std::chrono::duration<double, std::micro>(end - start).count() /
+        num_repeats);
+  
+    return fwd_time;
+  } else {
+    cudaEvent_t start, stop;
+    float elapsedTime = 0.0;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
-  for (int i = 0; i < num_repeats; ++i) {
-    cnn.forward(input, filter, output);
+    cudaEventRecord(start, 0);//auto start = std::chrono::steady_clock::now();
+
+    for (int i = 0; i < num_repeats; ++i) {
+      cnn.forward(input, filter, output);
+    }
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&elapsedTime, start, stop);
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
+    int fwd_time = int(elapsedTime * 1000 / num_repeats);
+
+    return fwd_time;
   }
-
-  cudaDeviceSynchronize();
-  auto end = std::chrono::steady_clock::now();
-  int fwd_time = static_cast<int>(
-      std::chrono::duration<double, std::micro>(end - start).count() /
-      num_repeats);
-
-  return fwd_time;
 }
 
 int main(int argc, char **argv) {
