@@ -1,11 +1,6 @@
 import tvm
 import os
 from tvm import auto_tensorize as at
-from itertools import product
-
-"""In this tutorial, we fix recipe, hand-craft match points,
-    and fix transform decisions, to see how parameters affects performance
-"""
 
 
 def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
@@ -51,65 +46,26 @@ def tensorize_tensorcore_tf32fp32(
     N, C, H, W, K, R, S, stride,
     padding, dilation, layer
 ):
-    recipe = at.WMMATf32Fp32()
-    compute_key = "nnn"
-    shape_key = "16x16x8"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
+    target = "cuda"
 
-    # hand-craft the match results
-    main_op_map = {
-        intrin_dag.op_lst[0]: target_dag.op_lst[1]
-    }
-    elem_op_map = {}
-    ii, jj = intrin_dag.op_lst[0].axis
-    kk, = intrin_dag.op_lst[0].reduce_axis
-    n, k, p, q = target_dag.op_lst[1].axis
-    rc, rr, rs = target_dag.op_lst[1].reduce_axis
-    axis_map = {
-        ii: [n, n, n, p, p, q, q],
-        jj: [k, k, k, k, k, k, k],
-        kk: [rc, rr, rs, rc, rs, rc, rr]
-    }
-    match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
-        main_op_map, elem_op_map,
-        axis_map, target_dag, intrin_dag
-    )
+    log_file = "conv2d-tf16-layer-%d-batch-%d.log" % (layer, N)
 
-    # fix transform decisions
-    gen = at.TransformGenerator(match_result)
-    record = gen.get(policy="random")
-    record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
-    app = at.TransformApplier(match_result)
-    new_state = app.apply(record)
-
-    log_file = "Yolo-layer-%d-batch-%d-%s-%s.log" % (
-        layer, N, compute_key, shape_key)
-
-    # prepare schedulers
-    schedule_gen = at.CUDAScheduleGenerator(
-        match_result, new_state, log_file=log_file)
-    if os.path.exists(log_file) and os.path.isfile(log_file):
-        schedule_gen.load_from_file(log_file)
-    sc_info = schedule_gen.get_schedule_compute_info()
-    schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
-    trials = 400
+    trials = 2000
     measure_opt = at.MeasureOptions(
-        target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
-    checker = at.CUDAProgramChecker()
+        target=target, timeout=20, number=200, min_repeat_ms=500)
 
-    # use tuning to find params
-    value, params = at.find_optimized_parameters(
-        match_result, schedule_gen, schedule_app,
-        measure_opt, checker, trials,  # policy="random",
-        builder=at.pebble_local_builder_build,
-        runner=at.pebble_local_runner_run)
+    result = at.auto_tensorize(
+        target_dag, target, log_file, measure_opt, trials=trials, verbose=True)
+    if not result.defined():
+        print("Can't do tensorize.")
+        return
+    schedule_gen = result.sch_gen
+    schedule_app = result.sch_app
 
     # load from file
-    schedule_gen.clear("")
-    schedule_gen.load_from_file(log_file)
+    schedule_gen.load_from_file(log_file, clear=True)
     entry = schedule_gen.get_best_entry()
     # we store 1/time_cost in file
     params, value = entry.record, 1 / entry.value
@@ -118,11 +74,12 @@ def tensorize_tensorcore_tf32fp32(
 
     cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
     print("Cost is %f ms" % cost)
+    return cost
 
 
 def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer):
-    tensorize_tensorcore_tf32fp32(
+    return tensorize_tensorcore_tf32fp32(
         N, C, H, W, K, R, S, stride,
         padding, dilation, layer)
 
@@ -161,18 +118,23 @@ if __name__ == "__main__":
     beg = 0
     num = 15
     for batch in batches:
+        costs = []
         for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):
             (_, C, H, W, K, _, R, S, _, stride,
                 padding, dilation, _) = shape
             N = batch
             print("\n\nProblem size:")
             print(N, C, H, W, K, R, S, stride, padding)
-            try:
-                run(
-                    N, C, H, W, K, R, S, stride,
-                    padding, dilation,
-                    i + beg + 1
-                )
-            except Exception as e:
-                raise e
-                print("Fail to run\n", str(e))
+            # try:
+            cost = run(
+                N, C, H, W, K, R, S, stride,
+                padding, dilation,
+                i + beg + 1
+            )
+            costs.append(cost)
+            # except Exception as e:
+            #     print("Fail to run\n", str(e))
+            #     costs.append(float("inf"))
+        print("\nBatch=", batch)
+        for cost in costs:
+            print(cost)

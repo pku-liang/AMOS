@@ -82,7 +82,7 @@ void ArgsGetter::VisitExpr_(const ProducerLoadNode* op) {
 PrimExpr ExpandIntrinExpr::VisitExpr_(const ReduceNode* op) {
   Array<PrimExpr> new_src;
   for (auto b : op->source) {
-    new_src.push_back(VisitExpr(b));
+    new_src.push_back(Cast(b->dtype, VisitExpr(b)));
   }
   PrimExpr new_cond = VisitExpr(op->condition);
   Array<PrimExpr> new_init;

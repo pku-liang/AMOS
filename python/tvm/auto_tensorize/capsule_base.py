@@ -386,7 +386,7 @@ class CompilationRecipe(object):
 
         def cond(cur):
             return cur in self.capsules and (
-                cur in self.capsules and issubclass(self.capsules[cur], ComputeCapsule)
+                 issubclass(self.capsules[cur], ComputeCapsule)
             )
 
         op_list, read_graph, feed_graph = self.serialize_dag(cond1=cond)

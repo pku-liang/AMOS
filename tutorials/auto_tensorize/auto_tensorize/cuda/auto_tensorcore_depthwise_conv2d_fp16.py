@@ -1,11 +1,6 @@
 import tvm
 import os
 from tvm import auto_tensorize as at
-from itertools import product
-
-"""In this tutorial, we fix recipe, hand-craft match points,
-    and fix transform decisions, to see how parameters affects performance
-"""
 
 
 def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
