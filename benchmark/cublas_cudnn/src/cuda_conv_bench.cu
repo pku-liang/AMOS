@@ -226,7 +226,7 @@ int main(int argc, char **argv) {
     std::cout
         << "w,h,c,n,k,f_w,f_h,pad_w,pad_h,stride_w,stride_h,fp32 time "
            "(usec),fp16 time,int8 time,INT8x4,INT8x32"
-           ",fp16 tensor core,int8 tensor core, INT8x4 tensor core, INT8x32 tensor core"
+           ",fp16 tensor core,int8 tensor core, INT8x4 tensor core, INT8x32 tensor core, TF32 tensor core"
         << std::endl;
 
     int pad_kernels_count = 0;
@@ -374,6 +374,20 @@ int main(int argc, char **argv) {
         } catch (std::exception& e) {
           std::cout << "," << "N/A";
         }
+      }
+
+      // tf32 tensorcore
+      {
+        int padded_c, padded_w, padded_h;
+
+        padded_c = c;
+        padded_h = h;
+        padded_w = w;
+
+        fwd_time = time_cnn<float, float>(
+            k, padded_c, r, s, n, padded_h, padded_w, pad_h, pad_w, hstride,
+            wstride, num_repeats, curand_gen, true);
+        std::cout << "," << std::setprecision(6) << fwd_time;
       }
 
       std::cout << std::endl;

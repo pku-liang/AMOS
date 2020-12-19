@@ -309,8 +309,7 @@ public:
                                                           padA,
                                                           filterStrideA,
                                                           dilationA,
-                                                          CUDNN_CONVOLUTION,
-                                                          //CUDNN_CROSS_CORRELATION,
+                                                          CUDNN_CROSS_CORRELATION,
                                                           type));
     }
 
@@ -340,8 +339,7 @@ public:
                                                           padA,
                                                           filterStrideA,
                                                           dilationA,
-                                                          CUDNN_CONVOLUTION,
-                                                          //CUDNN_CROSS_CORRELATION,
+                                                          CUDNN_CROSS_CORRELATION,
                                                           type));
     }
 
@@ -370,7 +368,7 @@ public:
                                                           wstride,
                                                           dilations[0],
                                                           dilations[1],
-                                                          CUDNN_CONVOLUTION,
+                                                          CUDNN_CROSS_CORRELATION,
                                                           type));
     }
 
@@ -400,7 +398,7 @@ public:
                                                           wstride,
                                                           1,
                                                           1,
-                                                          CUDNN_CONVOLUTION,
+                                                          CUDNN_CROSS_CORRELATION,
                                                           type));
     }
 
