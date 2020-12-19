@@ -30,15 +30,19 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
 //              k, filter_w(s), filter_h(r), pad_w,
 //              pad_h, wstride, hstride
 //              dilation_h, dilation_w
+// ResNet-50 strided conv -> dilated conv
+// which is used in DeepLab detection model
 std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int, unsigned int, unsigned int> >
     conv_dilated = {
                     //   w,   h,   c, n,  k,  s, r,pw,ph,sw,sh,dw,dh
-        std::make_tuple(448, 448,   3, 1,  64, 7, 7, 3, 3, 2, 2, 2, 2),
-        std::make_tuple(112, 112,  64, 1, 192, 3, 3, 1, 1, 1, 1, 2, 2),
-        std::make_tuple(56,   56, 192, 1, 128, 1, 1, 0, 0, 1, 1, 2, 2),
-        std::make_tuple(56,   56, 128, 1, 256, 3, 3, 1, 1, 1, 1, 2, 2),
+        std::make_tuple(56, 56, 256, 1, 512, 1, 1, 0, 0, 1, 1, 2, 2),
+        std::make_tuple(56, 56, 256, 1, 128, 1, 1, 0, 0, 1, 1, 2, 2),
+        std::make_tuple(28, 28, 512, 1, 1024, 1, 1, 0, 0, 1, 1, 2, 2),
+        std::make_tuple(28, 28, 512, 1, 256, 1, 1, 0, 0, 1, 1, 2, 2),
+        std::make_tuple(14, 14, 1024, 1, 2048, 1, 1, 0, 0, 1, 1, 2, 2),
+        std::make_tuple(14, 14, 1024, 1, 512, 1, 1, 0, 0, 1, 1, 2, 2),
 };
 
 
