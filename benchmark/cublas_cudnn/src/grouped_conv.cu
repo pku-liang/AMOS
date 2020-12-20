@@ -82,22 +82,23 @@ template <typename T1, typename T2> class cudnnCNN {
   public:
   cudnnCNN(int b_j, int b_i, int c_in, int c_out, int h, int w,
            int kh, int kw, int padh, int padw, int strideh, int stridew,
-           bool use_tensor_core)
+           bool use_tensor_core, int vec)
       : cudnn_handle_(), conv_desc_(padh, padw, strideh, stridew) {
     int outh, outw, outc, outn;
 
     CHECK_CUDNN_ERROR(cudnnSetConvolutionGroupCount(conv_desc_.desc(), b_i));
 
     cudnnTensorFormat_t format;
-    // For int8 inference, the supported format is NHWC
-    if (std::is_same<T1, uint8_t>::value) {
+    if (std::is_same<T1, uint8_t>::value && vec != 1) {
+      format = CUDNN_TENSOR_NCHW_VECT_C;
+    } else if (std::is_same<T1, uint8_t>::value && vec == 1) {
       format = CUDNN_TENSOR_NHWC;
     } else {
       format = CUDNN_TENSOR_NCHW;
     }
 
-    x_desc_ = TensorDescriptor4d<T1>(format, b_j, b_i * c_in, h, w);
-    w_desc_ = FilterDescriptor4d<T1>(format, b_i * c_out, c_in, kh, kw);
+    x_desc_ = TensorDescriptor4d<T1>(format, b_j, b_i * c_in, h, w, vec);
+    w_desc_ = FilterDescriptor4d<T1>(format, b_i * c_out, c_in, kh, kw, vec);
 
     cudnnMathType_t algo =
         use_tensor_core ? CUDNN_TENSOR_OP_MATH : CUDNN_DEFAULT_MATH;
@@ -108,7 +109,7 @@ template <typename T1, typename T2> class cudnnCNN {
         conv_desc_.desc(), x_desc_.desc(), w_desc_.desc(), &outn, &outc,
         &outh, &outw));
 
-    h_desc_ = TensorDescriptor4d<T1>(format, outn, outc, outh, outw);
+    h_desc_ = TensorDescriptor4d<T1>(format, outn, outc, outh, outw, vec);
 
     output_dims_ = {outw, outh, outc, outn};
 
@@ -181,10 +182,10 @@ template <typename T1, typename T2> class cudnnCNN {
 template <typename T1, typename T2>
 int time_cnn(int b_j, int b_i, int c_in, int c_out, int h, int w,
              int kh, int kw, int padh, int padw, int strideh, int stridew,
-             int num_repeats, curandGenerator_t curand_gen, bool use_tensor_core) {
+             int num_repeats, curandGenerator_t curand_gen, bool use_tensor_core, int vec = 1) {
 
   cudnnCNN<T1, T2> cnn(b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
-                       use_tensor_core);
+                       use_tensor_core, vec);
 
   // Allocate memory for filter
   auto filter = rand<T1>(std::vector<int>{kw, kh, c_in, b_i * c_out}, curand_gen);
@@ -240,8 +241,8 @@ int main(int argc, char **argv) {
 
     std::cout
         << "b_j,b_i,c_in,c_out,h,w,kh,kw,padh,padw,strideh,stridew,fp32 time "
-           "(usec),fp16 time (usec),int8 time "
-           "(usec),fp16 tensor core time (usec),int8 tensor core time (usec)"
+           "(usec), fp16 time, int8 time, INT8x4 time, INT8x32 time,"
+           " fp16 tensor core, int8 tensor core, INT8x4 tensor core, INT8x32 tensor core, tf32 tensor core"
         << std::endl;
 
     int pad_kernels_count = 0;
@@ -298,6 +299,23 @@ int main(int argc, char **argv) {
             b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, false);
         std::cout << "," << std::setprecision(6) << fwd_time;
+        try {
+          fwd_time = time_cnn<uint8_t, int>(
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            num_repeats, curand_gen, false, 4);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        } catch (std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+        try {
+          fwd_time = time_cnn<uint8_t, int>(
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            num_repeats, curand_gen, false, 32);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        } catch (std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+
       }
 
       // fp16 tensor core benchmark
@@ -322,6 +340,30 @@ int main(int argc, char **argv) {
         }
         fwd_time = time_cnn<uint8_t, int>(
             b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            num_repeats, curand_gen, true);
+        std::cout << "," << std::setprecision(6) << fwd_time;
+        try {
+          fwd_time = time_cnn<uint8_t, int>(
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            num_repeats, curand_gen, true, 4);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        } catch (std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+        try {
+          fwd_time = time_cnn<uint8_t, int>(
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            num_repeats, curand_gen, true, 32);
+          std::cout << "," << std::setprecision(6) << fwd_time;
+        } catch (std::exception& e) {
+          std::cout << "," << "N/A";
+        }
+      }
+      
+    //tf32 tensorcore
+      {  
+        fwd_time = time_cnn<float, float>(
+          b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, true);
         std::cout << "," << std::setprecision(6) << fwd_time;
       }

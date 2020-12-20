@@ -44,6 +44,9 @@ def auto_tensorize(target_dag, target,
     match_result = match_results[0]
     if verbose:
         print("Selected:", str(match_result), flush=True)
+        print("Axis map:", flush=True)
+        for k, v in match_result.axis_map.items():
+            print(k, ":", v, flush=True)
 
     gen = TransformGenerator(match_result)
     record = gen.get(policy="random")
