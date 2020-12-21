@@ -26,6 +26,43 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
         std::make_tuple(7, 7, 1024, 1, 1024, 3, 3, 1, 1, 1, 1)
 };
 
+// res18_shapes_b1 = [
+//     # resnet-18
+//     (1, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
+//     (1, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
+//     (1, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
+//     (1, 64, 56, 56, 128, 64, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
+//     (1, 64, 56, 56, 128, 64, 1, 1, 1, 2, 0, 1, 1),  # conv5   4
+//     (1, 128, 28, 28, 128, 128, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
+//     (1, 128, 28, 28, 256, 128, 3, 3, 1, 2, 1, 1, 1),  # conv7   6
+//     (1, 128, 28, 28, 256, 128, 1, 1, 1, 2, 0, 1, 1),  # conv8   7
+//     (1, 256, 14, 14, 256, 256, 3, 3, 1, 1, 1, 1, 1),  # conv9   8
+//     (1, 256, 14, 14, 512, 256, 3, 3, 1, 2, 1, 1, 1),  # conv10  9
+//     (1, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
+//     (1, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
+// ]
+
+// Vector saves w, h, c, n,
+//              k, filter_w(s), filter_h(r), pad_w,
+//              pad_h, wstride, hstride
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int>>
+    res18_v1 = {
+        std::make_tuple(224, 224, 3, 1, 64, 7, 7, 3, 3, 2, 2),
+        std::make_tuple(56, 56, 64, 1, 64, 3, 3, 1, 1, 1, 1),
+        std::make_tuple(56, 56, 64, 1, 64, 1, 1, 0, 0, 1, 1),
+        std::make_tuple(56, 56, 64, 1, 128, 3, 3, 1, 1, 2, 2),
+        std::make_tuple(56, 56, 64, 1, 128, 1, 1, 0, 0, 2, 2),
+        std::make_tuple(28, 28, 128, 1, 128, 3, 3, 1, 1, 1, 1),
+        std::make_tuple(28, 28, 128, 1, 256, 3, 3, 1, 1, 2, 2),
+        std::make_tuple(28, 28, 128, 1, 256, 1, 1, 0, 0, 2, 2),
+        std::make_tuple(14, 14, 256, 1, 256, 3, 3, 1, 1, 1, 1),
+        std::make_tuple(14, 14, 256, 1, 512, 3, 3, 1, 1, 2, 2),
+        std::make_tuple(14, 14, 256, 1, 512, 1, 1, 0, 0, 2, 2),
+        std::make_tuple(7, 7, 512, 1, 512, 3, 3, 1, 1, 1, 1),
+};
+
 // Vector saves w, h, c, n,
 //              k, filter_w(s), filter_h(r), pad_w,
 //              pad_h, wstride, hstride
