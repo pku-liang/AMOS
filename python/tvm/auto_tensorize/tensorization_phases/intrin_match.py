@@ -1,4 +1,5 @@
-from ..capsule_base import ComputeCapsule, ComputeDAG, query_recipe
+from ..capsules import ComputeCapsule, ComputeDAG
+from ..recipes import query_recipe
 from ..target import *
 import tvm
 import tvm._ffi

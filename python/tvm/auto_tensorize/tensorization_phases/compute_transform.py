@@ -3,7 +3,7 @@ import json
 import heapq
 import numpy as np
 from tvm.runtime import Object
-from ..capsule_base import ComputeDAG
+from ..capsules import ComputeDAG
 from .intrin_match import IntrinMatchResult
 from .. import _ffi_api
 from ..search import CDParamGenerator, Entry, SAEntryGenerator

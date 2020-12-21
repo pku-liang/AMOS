@@ -1,4 +1,8 @@
 import tvm
+import pebble
+from pebble import concurrent
+from concurrent.futures import TimeoutError
+from pebble import ProcessPool, ProcessExpired
 
 
 supported_target = ["cuda", "opencl"]
@@ -16,7 +20,32 @@ def get_vector_length(target, dtype):
     bitwidth = get_vector_bitwidth(target)
     width = tvm.runtime.DataType(dtype).bits
     assert bitwidth % width == 0
-    return min(bitwidth // width, 4)
+    return bitwidth // width
+
+
+def get_cuda_compute_version_worker(dev):
+    ctx = tvm.context("cuda", dev)
+    return int(float(ctx.compute_version) * 10)
+
+
+def get_cuda_compute_version(dev_id):
+    with ProcessPool(1) as pool:
+        future = pool.map(get_cuda_compute_version_worker, [dev_id], timeout=10)
+        iterator = future.result()
+
+        while True:
+            try:
+                results = next(iterator)
+            except StopIteration:
+                break
+            except TimeoutError as error:
+                results = -1
+            except Exception as error:
+                print(error)
+                results = -1
+    if results < 0:
+        raise RuntimeError("Can't get CUDA compute version.")
+    return results
 
 
 class AcceleratorTarget(object):
@@ -28,7 +57,21 @@ class CUDA(AcceleratorTarget):
         self.arch = arch
 
     def get_shared_memory_bytes(self):
-        return 2**16
+        if self.arch < 60:
+            return 48 * 2**12
+        if self.arch <= 60:
+            return 64 * 2**12
+        elif self.arch <= 70:
+            return 96 * 2**12
+        elif self.arch <= 75:
+            return 64 * 2**12
+        elif self.arch <= 80:
+            return 163 * 2**12
+        elif self.arch <= 86:
+            return 100 * 2**12
+        else:
+            # fallback
+            return 48 * 2**12
 
     def get_warp_size(self):
         return 32

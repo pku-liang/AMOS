@@ -4,6 +4,7 @@ from .search import pebble_local_builder_build, pebble_local_runner_run
 from .tensorization_phases import get_match_results, TransformGenerator, TransformApplier
 from .tensorization_phases import CUDAScheduleGenerator, CUDAScheduleApplier
 from .search import CUDAProgramChecker, find_optimized_parameters
+from .target import get_cuda_compute_version
 
 
 
@@ -63,7 +64,7 @@ def auto_tensorize(target_dag, target,
             schedule_gen.load_from_file(log_file)
         sc_info = schedule_gen.get_schedule_compute_info()
         schedule_app = CUDAScheduleApplier(match_result, sc_info)
-        checker = CUDAProgramChecker()
+        checker = CUDAProgramChecker(arch=get_cuda_compute_version(measure_opt.dev_id))
     else:
         raise RuntimeError("Do not support target: %s" % target)
     

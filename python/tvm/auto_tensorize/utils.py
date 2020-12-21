@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import tvm
-from .capsule_base import construct_dag
+from .recipes import construct_dag
 from itertools import permutations, product
 from functools import reduce
 from . import _ffi_api

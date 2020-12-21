@@ -1,3 +1,4 @@
+from tvm.contrib import nvcc
 from .. import _ffi_api
 from ..target import *
 
@@ -31,6 +32,7 @@ class CUDAProgramChecker(Checker):
         self,
         check_scope=CUDACheckScope.kThread,
         arch=70):
+        print("Using arch: sm_%d" % arch, flush=True)
         self.arch_info = CUDA(arch=arch)
         self.scope = check_scope
         self.max_shared_mem_bytes_per_block = self.arch_info.get_shared_memory_bytes()
