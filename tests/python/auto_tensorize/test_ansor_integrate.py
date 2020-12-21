@@ -121,7 +121,7 @@ def test1():
     schedule_gen = at.CUDAScheduleGenerator(match_result, new_state)
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
-    trials = 2000
+    trials = 1000
     measure_opt = at.MeasureOptions(target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 

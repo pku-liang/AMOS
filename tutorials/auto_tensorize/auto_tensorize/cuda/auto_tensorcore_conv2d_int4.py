@@ -52,7 +52,7 @@ def tensorize_tensorcore_s4s4(
 
     log_file = "conv2d-int4-layer-%d-batch-%d.log" % (layer, N)
 
-    trials = 2000
+    trials = 1000
     measure_opt = at.MeasureOptions(
         target=target, timeout=20, number=200, min_repeat_ms=500)
 

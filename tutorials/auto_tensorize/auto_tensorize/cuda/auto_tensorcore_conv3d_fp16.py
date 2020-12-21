@@ -57,7 +57,7 @@ def tensorize_tensorcore_fp16fp16(
 
     log_file = "conv3d-fp16-layer-%d-batch-%d.log" % (layer, N)
 
-    trials = 2000
+    trials = 1000
     measure_opt = at.MeasureOptions(
         target=target, timeout=20, number=200, min_repeat_ms=500)
 

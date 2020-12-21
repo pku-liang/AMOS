@@ -110,7 +110,7 @@ def tensorize_tensorcore_fp16fp16(
         schedule_gen.load_from_file(log_file)
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
-    trials = 2000
+    trials = 1000
     measure_opt = at.MeasureOptions(
         target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()

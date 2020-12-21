@@ -52,7 +52,7 @@ def tensorize_tensorcore_s8s8(
 
     log_file = "conv2d-int8-layer-%d-batch-%d.log" % (layer, N)
 
-    trials = 2000
+    trials = 1000
     measure_opt = at.MeasureOptions(
         target=target, timeout=20, number=200, min_repeat_ms=500)
 
