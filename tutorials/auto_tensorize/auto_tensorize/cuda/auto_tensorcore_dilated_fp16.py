@@ -100,7 +100,7 @@ dilated_shapes = [
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 4
+    num = 6
     for batch in batches:
         costs = []
         for i, shape in enumerate(dilated_shapes[beg:beg+num]):
