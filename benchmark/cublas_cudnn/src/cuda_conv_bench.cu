@@ -233,7 +233,7 @@ int main(int argc, char **argv) {
 
     int batch = 1;
 
-    for (const auto &problem : yolo_v1) {
+    for (const auto &problem : res18_v1) {
       // Filter parameters
       int k, c, r, s; // r - filter_h (f_h), s - filter_w (f_w)
       // Input parameters

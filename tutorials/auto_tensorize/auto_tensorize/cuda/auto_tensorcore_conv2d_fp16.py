@@ -133,10 +133,12 @@ res18_shapes_b1 = [
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 15
+    #num = 15
+    num = 12
     for batch in batches:
         costs = []
-        for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):
+        #for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):
+        for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
             (_, C, H, W, K, _, R, S, _, stride,
                 padding, dilation, _) = shape
             N = batch
