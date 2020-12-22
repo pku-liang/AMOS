@@ -74,7 +74,7 @@ def tensorize_tensorcore_fp16fp16(
 
     trials = 1000
     measure_opt = at.MeasureOptions(
-        target=target, timeout=20, number=200, min_repeat_ms=500)
+        target=target, timeout=10, number=200, min_repeat_ms=500)
 
     result = at.auto_tensorize(
         target_dag, target, log_file, measure_opt, trials=trials, verbose=True)
@@ -104,47 +104,21 @@ def run(N, C, H, W, K, R, S, stride,
         padding, dilation, groups, layer)
 
 
-# yolo_shapes_b1 = [
-#     # yolo
-#     # (1, 3, 448, 448, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
-#     # (1, 64, 112, 112, 192, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
-#     # (1, 192, 56, 56, 128, 192, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
-#     # (1, 128, 56, 56, 256, 128, 3, 3, 1, 1, 1, 1, 1),  # conv4   3
-#     # (1, 256, 56, 56, 256, 256, 1, 1, 1, 1, 0, 1, 1),  # conv5   4
-#     # (1, 256, 56, 56, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
-#     # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv7   6
-#     # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv8   7
-#     # # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv9
-#     # # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv10
-#     # # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv11
-#     # # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv12
-#     # # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv13
-#     # # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv14
-#     # (1, 512, 28, 28, 512, 512, 1, 1, 1, 1, 0, 1, 1),  # conv15      8
-#     # (1, 512, 28, 28, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv16     9
-#     # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv17    10
-#     # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv18     11
-#     # # # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv19
-#     # # # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv20
-#     # (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv21   12
-#     # (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 2, 1, 1, 1),  # conv22   13
-#     # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv23     14
-#     # # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv24
-# ]
-
-
  # (N, C, H, W, K, _, R, S, _, stride, padding, dilation, groups, _)
-depth_wise_conv_shapes = [
-    (1, 64, 448, 448, 256, 64, 3, 3, 1, 1, 1, 1, 4, 1)
+ # group conv from AlexNet
+alex_shapes = [
+    (1, 96, 27, 27, 256, 96, 5, 5, 1, 1, 2, 1, 2, 1),
+    (1, 384, 13, 13, 384, 384, 3, 3, 1, 1, 1, 1, 2, 1),
+    (1, 384, 13, 13, 256, 384, 3, 3, 1, 1, 1, 1, 2, 1)
 ]
 
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 15
+    num = 3
     for batch in batches:
         costs = []
-        for i, shape in enumerate(depth_wise_conv_shapes):
+        for i, shape in enumerate(alex_shapes):
             (_, C, H, W, K, _, R, S, _, stride,
                 padding, dilation, groups, _) = shape
             N = batch

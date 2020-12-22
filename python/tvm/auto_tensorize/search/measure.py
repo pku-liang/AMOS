@@ -20,7 +20,7 @@ from collections import OrderedDict
 
 class MeasureOptions(object):
     def __init__(
-        self, target="llvm", build_func="default", target_host="llvm", timeout=20,
+        self, target="llvm", build_func="default", target_host="llvm", timeout=10,
             verbose=1, number=100, repeat=1, min_repeat_ms=150,
             cooldown_interval=1, enable_cpu_cache_flush=1,
             dev_id=0, use_rpc=False, key=None, host=None, port=None, priority=1):

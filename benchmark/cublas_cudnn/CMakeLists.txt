@@ -69,6 +69,13 @@ add_executable(cudnn_grouped_conv
 
 target_link_libraries(cudnn_grouped_conv -lcublas -lcurand -lcudnn)
 
+# batched_conv
+add_executable(cudnn_batched_conv
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/batched_conv.cu
+    )
+
+target_link_libraries(cudnn_batched_conv -lcublas -lcurand -lcudnn)
+
 # cudnn_depth_conv_benchmark
 add_executable(cudnn_depth_conv_benchmark
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cuda_depth_conv_bench.cu

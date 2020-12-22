@@ -54,7 +54,7 @@ def tensorize_tensorcore_tf32fp32(
 
     trials = 1000
     measure_opt = at.MeasureOptions(
-        target=target, timeout=20, number=200, min_repeat_ms=500)
+        target=target, timeout=10, number=200, min_repeat_ms=500)
 
     result = at.auto_tensorize(
         target_dag, target, log_file, measure_opt, trials=trials, verbose=True)

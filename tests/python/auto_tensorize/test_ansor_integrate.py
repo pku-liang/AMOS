@@ -122,7 +122,7 @@ def test1():
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 1000
-    measure_opt = at.MeasureOptions(target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
+    measure_opt = at.MeasureOptions(target=recipe.target, timeout=10, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 
     # use ansor to find optimized params

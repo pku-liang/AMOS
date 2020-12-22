@@ -97,7 +97,7 @@ def tensorize_tensorcore_s8s8(
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 100
     measure_opt = at.MeasureOptions(
-        target=recipe.target, timeout=20, number=200, min_repeat_ms=500)
+        target=recipe.target, timeout=10, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 
     # use tuning to find params

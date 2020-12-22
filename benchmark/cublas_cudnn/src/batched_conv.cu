@@ -80,13 +80,13 @@ template <typename T1, typename T2> class cudnnCNN {
   CudnnHandle cudnn_handle_;
 
   public:
-  cudnnCNN(int n, int groups, int c_in, int c_out, int h, int w,
+  cudnnCNN(int b_j, int b_i, int c_in, int c_out, int h, int w,
            int kh, int kw, int padh, int padw, int strideh, int stridew,
            bool use_tensor_core, int vec)
       : cudnn_handle_(), conv_desc_(padh, padw, strideh, stridew) {
     int outh, outw, outc, outn;
 
-    CHECK_CUDNN_ERROR(cudnnSetConvolutionGroupCount(conv_desc_.desc(), groups));
+    CHECK_CUDNN_ERROR(cudnnSetConvolutionGroupCount(conv_desc_.desc(), b_i));
 
     cudnnTensorFormat_t format;
     if (std::is_same<T1, uint8_t>::value && vec != 1) {
@@ -97,22 +97,17 @@ template <typename T1, typename T2> class cudnnCNN {
       format = CUDNN_TENSOR_NCHW;
     }
 
-    x_desc_ = TensorDescriptor4d<T1>(format, n, c_in, h, w, vec);
-    w_desc_ = FilterDescriptor4d<T1>(format, c_out, c_in, kh, kw, vec);
+    x_desc_ = TensorDescriptor4d<T1>(format, b_j, b_i * c_in, h, w, vec);
+    w_desc_ = FilterDescriptor4d<T1>(format, b_i * c_out, c_in, kh, kw, vec);
 
     cudnnMathType_t algo =
         use_tensor_core ? CUDNN_TENSOR_OP_MATH : CUDNN_DEFAULT_MATH;
 
     cudnnSetConvolutionMathType(conv_desc_.desc(), algo);
     // Get output dimensions
-    // CHECK_CUDNN_ERROR(cudnnGetConvolution2dForwardOutputDim(
-    //     conv_desc_.desc(), x_desc_.desc(), w_desc_.desc(), &outn, &outc,
-    //     &outh, &outw));
-
-    // Compute them manually instead of calling library to avoid bugs when setting GroupCount
-    outn = n; outc = c_out;
-    outh = 1 + (h + 2*padh - (((kh-1)*1)+1) )/ strideh;
-    outw = 1 + (w + 2*padw - (((kw-1)*1)+1) )/ stridew;
+    CHECK_CUDNN_ERROR(cudnnGetConvolution2dForwardOutputDim(
+        conv_desc_.desc(), x_desc_.desc(), w_desc_.desc(), &outn, &outc,
+        &outh, &outw));
 
     h_desc_ = TensorDescriptor4d<T1>(format, outn, outc, outh, outw, vec);
 
@@ -185,18 +180,18 @@ template <typename T1, typename T2> class cudnnCNN {
 };
 
 template <typename T1, typename T2>
-int time_cnn(int n, int groups, int c_in, int c_out, int h, int w,
+int time_cnn(int b_j, int b_i, int c_in, int c_out, int h, int w,
              int kh, int kw, int padh, int padw, int strideh, int stridew,
              int num_repeats, curandGenerator_t curand_gen, bool use_tensor_core, int vec = 1) {
 
-  cudnnCNN<T1, T2> cnn(n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+  cudnnCNN<T1, T2> cnn(b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
                        use_tensor_core, vec);
 
   // Allocate memory for filter
-  auto filter = rand<T1>(std::vector<int>{kw, kh, c_in, c_out}, curand_gen);
+  auto filter = rand<T1>(std::vector<int>{kw, kh, c_in, b_i * c_out}, curand_gen);
 
   // Allocate memory for input
-  auto input = rand<T1>(std::vector<int>{w, h, c_in, n}, curand_gen);
+  auto input = rand<T1>(std::vector<int>{w, h, b_i * c_in, b_j}, curand_gen);
 
   // Allocate memory for output tensor
   auto output = zeros<T1>(cnn.get_output_dims());
@@ -245,20 +240,21 @@ int main(int argc, char **argv) {
     curandSetPseudoRandomGeneratorSeed(curand_gen, 123ULL);
 
     std::cout
-        << "n,c_in,c_out,h,w,kh,kw,padh,padw,strideh,stridew,groups,fp32 time "
+        << "b_j,b_i,c_in,c_out,h,w,kh,kw,padh,padw,strideh,stridew,fp32 time "
            "(usec), fp16 time, int8 time, INT8x4 time, INT8x32 time,"
            " fp16 tensor core, int8 tensor core, INT8x4 tensor core, INT8x32 tensor core, tf32 tensor core"
         << std::endl;
 
     int pad_kernels_count = 0;
 
-    for (const auto &problem : grouped) {
-      int n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew;
-      std::tie(h, w, c_in, n, c_out, kh, kw, padh, padw, strideh, stridew, groups) = problem;
+    for (const auto &problem : inference_server_set) {
+      int b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew;
+      std::tie(b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew) = problem;
       // n = batch;
       int fwd_time;
 
-      std::cout << n << ",";
+      std::cout << b_j << ",";
+      std::cout << b_i << ",";
       std::cout << c_in << ",";
       std::cout << c_out << ",";
       std::cout << h << ",";
@@ -268,14 +264,13 @@ int main(int argc, char **argv) {
       std::cout << padh << ",";
       std::cout << padw << ",";
       std::cout << strideh << ",";
-      std::cout << stridew << ",";
-      std::cout << groups;
+      std::cout << stridew;
 
       // fp32 benchmark
       {
 
         fwd_time = time_cnn<float, float>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, false);
         std::cout << "," << std::setprecision(6) << fwd_time;
       }
@@ -284,7 +279,7 @@ int main(int argc, char **argv) {
       {
 
         fwd_time = time_cnn<uint16_t, uint16_t>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, false);
         std::cout << "," << std::setprecision(6) << fwd_time;
       }
@@ -301,12 +296,12 @@ int main(int argc, char **argv) {
           pad_dim(w, pad_value);
         }
         fwd_time = time_cnn<uint8_t, int>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, false);
         std::cout << "," << std::setprecision(6) << fwd_time;
         try {
           fwd_time = time_cnn<uint8_t, int>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, false, 4);
           std::cout << "," << std::setprecision(6) << fwd_time;
         } catch (std::exception& e) {
@@ -314,7 +309,7 @@ int main(int argc, char **argv) {
         }
         try {
           fwd_time = time_cnn<uint8_t, int>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, false, 32);
           std::cout << "," << std::setprecision(6) << fwd_time;
         } catch (std::exception& e) {
@@ -327,7 +322,7 @@ int main(int argc, char **argv) {
       {
 
         fwd_time = time_cnn<uint16_t, uint16_t>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, true);
         std::cout << "," << std::setprecision(6) << fwd_time;
       }
@@ -344,12 +339,12 @@ int main(int argc, char **argv) {
           pad_dim(w, pad_value);
         }
         fwd_time = time_cnn<uint8_t, int>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, true);
         std::cout << "," << std::setprecision(6) << fwd_time;
         try {
           fwd_time = time_cnn<uint8_t, int>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, true, 4);
           std::cout << "," << std::setprecision(6) << fwd_time;
         } catch (std::exception& e) {
@@ -357,7 +352,7 @@ int main(int argc, char **argv) {
         }
         try {
           fwd_time = time_cnn<uint8_t, int>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+            b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, true, 32);
           std::cout << "," << std::setprecision(6) << fwd_time;
         } catch (std::exception& e) {
@@ -368,7 +363,7 @@ int main(int argc, char **argv) {
     //tf32 tensorcore
       {  
         fwd_time = time_cnn<float, float>(
-            n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
+          b_j, b_i, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew,
             num_repeats, curand_gen, true);
         std::cout << "," << std::setprecision(6) << fwd_time;
       }
