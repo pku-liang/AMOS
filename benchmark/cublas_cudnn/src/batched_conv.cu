@@ -24,7 +24,14 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int, unsigned int>>
     inference_server_set = {
-        std::make_tuple(100, 50, 3, 64, 32, 32, 3, 3, 0, 0, 1, 1)
+        std::make_tuple(1, 16, 64, 64, 56, 56, 3, 3, 1, 1, 1, 1),
+        std::make_tuple(1, 16, 64, 64, 56, 56, 1, 1, 0, 0, 1, 1),
+        std::make_tuple(1, 16, 64, 128, 56, 56, 3, 3, 1, 1, 2, 2),
+        std::make_tuple(1, 16, 64, 128, 56, 56, 1, 1, 0, 0, 2, 2),
+        std::make_tuple(1, 32, 64, 64, 56, 56, 3, 3, 1, 1, 1, 1),
+        std::make_tuple(1, 32, 64, 64, 56, 56, 1, 1, 0, 0, 1, 1),
+        std::make_tuple(1, 32, 64, 128, 56, 56, 3, 3, 1, 1, 2, 2),
+        std::make_tuple(1, 32, 64, 128, 56, 56, 1, 1, 0, 0, 2, 2)
       };
 
 /*

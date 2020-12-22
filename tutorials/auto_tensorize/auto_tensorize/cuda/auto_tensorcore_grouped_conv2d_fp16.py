@@ -112,14 +112,47 @@ alex_shapes = [
     (1, 384, 13, 13, 256, 384, 3, 3, 1, 1, 1, 1, 2, 1)
 ]
 
+#   (N,   C,   H,   W,   K, R,  S,  _, stride, padding, dilation, groups, _)
+_ = -1
+shuffle_v1_shapes_b1 = [
+    (1,   3, 224, 224,  24,   3,  3, _,       2,       1,        1,      3, _),
+    # ShuffleNetUnitB + ShuffleNetUnitA x 3
+    # cudnn doesn't support this one
+    # (1,  24,  56,  56,  54,   1,  1,  _,      1,       0,        1,      3, _),
+    # (1,  54,  56,  56,  54,   3,  3,  _,      2,       1,        1,     54, _),
+    (1,  54,  28,  28, 216,   1,  1,  _,      1,       0,        1,      3, _),
+
+    (1, 240,  28,  28,  60,   1,  1,  _,      1,       0,        1,      3, _),
+    # (1,  60,  28,  28,  60,   3,  3,  _,      1,       1,        1,     60, _),
+    (1,  60,  28,  28, 240,   1,  1,  _,      1,       0,        1,      3, _),
+
+    # # ShuffleNetUnitB + ShuffleNetUnitA x 7
+    # (1, 240,  28,  28,  60,   1,  1,  _,      1,       0,        1,      3, _),
+    # (1,  60,  28,  28,  60,   3,  3,  _,      2,       1,        1,     60, _),
+    # (1,  60,  14,  14, 240,   1,  1,  _,      1,       0,        1,      3, _),
+
+    # (1, 480,  14,  14, 120,   1,  1,  _,      1,       0,        1,      3, _),
+    # (1, 120,  14,  14, 120,   3,  3,  _,      1,       1,        1,    120, _),
+    # (1, 120,  14,  14, 480,   1,  1,  _,      1,       0,        1,      3, _),
+
+    # # ShuffleNetUnitB + ShuffleNetUnitA x 3
+    # (1, 480,  14,  14, 120,   1,  1,  _,      1,       0,        1,      3, _),
+    # (1, 120,  14,  14, 120,   3,  3,  _,      2,       1,        1,    120, _),
+    # (1, 120,   7,   7, 480,   1,  1,  _,      1,       0,        1,      3, _),
+
+    # (1, 960,   7,   7, 240,   1,  1,  _,      1,       0,        1,      3, _),
+    # (1, 240,   7,   7, 240,   3,  3,  _,      1,       1,        1,    240, _),
+    # (1, 240,   7,   7, 960,   1,  1,  _,      1,       0,        1,      3, _),
+]
+
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 3
+    num = 4
     for batch in batches:
         costs = []
-        for i, shape in enumerate(alex_shapes):
-            (_, C, H, W, K, _, R, S, _, stride,
+        for i, shape in enumerate(shuffle_v1_shapes_b1):
+            (_, C, H, W, K, R, S, _, stride,
                 padding, dilation, groups, _) = shape
             N = batch
             print("\n\nProblem size:")

@@ -96,12 +96,30 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
 std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int, unsigned int,
                        unsigned int, unsigned int, unsigned int, unsigned int>>
-    grouped = { 
+    alex_grouped = { 
 		  // modify from yolo_v1 to satisfy: groupcnt == c, and k is multiple of c
 		  //                w,   h,  c,  n,     k, fw,  fh, pw, ph, ws, hs, groupcnt
 		  std::make_tuple(27, 27, 96,  1,  256,  5,   5,  2,  2,  1,  1,  2),
 		  std::make_tuple(13, 13, 384,  1,  384,  3,   3,  1,  1,  1,  1,  2),
 		  std::make_tuple(13,  13, 384,  1,  256,  3,   3,  1,  1,  1,  1,  2),
+};
+
+
+// Vector saves w, h, c, n,
+//              k, filter_w(s), filter_h(r), pad_w,
+//              pad_h, wstride, hstride, groupcnt
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int>>
+    shuffle_v1 = { 
+		  // modify from yolo_v1 to satisfy: groupcnt == c, and k is multiple of c
+		  //                w,   h,  c,  n,     k, fw,  fh, pw, ph, ws, hs, groupcnt
+		  std::make_tuple(224, 224, 3,  1,  24,  3,   3,  1,  1,  2,  2,  3),
+		// cudnn doesn't support this one
+        //   std::make_tuple(56, 56, 24,  1,  54,  1,   1,  0,  0,  1,  1,  3),
+          std::make_tuple(28, 28, 54,  1,  216,  1,   1,  0,  0,  1,  1,  3),
+          std::make_tuple(28, 28, 240,  1,  60,  1,   1,  0,  0,  1,  1,  3),
+          std::make_tuple(28, 28, 60,  1,  240,  1,   1,  0,  0,  1,  1,  3),
 };
 
 

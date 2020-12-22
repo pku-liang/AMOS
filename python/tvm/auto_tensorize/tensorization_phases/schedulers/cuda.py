@@ -497,7 +497,8 @@ class CUDAScheduleApplier(object):
         return [x[0] for x in self.params.reduce_factors[:number]]
 
     def get_output_op_axis_factors(self, number):
-        assert len(self.params.spatial_factors) >= number, number
+        assert len(self.params.spatial_factors) >= number, (
+            len(self.params.spatial_factors), " vs. ", number)
         return [x[0] for x in self.params.spatial_factors[:number]]
 
     def get_last_op_axis_factors(self, number):

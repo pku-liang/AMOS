@@ -52,6 +52,20 @@ class TransformRequest(Object):
             padding,
         )
 
+    def __str__(self):
+        ret = "TransformRequest("
+        ret += str(self.name) + ",\n"
+        ret += "\tAxis Map:\n"
+        for k, v in self.axis_map.items():
+            ret += "\t\t" + str(k) + ":" + str(v) + "\n"
+        ret += "\tReverse Axis Map:\n"
+        for k, v in self.reverse_axis_map.items():
+            ret += "\t\t" + str(k) + ":" + str(v) + "\n"
+        ret += "\tSpace Loops:\n\t\t" + "\n\t\t".join([str(x) for x in self.space_loops])
+        ret += "\n\tTime Loops:\n\t\t" + "\n\t\t".join([str(x) for x in self.time_loops])
+        ret += "\n\tPadding: " + str(self.need_padding) + ")\n"
+        return ret
+
 
 def infer_range(vars_to_infer, original_vars, original_range_map):
     """Infer ranges for expressions
@@ -252,7 +266,7 @@ class TransformGenerator(SAEntryGenerator):
 
 
 class TransformApplier(object):
-    def __init__(self, intrin_match_result):
+    def __init__(self, intrin_match_result, verbose=False):
         assert isinstance(intrin_match_result, IntrinMatchResult)
         self.init_state = TransformState(
             intrin_match_result.main_op_map,
@@ -261,6 +275,7 @@ class TransformApplier(object):
             intrin_match_result.target_dag,
             intrin_match_result.intrin_dag,
         )
+        self.verbose = verbose
 
     def apply_unfold(self, record, state):
         # unfold
@@ -272,6 +287,10 @@ class TransformApplier(object):
         assert intrin_main_op is not None
         assert target_main_op is not None
         intrin_axis = list(intrin_main_op.axis) + list(intrin_main_op.reduce_axis)
+        # make sure everytime the unfold axes are the same order
+        intrin_axis_pos = {}
+        for i, axis in enumerate(intrin_axis):
+            intrin_axis_pos[axis] = i
         target_axis = list(target_main_op.axis) + list(target_main_op.reduce_axis)
         unfold_choice = record.unfold_choice[0]
         choices = []
@@ -296,7 +315,14 @@ class TransformApplier(object):
                 ret = ret + a * s
             return ret
 
+        def sort_axis(axes):
+            return sorted(
+                axes, key=lambda x:
+                        intrin_axis_pos[x] if x in intrin_axis_pos else 0)
+
         for axis, choice in zip(intrin_axis, choices):
+            # sort axes according to original positions
+            choice = sort_axis(choice)
             visited = set()
             unique_choice = []
             for c in choice:
@@ -326,6 +352,8 @@ class TransformApplier(object):
                 time_loops.append(axis)
 
         request = TransformRequest(name, fwd_axis_map, rvs_axis_map, space_loops, time_loops)
+        if self.verbose:
+            print(str(request), flush=True)
         unfold_state = transform_main_op(state, request)
         return unfold_state
 
@@ -378,6 +406,8 @@ class TransformApplier(object):
         request = TransformRequest(
             name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, padding=need_padding
         )
+        if self.verbose:
+            print(str(request), flush=True)
         fold_state = transform_main_op(state, request)
         return fold_state
 

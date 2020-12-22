@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
 
     int pad_kernels_count = 0;
 
-    for (const auto &problem : grouped) {
+    for (const auto &problem : shuffle_v1) {
       int n, groups, c_in, c_out, h, w, kh, kw, padh, padw, strideh, stridew;
       std::tie(h, w, c_in, n, c_out, kh, kw, padh, padw, strideh, stridew, groups) = problem;
       // n = batch;

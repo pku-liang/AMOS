@@ -196,7 +196,9 @@ Array<IterVarMap> enumerate_mappings(Array<IterVar> target_axes, Array<IterVar> 
     do {
       IterVarMap itervar_map;
       for (size_t i = 0; i < r; ++i) {
-        itervar_map.Set(comb[i], intrin_axes[i]);
+        // Need to match the axis type
+        if (comb[i]->iter_type == intrin_axes[i]->iter_type)
+          itervar_map.Set(comb[i], intrin_axes[i]);
       }
       all_itervar_mappings.push_back(itervar_map);
     } while (std::next_permutation(comb.begin(), comb.end(), comp));

@@ -29,7 +29,8 @@ def auto_tensorize(target_dag, target,
         trials=200,
         builder=pebble_local_builder_build,
         runner=pebble_local_runner_run,
-        verbose=False):
+        verbose=False,
+        transform_dump=False):
     # refactor target
     measure_opt.target = target
     match_results = get_match_results(target_dag, target)
@@ -54,8 +55,17 @@ def auto_tensorize(target_dag, target,
     # here is transform policy
     record.unfold_choice = (
         [1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
-    app = TransformApplier(match_result)
+    app = TransformApplier(match_result, verbose=transform_dump)
     new_state = app.apply(record)
+
+    if transform_dump:
+        print("Dump IR after transform:", flush=True)
+        new_target_dag = new_state.target_dag
+        new_inputs = new_target_dag.get_inputs()
+        sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
+        print(tvm.lower(
+            sch, new_inputs + list(new_target_dag.tensors), simple_mode=True),
+            flush=True)
 
     if str(target) == "cuda":
         schedule_gen = CUDAScheduleGenerator(
@@ -69,12 +79,17 @@ def auto_tensorize(target_dag, target,
         raise RuntimeError("Do not support target: %s" % target)
     
     # use tuning to find params
-    value, params = find_optimized_parameters(
-        match_result, schedule_gen, schedule_app,
-        measure_opt, checker, trials,  # policy="random",
-        builder=builder,
-        runner=runner,
-        verbose=verbose)
+    if trials:
+        value, params = find_optimized_parameters(
+            match_result, schedule_gen, schedule_app,
+            measure_opt, checker, trials,  # policy="random",
+            builder=builder,
+            runner=runner,
+            verbose=verbose)
+    else:
+        entry = schedule_gen.get_best_entry()
+        # we store 1/time_cost in file
+        params, value = entry.record, 1 / entry.value
 
     return AutoTensorizeResult(
         schedule_gen,
