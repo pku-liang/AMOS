@@ -57,7 +57,7 @@ def tensorize_tensorcore_fp16fp16(
         target=target, timeout=10, number=200, min_repeat_ms=500)
 
     result = at.auto_tensorize(
-        target_dag, target, log_file, measure_opt, trials=trials, verbose=True)
+        target_dag, target, log_file, measure_opt, trials=trials, verbose=True, transform_dump=True)
     if not result.defined():
         print("Can't do tensorize.")
         return

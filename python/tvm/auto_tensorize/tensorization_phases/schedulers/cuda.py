@@ -209,7 +209,7 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
         for iv in self.target_dag.op_lst[-1].axis:
             last_total_extent *= int(iv.dom.extent)
         self.last_splits = [
-            SplitFactorGenerator(last_total_extent // self.warp_size,
+            SplitFactorGenerator((last_total_extent + self.warp_size - 1) // self.warp_size,
                                  self.last_op_tiling_parts)]
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)

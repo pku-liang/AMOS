@@ -3,8 +3,8 @@ import os
 from tvm import auto_tensorize as at
 
 
-def conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation):
-    pD = D + 2 * padding
+def conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation):
+    pD = D + 2 * padding_d
     pH = H + 2 * padding
     pW = W + 2 * padding
     A = tvm.te.placeholder([N, C, D, H, W], dtype="float16", name="A")
@@ -14,10 +14,10 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation):
         [N, C, pD, pH, pW],
         lambda n, c, d, h, w: tvm.tir.if_then_else(
             tvm.tir.all(
-                d >= padding, d - padding < D,
+                d >= padding_d, d - padding_d < D,
                 h >= padding, h - padding < H,
                 w >= padding, w - padding < W),
-            A[n, c, d - padding, h - padding, w - padding],
+            A[n, c, d - padding_d, h - padding, w - padding],
             tvm.tir.const(0.0, A.dtype)
         ),
         name="Pad")
@@ -27,15 +27,14 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation):
     rr = tvm.te.reduce_axis([0, R], name="rr")
     rs = tvm.te.reduce_axis([0, S], name="rs")
 
-    assert dilation == 1 and stride == 1
-    outD = (pD - dilation * (KD - 1) - 1) // stride + 1
+    outD = (pD - dilation * (KD - 1) - 1) // stride_d + 1
     P = (pH - dilation * (R - 1) - 1) // stride + 1
     Q = (pW - dilation * (S - 1) - 1) // stride + 1
 
     Conv = tvm.te.compute(
         [N, K, outD, P, Q],
         lambda n, k, d, p, q:
-            tvm.te.sum((Pad[n, rc, d+rd, p*stride+rr, q*stride+rs] * B[k, rc, rd, rr, rs]
+            tvm.te.sum((Pad[n, rc, d*stride_d+rd, p*stride+rr, q*stride+rs] * B[k, rc, rd, rr, rs]
                         ).astype("float16"), axis=[rc, rd, rr, rs]),
         name="Conv"
     )
@@ -49,9 +48,9 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation):
 
 
 def tensorize_tensorcore_fp16fp16(
-    N, C, D, H, W, K, KD, R, S, stride, padding, dilation, layer
+    N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, layer
 ):
-    A, B, Conv = conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation)
+    A, B, Conv = conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
     target = "cuda"
 
@@ -82,33 +81,52 @@ def tensorize_tensorcore_fp16fp16(
     return cost
 
 
-def run(N, C, D, H, W, K, KD, R, S, stride, padding, dilation, layer):  
+def run(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, layer):  
     return tensorize_tensorcore_fp16fp16(
-        N, C, D, H, W, K, KD, R, S, stride, padding, dilation, layer)
+        N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, layer)
 
 
-conv3d_shapes = [
-   # C,  D,   H,   W,  K, KD, R, S, stride, padding, dilation,
-    ( 1, 3, 448, 448, 64,  3, 7, 7,      1,       2,        1),
-    (12, 4, 128, 128, 64,  3, 3, 3,      1,       0,        1)
+
+_ = None
+L = 8
+
+
+#  (  N,   C,     L,   H,   W,   K,   D,   R,   S, stride_d, stride, padding_d, padding, dilation)
+res3d_18_shapes = [
+    ( _,   3,     L, 112, 112,  64,   1,   3,   3,        3,      7,         1,       3,        1), # stem
+
+    ( _,  64,     L,  56,  56,  64,   3,   3,   3,        1,      1,         1,       1,        1), # layer1 x 4
+
+    ( _,  64,     L,  56,  56, 128,   1,   1,   1,        2,      2,         0,       0,        1), # layer2 downsample
+    
+    ( _,  64,     L,  56,  56, 128,   3,   3,   3,        2,      2,         1,       1,        1), # layer2
+    ( _, 128,  L//2,  28,  28, 128,   3,   3,   3,        1,      1,         1,       1,        1), # layer2 x 3
+
+    ( _, 128,  L//2,  28,  28, 256,   1,   1,   1,        2,      2,         0,       0,        1), # layer3 downsample
+    ( _, 128,  L//2,  28,  28, 256,   3,   3,   3,        2,      2,         1,       1,        1), # layer3
+    ( _, 256,  L//4,  14,  14, 256,   3,   3,   3,        1,      1,         1,       1,        1), # layer3 x 3
+
+    ( _, 256,  L//4,  14,  14, 512,   1,   1,   1,        2,      2,         0,       0,        1), # layer4 downsample
+    ( _, 256,  L//4,  14,  14, 512,   3,   3,   3,        2,      2,         1,       1,        1), # layer4
+    ( _, 256,  L//8,   7,   7, 512,   3,   3,   3,        1,      1,         1,       1,        1), # layer4 x 3
 ]
 
 
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 2
+    num = 11
     for batch in batches:
         costs = []
-        for i, shape in enumerate(conv3d_shapes[beg:beg+num]):
-            (C, D, H, W, K, KD, R, S, stride, padding, dilation) = shape
+        for i, shape in enumerate(res3d_18_shapes[beg:beg+num]):
+            (_, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation) = shape
             N = batch
             print("\n\nProblem size:")
-            print("N, C, D, H, W, K, KD, R, S, stride, padding, dilation")
-            print(N, C, D, H, W, K, KD, R, S, stride, padding, dilation)
+            print("N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation")
+            print(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation)
             try:
                 run(
-                    N, C, D, H, W, K, KD, R, S, stride, padding, dilation, i + beg + 1
+                    N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, i + beg + 1
                 )
             except Exception as e:
                 print("Fail to run\n", str(e))
