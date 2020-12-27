@@ -104,8 +104,8 @@ res18_shapes_b1 = [
 if __name__ == "__main__":
     batches = [16, 32]
     beg = 0
-    #num = 15
-    num = 12
+    #num = 12
+    num = 4
     for batch in batches:
         costs = []
         #for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):

@@ -19,7 +19,7 @@ def tensorize_tensorcore_fp16fp16(
     target_dag = at.compute_dag_from_tensors([C])
     target = "cuda"
 
-    log_file = "gemm-fp16-layer-%d.log" % (layer)
+    log_file = "scan-fp16-layer-%d.log" % (layer)
 
     trials = 1000
     measure_opt = at.MeasureOptions(

@@ -27,7 +27,7 @@ def tensorize_tensorcore_fp16fp16(
     target_dag = at.compute_dag_from_tensors([E])
     target = "cuda"
 
-    log_file = "mean-fp16-layer-%d.log" % (layer)
+    log_file = "variance-fp16-layer-%d.log" % (layer)
 
     trials = 1000
     measure_opt = at.MeasureOptions(
@@ -78,7 +78,7 @@ res18_shapes_b1 = [
 
 if __name__ == "__main__":
     beg = 0
-    num = 5
+    num = 12
     costs = []
     for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
         (N, C, H, W, _, _, _, _, _, _, _, _, _) = shape

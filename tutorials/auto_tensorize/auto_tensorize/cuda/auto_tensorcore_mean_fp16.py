@@ -74,7 +74,7 @@ res18_shapes_b1 = [
 
 if __name__ == "__main__":
     beg = 0
-    num = 5
+    num = 12
     costs = []
     for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
         (N, C, H, W, _, _, _, _, _, _, _, _, _) = shape

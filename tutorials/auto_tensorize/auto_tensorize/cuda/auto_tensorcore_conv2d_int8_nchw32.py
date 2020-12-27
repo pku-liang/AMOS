@@ -54,7 +54,7 @@ def tensorize_tensorcore_s8s8(
     target_dag = at.compute_dag_from_tensors([Conv])
     target = "cuda"
 
-    log_file = "conv2d-int8-nchw4-layer-%d-batch-%d.log" % (layer, N)
+    log_file = "conv2d-int8-nchw32-layer-%d-batch-%d.log" % (layer, N)
 
     trials = 1000
     measure_opt = at.MeasureOptions(
