@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 
-def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
-  A_np = np.random.uniform(-10, 10, [N, C, H, W]).astype("float32")
-  B_np = np.random.uniform(-10, 10, [K, C, R, S]).astype("float32")
+def conv1d(N, C, L, K, KL, stride, padding, dilation, dtype):
+  A_np = np.random.uniform(-10, 10, [N, C, L]).astype("float32")
+  B_np = np.random.uniform(-10, 10, [K, C, KL]).astype("float32")
 
   # What's supported by NVIDIA? Refer to https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html
 
@@ -53,7 +53,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
           end = torch.cuda.Event(enable_timing=True)
           start.record()
 
-          C_torch = torch.nn.functional.conv2d(A_torch, B_torch, bias=None, stride=stride, 
+          C_torch = torch.nn.functional.conv1d(A_torch, B_torch, bias=None, stride=stride, 
             padding=padding, dilation=dilation)
 
           end.record()
@@ -61,29 +61,19 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
           total = start.elapsed_time(end)
           time_record.append(total)
       if i == repeats - 1:
-        print("Average conv2d latency", np.mean(time_record))
-        print("Median  conv2d latency", np.median(time_record))
-  print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
-  print("N, C, H, W, K, R, S, stride, padding, dilation")
-  print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation])))
+        print("Average conv1d latency", np.mean(time_record))
+        print("Median  conv1d latency", np.median(time_record))
+  print("conv1d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
+  print("N, C, L, K, KL, stride, padding, dilation")
+  print(",".join(map(str, [N, C, L, K, KL, stride, padding, dilation])))
   print("------------------")
 
 
 
-res18_shapes_b1 = [
-    # resnet-18
-    (1, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
-    (1, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
-    (1, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
-    (1, 64, 56, 56, 128, 64, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
-    (1, 64, 56, 56, 128, 64, 1, 1, 1, 2, 0, 1, 1),  # conv5   4
-    (1, 128, 28, 28, 128, 128, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
-    (1, 128, 28, 28, 256, 128, 3, 3, 1, 2, 1, 1, 1),  # conv7   6
-    (1, 128, 28, 28, 256, 128, 1, 1, 1, 2, 0, 1, 1),  # conv8   7
-    (1, 256, 14, 14, 256, 256, 3, 3, 1, 1, 1, 1, 1),  # conv9   8
-    (1, 256, 14, 14, 512, 256, 3, 3, 1, 2, 1, 1, 1),  # conv10  9
-    (1, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
-    (1, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
+conv1d_shapes = [
+    # C,  L,  K, KL, stride, padding, dilation
+    (16, 16, 32, 3,      1,        1,        1),
+    (32, 32, 64, 5,      1,        0,        1)
 ]
 
 
@@ -92,17 +82,17 @@ if __name__ == "__main__":
     torch.backends.cudnn.enabled = True
     batches = [2**i for i in range(1)]
     beg = 0
-    num = len(res18_shapes_b1)
+    num = len(conv1d_shapes)
     for batch in batches:
         costs = []
-        for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
-            (_, C, H, W, K, _, R, S, _, stride, padding, dilation, _) = shape
+        for i, shape in enumerate(conv1d_shapes[beg:beg+num]):
+            (C, L, K, KL, stride, padding, dilation) = shape
             N = batch
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "FP16")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "FP32")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "TF32")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "FP64")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "BF16")
-            #conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "INT8")
-            #conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "BOOL")
+            conv1d(N, C, L, K, KL, stride, padding, dilation, "FP16")
+            conv1d(N, C, L, K, KL, stride, padding, dilation, "FP32")
+            conv1d(N, C, L, K, KL, stride, padding, dilation, "TF32")
+            conv1d(N, C, L, K, KL, stride, padding, dilation, "FP64")
+            conv1d(N, C, L, K, KL, stride, padding, dilation, "BF16")
+            #conv1d(N, C, L, K, KL, stride, padding, dilation, "INT8")
+            #conv1d(N, C, L, K, KL, stride, padding, dilation, "BOOL")
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
