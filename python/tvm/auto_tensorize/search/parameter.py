@@ -189,6 +189,13 @@ class SAEntryGenerator(EntryGenerator):
         # no chosen, return the best
         return cand[0]
 
+    def topk(self, k=1):
+        topk = heapq.nsmallest(min(k, len(self.entries)), self.entries)
+        return topk
+
+    def has_entry(self):
+        return len(self.entries) > 0
+
     def get(self, policy="random", repeat=False, max_trial=100):
         for i in range(max_trial):
             if policy == "random" or not self.entries:
@@ -348,6 +355,10 @@ def find_optimized_parameters(
         runner=pebble_local_runner_run, verbose=False):
     best_value = 1 / MAX_FLOAT
     best_params = None
+    if schedule_gen.has_entry():
+        top1 = schedule_gen.topk(k=1)
+        best_value = top1.value
+        best_params = top1.record
     if measure_opt.use_rpc:
         runner = pebble_rpc_runner_run
     batch_num = (trials + batch_size - 1) // batch_size

@@ -30,7 +30,7 @@ int time_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
   int k = a_t ? A.dims()[0] : A.dims()[1];
   int n = C.dims()[1];
 
-  int numRepeats = 6;
+  int numRepeats = 20;
   cublasStatus_t stat;
 
   cudaDataType_t A_type = CUDA_R_32F;
@@ -119,7 +119,7 @@ bool check_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
   C_reference = (T2 *)malloc(C.size() * sizeof(T2));
   cudaMemcpy(C_reference, C.begin(), C.size() * sizeof(T2), cudaMemcpyDeviceToHost);
 
-  int numRepeats = 6;
+  // int numRepeats = 6;
   cublasStatus_t stat;
 
   cudaDataType_t A_type = CUDA_R_32F;

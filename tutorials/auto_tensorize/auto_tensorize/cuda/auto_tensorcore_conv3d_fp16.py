@@ -125,8 +125,13 @@ if __name__ == "__main__":
             print("N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation")
             print(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation)
             try:
-                run(
+                cost = run(
                     N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, i + beg + 1
                 )
             except Exception as e:
                 print("Fail to run\n", str(e))
+                cost = float("inf")
+            costs.append(cost)
+        print("\nBatch=", batch)
+        for cost in costs:
+            print(cost)

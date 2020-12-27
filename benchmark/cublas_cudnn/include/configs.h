@@ -144,12 +144,17 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
 
 // Vector saves m, n, k, a_t, b_t
 std::vector<std::tuple<int, int, int, bool, bool>> gemm_set = {
-    std::make_tuple(1024, 6000, 2816, false, false),
-    std::make_tuple(1024, 6000, 2048, false, false),
-    std::make_tuple(1024, 6000, 2560, false, false),
-    std::make_tuple(1024, 6000, 1536, false, false),
-    std::make_tuple(512, 4, 512, false, false),
-    std::make_tuple(1024, 4, 512, false, false)
+    // std::make_tuple(1024, 6000, 2816, false, false),
+    // std::make_tuple(1024, 6000, 2048, false, false),
+    // std::make_tuple(1024, 6000, 2560, false, false),
+    // std::make_tuple(1024, 6000, 1536, false, false),
+    // std::make_tuple(512, 4, 512, false, false),
+    // std::make_tuple(1024, 4, 512, false, false)
+    std::make_tuple(16, 512, 128, false, false),
+    std::make_tuple(1024, 16, 256, false, false),
+    std::make_tuple(256, 1024, 256, false, false),
+    std::make_tuple(512, 256, 16, false, false),
+    std::make_tuple(1024, 1024, 1024, false, false)
 };
 
 // Vector saves m, n, trans
