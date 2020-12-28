@@ -169,8 +169,11 @@ def winograd_transform_matrices(tile_size, kernel_size, out_dtype):
     intp_pts = _interpolation_points(degree)
     A_data, B_data, G_data = _cook_toom_convolution(intp_pts, tile_size, kernel_size)
 
+    out_dtype = [out_dtype] * 3 if not isinstance(
+        out_dtype, (tuple)) else out_dtype
+    assert len(out_dtype) == 3
     return (
-        const_matrix(A_data.astype(out_dtype), "A"),
-        const_matrix(B_data.astype(out_dtype), "B"),
-        const_matrix(G_data.astype(out_dtype), "G"),
+        const_matrix(A_data.astype(out_dtype[0]), "A"),
+        const_matrix(B_data.astype(out_dtype[1]), "B"),
+        const_matrix(G_data.astype(out_dtype[2]), "G"),
     )

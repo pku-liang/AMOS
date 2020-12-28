@@ -4,42 +4,50 @@ from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
 from ...recipes import OperationRole, RecipeStage, InstructionScope
 from ..schedule_base import *
+from functools import reduce
+from collections import OrderedDict
 
 
-class CUDAState(object):
+class CUDAStateMultiReduce(object):
     def __init__(
             self, inlined, main_op_reduce_axis,
-            output_op_axis, last_op_axis, tensorize_iter):
+            output_op_axis, left_op_spatial_axis_map,
+            left_op_reduce_axis_map, tensorize_iter, op_to_id):
         self.inlined = inlined
         self.main_op_reduce_axis = main_op_reduce_axis
         self.output_op_axis = output_op_axis
-        self.last_op_axis = last_op_axis
+        self.left_op_spatial_axis_map = left_op_spatial_axis_map
+        self.left_op_reduce_axis_map = left_op_reduce_axis_map
         self.tensorize_iter = tensorize_iter
+        self.op_to_id = op_to_id
 
 
-def empty_cuda_state():
-    return CUDAState(set(), [], [], [], {})
+def empty_cuda_state_multi_reduce():
+    return CUDAStateMultiReduce(set(), [], [], {}, {}, {}, {})
 
 
-class CUDAParams(object):
+class CUDAParamsMultiReduce(object):
     def __init__(
             self, vectorize, spatial_factors, reduce_factors,
-            last_factors, output_unroll_step, last_unroll_step):
+            left_spatial_factors_map, left_reduce_factors_map,
+            output_unroll_step, left_op_unroll_step_map):
         self.vectorize = vectorize
         self.spatial_factors = spatial_factors
         self.reduce_factors = reduce_factors
-        self.last_factors = last_factors
+        self.left_spatial_factors_map = left_spatial_factors_map
+        self.left_reduce_factors_map = left_reduce_factors_map
         self.output_unroll_step = output_unroll_step
-        self.last_unroll_step = last_unroll_step
+        self.left_op_unroll_step_map = left_op_unroll_step_map
 
     def to_json(self):
         ret = {
             "vectorize": self.vectorize,
             "spatial_factors": self.spatial_factors,
             "reduce_factors": self.reduce_factors,
-            "last_factors": self.last_factors,
+            "left_spatial_factors_map": self.left_spatial_factors_map,
+            "left_reduce_factors_map": self.left_reduce_factors_map,
             "output_unroll_step": self.output_unroll_step,
-            "last_unroll_step": self.last_unroll_step
+            "left_op_unroll_step_map": self.left_op_unroll_step_map
         }
         return ret
 
@@ -47,14 +55,18 @@ class CUDAParams(object):
         self.vectorize = obj["vectorize"]
         self.spatial_factors = obj["spatial_factors"]
         self.reduce_factors = obj["reduce_factors"]
-        self.last_factors = obj["last_factors"]
+        self.left_spatial_factors_map = obj["left_spatial_factors_map"]
+        self.left_reduce_factors_map = obj["left_reduce_factors_map"]
         self.output_unroll_step = obj["output_unroll_step"]
-        self.last_unroll_step = obj["last_unroll_step"]
+        self.left_unroll_step_lst = obj["left_op_unroll_step_map"]
 
     def __str__(self):
         obj = self.to_json()
         new_obj = {}
+
         def handle(v):
+            if isinstance(v, dict):
+                return {x: handle(y) for x, y in v.items()}
             if isinstance(v, list):
                 return [handle(x) for x in v]
             if isinstance(v, tuple) and len(v) == 2:
@@ -66,22 +78,43 @@ class CUDAParams(object):
         return json.dumps(new_obj)
 
 
-def empty_cuda_params():
-    return CUDAParams(None, [], [], [], None, None)
+def empty_cuda_params_multi_reduce():
+    return CUDAParamsMultiReduce(
+        None, [], [], OrderedDict(), OrderedDict(), None, OrderedDict())
 
 
 #####################################################
 # Target specific parameter generator
 #####################################################
-class CUDAKernelParamGenerator(CDParamGenerator):
+class CUDAKernelParamGeneratorMultiReduce(CDParamGenerator):
     pass
 
 
-class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
+def need_tiling(op, dag, threshhold=256):
+    """
+    Returns:
+    [tile spatial, tile reduce]
+    """
+    assert len(dag.op_lst) > 0
+    tile_spatial = True
+    tile_reduce = True
+    reduce_domain = reduce(
+        lambda x, y: x * y, [
+            int(iv.dom.extent) for iv in op.reduce_axis], 1)
+    if can_inline(op, dag):
+        tile_reduce = False
+        tile_spatial = False
+    elif reduce_domain <= threshhold:
+        tile_reduce = False
+    return (tile_spatial, tile_reduce)
+
+
+class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
     def __init__(self, intrin_match_result, transform_state, eps=0.9,
-            reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch=70,
+            reduce_tiling=3, spatial_tiling=4,
+            left_reduce_tiling=2, left_spatial_tiling=3, arch=70,
             log_file="cuda_schedule_generator.log", steps=1):
-        super(CUDAScheduleGenerator, self).__init__(eps, CUDAParams,
+        super(CUDAScheduleGeneratorMultiReduce, self).__init__(eps, CUDAParamsMultiReduce,
             steps=steps, log_file=log_file)
         self.init_recipe(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
@@ -97,7 +130,8 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
         # constants
         self.reduce_tiling_parts = reduce_tiling
         self.spatial_tiling_parts = spatial_tiling
-        self.last_op_tiling_parts = last_tiling
+        self.left_reduce_tiling_parts = left_reduce_tiling
+        self.left_spatial_tiling_parts = left_spatial_tiling
         self.arch_info = CUDA(arch=arch)
         self.warp_size = self.arch_info.get_warp_size()
         # params generator
@@ -209,24 +243,49 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
             gen = SplitFactorGenerator(
                 int(iv.dom.extent), self.spatial_tiling_parts)
             self.spatial_splits.append(gen)
-        # for last op spatial axis
-        last_total_extent = 1
-        for iv in self.target_dag.op_lst[-1].axis:
-            last_total_extent *= int(iv.dom.extent)
-        self.last_splits = [
-            SplitFactorGenerator((last_total_extent + self.warp_size - 1) // self.warp_size,
-                                 self.last_op_tiling_parts)]
+        # for left op reduce/spatial axis
+        self.left_reduce_splits = OrderedDict()
+        self.left_spatial_splits = OrderedDict()
+        self.unroll_left = OrderedDict()
+        for op_id, op in enumerate(self.target_dag.op_lst):
+            if op in self.recipe_stage.operation_role:
+                # skip tensorize related ops
+                continue
+            (tile_spatial, tile_reduce) = need_tiling(op, self.target_dag)
+            if tile_spatial:
+                total_spatial_extents = reduce(
+                    lambda x, y: x * y, [
+                        int(iv.dom.extent) for iv in op.axis], 1)
+                total_spatial_extents = (
+                    total_spatial_extents
+                    + self.warp_size - 1) // self.warp_size
+                sp_gen = SplitFactorGenerator(
+                    total_spatial_extents, self.left_spatial_tiling_parts)
+                self.left_spatial_splits[op_id] = sp_gen
+            if tile_reduce:
+                total_reduce_extents = reduce(
+                    lambda x, y: x * y, [
+                        int(iv.dom.extent) for iv in op.reduce_axis], 1)
+                total_reduce_extents = (
+                    total_reduce_extents
+                    + self.warp_size - 1) // self.warp_size
+                rd_gen = SplitFactorGenerator(
+                    total_reduce_extents, self.left_reduce_tiling_parts)
+                self.left_reduce_splits[op_id] = rd_gen
+
+            self.unroll_left[op_id] = UnrollStepGenerator([16, 64, 512, 1500])
+
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
-        self.unroll_last = UnrollStepGenerator([16, 64, 512, 1500])
         self.generator_lst = [
             self.vectorize,
             *self.spatial_splits,
             *self.reduce_splits,
-            *self.last_splits,
+            *list(self.left_spatial_splits.values()),
+            *list(self.left_reduce_splits.values()),
             self.unroll_output,
-            self.unroll_last
+            *list(self.unroll_left.values())
         ]
 
     def init_score_table(self):
@@ -245,7 +304,8 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
             self.recipe_stage,
             spatial_tiling = self.spatial_tiling_parts,
             reduce_tiling = self.reduce_tiling_parts,
-            last_tiling = self.last_op_tiling_parts
+            left_spatial_tiling = self.left_spatial_tiling_parts,
+            left_reduce_tiling = self.left_reduce_tiling_parts
         )
 
     def valid(self, record):
@@ -260,12 +320,13 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
             return False
         if block_num > max_blocks:
             return False
-        warp_num = record.last_factors[0][0][-1]
-        if warp_num > max_warps:
-            return False
-        block_num = record.last_factors[0][0][0]
-        if block_num > max_blocks:
-            return False
+        for factors in record.left_spatial_factors_map.values():
+            warp_num = factors[0][-2]
+            if warp_num > max_warps:
+                return False
+            block_num = factors[0][0]
+            if block_num > max_blocks:
+                return False
         return True
 
     def record_from_json(self, obj):
@@ -273,9 +334,10 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
             obj["vectorize"],
             obj["spatial_factors"],
             obj["reduce_factors"],
-            obj["last_factors"],
+            obj["left_spatial_factors_map"],
+            obj["left_reduce_factors_map"],
             obj["output_unroll_step"],
-            obj["last_unroll_step"])
+            obj["left_op_unroll_step_map"])
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
@@ -283,9 +345,19 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
                 self.vectorize.get(policy=policy),
                 [gen.get(policy=policy) for gen in self.spatial_splits],
                 [gen.get(policy=policy) for gen in self.reduce_splits],
-                [gen.get(policy=policy) for gen in self.last_splits],
+                OrderedDict(
+                    {x: gen.get(
+                        policy=policy) for x, gen
+                        in self.left_spatial_splits.items()}),
+                OrderedDict(
+                    {x: gen.get(
+                        policy=policy) for x, gen
+                        in self.left_reduce_splits.items()}),
                 self.unroll_output.get(policy=policy),
-                self.unroll_last.get(policy=policy))
+                OrderedDict(
+                    {x: gen.get(
+                        policy=policy) for x, gen
+                        in self.unroll_left.items()}))
         else:
             record = self.record_cls(
                 self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
@@ -293,23 +365,35 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
                     self.spatial_splits, entry.record.spatial_factors)],
                 [gen.get(hint=x[0], policy="q") for gen, x in zip(
                     self.reduce_splits, entry.record.reduce_factors)],
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.last_splits, entry.record.last_factors)],
+                OrderedDict(
+                    {y: gen.get(
+                        hint=x[0], policy="q") for (y, gen), x in zip(
+                            self.left_spatial_splits.items(),
+                            entry.record.left_spatial_factors_map)}),
+                OrderedDict(
+                    {y: gen.get(
+                        hint=x[0], policy="q") for (y, gen), x in zip(
+                            self.left_reduce_splits.items(),
+                            entry.record.left_reduce_factors_map)}),
                 self.unroll_output.get(
                     hint=entry.record.output_unroll_step[0], policy="q"),
-                self.unroll_last.get(
-                    hint=entry.record.last_unroll_step[0], policy="q"),
+                OrderedDict(
+                    {y: gen.get(
+                        hint=x[0], policy="q") for (y, gen), x in zip(
+                        self.unroll_left.items(),
+                        hint=entry.record.left_op_unroll_step_map)})
                 )
         return record
 
     def get_records_mutate_one_generator(
-        self, record, to_mutate, steps):
+            self, record, to_mutate, steps):
         vec = record.vectorize
         spatial = record.spatial_factors
         reduce = record.reduce_factors
-        last = record.last_factors
+        left_spatial = record.left_spatial_factors_map.values()
+        left_reduce = record.left_reduce_factors_map.values()
         unroll_output = record.output_unroll_step
-        unroll_last = record.last_unroll_step
+        unroll_left = record.left_op_unroll_step_map.values()
 
         next_vec = self.vectorize.get_next(
             vec[0], to_mutate)
@@ -321,16 +405,21 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
             gen.get_next(x[0], to_mutate) for gen, x in zip(
                 self.reduce_splits, reduce)
         ]
-        next_last = [
+        next_left_spatial = [
             gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.last_splits, last)
+                self.left_spatial_splits.values(), left_spatial)
+        ]
+        next_left_reduce = [
+            gen.get_next(x[0], to_mutate) for gen, x in zip(
+                self.left_reduce_splits.values(), left_reduce)
         ]
         next_unroll_output = self.unroll_output.get_next(
             unroll_output[0], to_mutate
         )
-        next_unroll_last = self.unroll_last.get_next(
-            unroll_last[0], to_mutate
-        )
+        next_unroll_left = [
+            gen.get_next(x[0], to_mutate) for gen, x in zip(
+                self.unroll_left.values(), unroll_left)
+        ]
 
         has_mutate = False
 
@@ -346,39 +435,67 @@ class CUDAScheduleGenerator(AcceleratorScheduleGenerator):
         for s in range(steps):
             vec = helper(next_vec, vec)
             spatial = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)
+                helper(_gen, org_val) for _gen, org_val in zip(
+                    next_spatial, spatial)
             ]
             reduce = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)
+                helper(_gen, org_val) for _gen, org_val in zip(
+                    next_reduce, reduce)
             ]
-            last = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_last, last)
+            left_spatial = [
+                helper(_gen, org_val) for _gen, org_val in zip(
+                    next_left_spatial, left_spatial)
+            ]
+            left_reduce = [
+                helper(_gen, org_val) for _gen, org_val in zip(
+                    next_left_reduce, left_reduce)
             ]
             unroll_output = helper(next_unroll_output, unroll_output)
-            unroll_last = helper(next_unroll_last, unroll_last)
+            unroll_left = [
+                helper(_gen, org_val) for _gen, org_val in zip(
+                    next_unroll_left, unroll_left)
+            ]
             if has_mutate:
                 yield self.record_cls(
                     vec,
                     spatial,
                     reduce,
-                    last,
+                    OrderedDict({
+                        x: y for x, y in zip(
+                            self.left_spatial_splits.keys(), left_spatial)}),
+                    OrderedDict({
+                        x: y for x, y in zip(
+                            self.left_reduce_splits.keys(), left_reduce)}),
                     unroll_output,
-                    unroll_last)
+                    OrderedDict({
+                        x: y for x, y in zip(
+                            self.unroll_left.keys(), unroll_left)}))
             has_mutate = False
 
     def feedback_value(self, entry, value):
         self.vectorize.feedback(*entry.record.vectorize, value)
-        for gen, factors in zip(self.spatial_splits, entry.record.spatial_factors):
+        for gen, factors in zip(
+                self.spatial_splits, entry.record.spatial_factors):
             gen.feedback(*factors, value)
-        for gen, factors in zip(self.reduce_splits, entry.record.reduce_factors):
+        for gen, factors in zip(
+                self.reduce_splits, entry.record.reduce_factors):
             gen.feedback(*factors, value)
-        for gen, factors in zip(self.last_splits, entry.record.last_factors):
+        for gen, factors in zip(
+                self.left_spatial_splits.values(),
+                entry.record.left_spatial_factors_map):
+            gen.feedback(*factors, value)
+        for gen, factors in zip(
+                self.left_reduce_splits.values(),
+                entry.record.left_reduce_factors_map):
             gen.feedback(*factors, value)
         self.unroll_output.feedback(*entry.record.output_unroll_step, value)
-        self.unroll_last.feedback(*entry.record.last_unroll_step, value)
+        for gen, step in zip(
+                self.unroll_left.values(),
+                entry.record.left_op_unroll_step_map):
+            gen.feedback(*step, value)
 
 
-class CUDAScheduleApplier(object):
+class CUDAScheduleApplierMultiReduce(object):
     def __init__(self, intrin_match_result, schedule_compute_info, arch=70):
         self.intrin_match_result = intrin_match_result
         # get match recipe info
@@ -396,20 +513,20 @@ class CUDAScheduleApplier(object):
         self.output_op_id = schedule_compute_info.output_op_id
         self.recipe_stage = schedule_compute_info.recipe_stage
         # the state during schedule
-        self.state = empty_cuda_state()
+        self.state = empty_cuda_state_multi_reduce()
         # the parameters during schedule
-        self.params = empty_cuda_params()
+        self.params = empty_cuda_params_multi_reduce()
         # some constants
         self.warp_size = CUDA(arch=arch).get_warp_size()
         self.bx = tvm.te.thread_axis("blockIdx.x")
         self.ty = tvm.te.thread_axis("threadIdx.y")
         self.tx = tvm.te.thread_axis("threadIdx.x")
-        self.obx = tvm.te.thread_axis("blockIdx.x")
-        self.oty = tvm.te.thread_axis("threadIdx.y")
-        self.otx = tvm.te.thread_axis("threadIdx.x")
-        self.reduce_tiling_parts = schedule_compute_info.kwargs["reduce_tiling"]
-        self.spatial_tiling_parts = schedule_compute_info.kwargs["spatial_tiling"]
-        self.last_op_tiling_parts = schedule_compute_info.kwargs["last_tiling"]
+        self.get_vx = lambda _: tvm.te.thread_axis("vthread")
+        self.get_bx = lambda _: tvm.te.thread_axis("blockIdx.x")
+        self.get_ty = lambda _: tvm.te.thread_axis("threadIdx.y")
+        self.get_tx = lambda _: tvm.te.thread_axis("threadIdx.x")
+        # self.reduce_tiling_parts = schedule_compute_info.kwargs["reduce_tiling"]
+        # self.spatial_tiling_parts = schedule_compute_info.kwargs["spatial_tiling"]
 
     def initialize_state(self):
         # self.state = {
@@ -419,7 +536,7 @@ class CUDAScheduleApplier(object):
         #     "last_op_axis": [],
         #     "tensorize_iter": {}
         # }
-        self.state = empty_cuda_state()
+        self.state = empty_cuda_state_multi_reduce()
 
     def initialize_parameters(self, params):
         self.params = params
@@ -467,23 +584,48 @@ class CUDAScheduleApplier(object):
         assert len(self.state.output_op_axis[0]) > 0
         return self.state.output_op_axis[0][-1]
 
-    def get_last_op_innermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[-1], list)
-        assert len(self.state.last_op_axis[-1]) > 0
-        return self.state.last_op_axis[-1][-1]
+    # def get_last_op_innermost_last_axis(self):
+    #     assert len(self.state.last_op_axis) > 0
+    #     assert isinstance(self.state.last_op_axis[-1], list)
+    #     assert len(self.state.last_op_axis[-1]) > 0
+    #     return self.state.last_op_axis[-1][-1]
 
-    def get_last_op_second_innermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[-1], list)
-        assert len(self.state.last_op_axis[-1]) > 1
-        return self.state.last_op_axis[-1][-2]
+    # def get_last_op_second_innermost_last_axis(self):
+    #     assert len(self.state.last_op_axis) > 0
+    #     assert isinstance(self.state.last_op_axis[-1], list)
+    #     assert len(self.state.last_op_axis[-1]) > 1
+    #     return self.state.last_op_axis[-1][-2]
 
-    def get_last_op_outermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[0], list), self.state.last_op_axis[0]
-        assert len(self.state.last_op_axis[0]) > 0
-        return self.state.last_op_axis[0][0]
+    def get_left_op_second_innermost_axis(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.state.left_op_spatial_axis_map
+        op_axis = self.state.left_op_spatial_axis_map[op_id]
+        assert len(op_axis) > 1
+        return op_axis[-2]
+
+    def get_left_op_outermost_reduce_axis(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.state.left_op_reduce_axis_map
+        op_reduce_axis = self.state.left_op_reduce_axis_map[op_id]
+        assert len(op_reduce_axis) > 0
+        return op_reduce_axis[0]
+
+    # def get_last_op_outermost_last_axis(self):
+    #     assert len(self.state.last_op_axis) > 0
+    #     assert isinstance(
+    #         self.state.last_op_axis[0], list), self.state.last_op_axis[0]
+    #     assert len(self.state.last_op_axis[0]) > 0
+    #     return self.state.last_op_axis[0][0]
+
+    def get_left_op_outermost_axis(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.state.left_op_spatial_axis_map
+        op_spatial_axis = self.state.left_op_spatial_axis_map[op_id]
+        assert len(op_spatial_axis) > 0
+        return op_spatial_axis[0]
 
     def get_tensorize_iter(self, op):
         assert op in self.state.tensorize_iter
@@ -506,17 +648,39 @@ class CUDAScheduleApplier(object):
             len(self.params.spatial_factors), " vs. ", number)
         return [x[0] for x in self.params.spatial_factors[:number]]
 
-    def get_last_op_axis_factors(self, number):
-        assert len(self.params.last_factors) >= number
-        return [x[0] for x in self.params.last_factors[:number]]
+    # def get_last_op_axis_factors(self, number):
+    #     assert len(self.params.last_factors) >= number
+    #     return [x[0] for x in self.params.last_factors[:number]]
 
-    def get_last_op_warp_numbers(self):
-        assert len(self.params.last_factors) > 0
-        ret = 1
-        for part in self.params.last_factors:
-            assert len(part) > 0
-            ret *= part[0][-1]
-        return ret
+    # def get_last_op_warp_numbers(self):
+    #     assert len(self.params.last_factors) > 0
+    #     ret = 1
+    #     for part in self.params.last_factors:
+    #         assert len(part) > 0
+    #         ret *= part[0][-1]
+    #     return ret
+
+    def get_left_op_spatial_factors(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.params.left_spatial_factors_map
+        factors = self.params.left_spatial_factors_map[op_id][0]
+        return factors
+
+    def get_left_op_reduce_factors(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.params.left_reduce_factors_map
+        factors = self.params.left_reduce_factors_map[op_id][0]
+        return factors
+
+    def get_left_op_num_warps(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.params.left_spatial_factors_map
+        factors = self.params.left_spatial_factors_map[op_id][0]
+        assert len(factors) > 0
+        return factors[-2]
 
     def get_vectorize_length(self):
         assert self.params.vectorize is not None
@@ -526,9 +690,16 @@ class CUDAScheduleApplier(object):
         assert self.params.output_unroll_step is not None
         return self.params.output_unroll_step[0]
 
-    def get_last_op_unroll_step(self):
-        assert self.params.last_unroll_step is not None
-        return self.params.last_unroll_step[0]
+    # def get_last_op_unroll_step(self):
+    #     assert self.params.last_unroll_step is not None
+    #     return self.params.last_unroll_step[0]
+
+    def get_left_op_unroll_step(self, op):
+        assert op in self.state.op_to_id
+        op_id = self.state.op_to_id[op]
+        assert op_id in self.params.left_op_unroll_step_map
+        unroll_step = self.params.left_op_unroll_step_map[op_id][0]
+        return unroll_step
 
     def check_parameter_ready(self):
         return True
@@ -549,7 +720,7 @@ class CUDAScheduleApplier(object):
         if not op in self.target_dag.feed_graph:
             return
         do_cache_read_for_load = False
-        do_cache_read_for_last = False
+        do_cache_read_for_other = False
         consumers = self.target_dag.feed_graph[op]
         if len(consumers) <= 0:
             return
@@ -557,16 +728,17 @@ class CUDAScheduleApplier(object):
             if self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
                 if len(consumers) == 1:
                     do_cache_read_for_load = True
-        if consumers[0] == self.target_dag.op_lst[-1]:
-            # the last op
+        elif len(consumers[0].reduce_axis) > 0:
+            # other op
             if len(consumers) == 1:
-                do_cache_read_for_last = True
-        
+                do_cache_read_for_other = True
+
         # can't do both
-        assert not (do_cache_read_for_load and do_cache_read_for_last)
-        
+        assert not (do_cache_read_for_load and do_cache_read_for_other)
+
         if do_cache_read_for_load:
-            S = sch.cache_read(X(op).output(0), "shared", [X(x) for x in consumers])
+            S = sch.cache_read(
+                X(op).output(0), "shared", [X(x) for x in consumers])
             axis = self.get_main_op_outermost_last_reduce_axis()
             # compute at to main op
             sch[S].compute_at(sch[X(self.main_op)], axis)
@@ -580,18 +752,24 @@ class CUDAScheduleApplier(object):
             sch[S].bind(warp_level, self.ty)
             sch[S].vectorize(vectorized)
 
-        # if do_cache_read_for_last:
-        #     last_ops = [X(x) for x in consumers]
-        #     S = sch.cache_read(X(op).output(0), "shared", last_ops)
-        #     axis = self.get_last_op_innermost_last_axis()
+        # if do_cache_read_for_other:
+        #     tile_spatial, tile_reduce = need_tiling(
+        #         consumers[0], self.target_dag)
+        #     other_ops = [X(x) for x in consumers]
+        #     # only use local buffer for these small reduce ops
+        #     S = sch.cache_read(X(op).output(0), "local", other_ops)
+        #     # use the original op as index for op id
+        #     if not tile_reduce:
+        #         axis = self.get_left_op_second_innermost_axis(consumers[0])
+        #     else:
+        #         axis = self.get_left_op_outermost_reduce_axis(consumers[0])
         #     # compute at to last op
-        #     sch[S].compute_at(sch[last_ops[0]], axis)
-        #     warp_num = self.get_last_op_warp_numbers()
+        #     sch[S].compute_at(sch[other_ops[0]], axis)
+        #     warp_num = self.get_left_op_num_warps(consumers[0])
         #     fused = sch[S].fuse(*sch[S].op.axis)
-        #     fused, thread_level = sch[S].split(fused, factor=self.warp_size)
-        #     fused, warp_level = sch[S].split(fused, factor=warp_num)
-        #     sch[S].bind(thread_level, self.otx)
-        #     sch[S].bind(warp_level, self.oty)
+        #     fused, warp_level = sch[S].split(
+        #         fused, factor=warp_num*self.warp_size)
+        #     sch[S].bind(warp_level, self.get_tx(0))
 
     def set_scope(self, op_id, op, sch, X):
         if op in self.recipe_stage.operation_role:
@@ -601,7 +779,7 @@ class CUDAScheduleApplier(object):
                 sch[X(op)].set_scope("local")
 
     def tiling(self, op_id, op, sch, X):
-        # only tiling for 3 ops: main, output, last
+        # only tiling for 3 kindes of ops: main, output, left
         if op == self.main_op:
             # prepare spatial axis
             axis = sch[X(op)].op.axis
@@ -621,7 +799,7 @@ class CUDAScheduleApplier(object):
             reserve_reduce_num = len(reserve_reduce_axis)
             pos = self.get_output_op_third_innermost_last_axis()
             sch[X(op)].compute_at(sch[X(self.output_op)], pos)
-            
+
             reduce_axis_split_parts = []
             reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
                 len(split_reduce_axis)
@@ -690,22 +868,46 @@ class CUDAScheduleApplier(object):
                 final_axis.append(reordered_spatial_axis[-1])
             self.state.output_op_axis = final_axis
             self.state.tensorize_iter[op] = final_axis[-1][-2]
-        elif op == self.target_dag.op_lst[-1]:
-            # last op
-            axis = sch[X(op)].op.axis
-            fused = sch[X(op)].fuse(*axis)
-            fused, thread_level = sch[X(op)].split(fused, factor=self.warp_size)
-            split_factors = self.get_last_op_axis_factors(1)
-            split_parts = []
-            for f in reversed(split_factors[0][1:]):
-                fused, inner = sch[X(op)].split(fused, factor=f)
-                split_parts.append(inner)
-            split_parts.append(fused)
-            split_parts = list(reversed(split_parts))
-            sch[X(op)].bind(split_parts[0], self.obx)
-            sch[X(op)].bind(split_parts[-1], self.oty)
-            sch[X(op)].bind(thread_level, self.otx)
-            self.state.last_op_axis = [split_parts + [thread_level]]
+        elif op not in self.recipe_stage.operation_role:
+            # other op
+            tile_spatial, tile_reduce = need_tiling(op, self.target_dag)
+            if tile_spatial:
+                axis = sch[X(op)].op.axis
+                fused = sch[X(op)].fuse(*axis)
+                split_factors = self.get_left_op_spatial_factors(op)
+                split_factors[-2] *= self.warp_size
+                split_parts = []
+                for f in reversed(split_factors[1:]):
+                    fused, inner = sch[X(op)].split(fused, factor=f)
+                    split_parts.append(inner)
+                split_parts.append(fused)
+                split_parts = list(reversed(split_parts))
+                sch[X(op)].bind(split_parts[0], self.get_bx(0))
+                sch[X(op)].bind(split_parts[-2], self.get_tx(0))
+                self.state.left_op_spatial_axis_map.update({
+                    op_id: split_parts})
+                spatial_axis = split_parts
+            else:
+                spatial_axis = list(sch[X(op)].op.axis)
+            if tile_reduce:
+                axis = sch[X(op)].op.reduce_axis
+                fused = sch[X(op)].fuse(*axis)
+                split_factors = self.get_left_op_reduce_factors(op)
+                split_parts = []
+                for f in reversed(split_factors[1:]):
+                    fused, inner = sch[X(op)].split(fused, factor=f)
+                    split_parts.append(inner)
+                split_parts.append(fused)
+                split_parts = list(reversed(split_parts))
+                self.state.left_op_reduce_axis_map.update({
+                    op_id: split_parts})
+                reduce_axis = split_parts
+            else:
+                reduce_axis = list(sch[X(op)].op.reduce_axis)
+            # interleave
+            ordered_axis = (spatial_axis[:2] + reduce_axis[:-1] +
+                            spatial_axis[2:] + reduce_axis[-1:])
+            sch[X(op)].reorder(*ordered_axis)
 
     def compute_at(self, op_id, op, sch, X):
         if not op in self.recipe_stage.operation_role:
@@ -735,11 +937,17 @@ class CUDAScheduleApplier(object):
             step = self.get_output_op_unroll_step()
             sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
             # sch[X(op)].pragma(axis, "unroll_explicit", 0)
-        elif op == self.target_dag.op_lst[-1]:
-            axis = self.get_last_op_outermost_last_axis()
-            step = self.get_last_op_unroll_step()
-            sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
+        elif op not in self.recipe_stage.operation_role:
+            # other op
+            tile_spatial, tile_reduce = need_tiling(op, self.target_dag)
+            if tile_reduce:
+                axis = self.get_left_op_outermost_axis(op)
+                step = self.get_left_op_unroll_step(op)
+                sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
+                # sch[X(op)].pragma(axis, "unroll_explicit", 0)
+            else:
+                for axis in sch[X(op)].op.reduce_axis:
+                    sch[X(op)].unroll(axis)
 
     def tensorize(self, op_id, op, sch, X):
         if not op in self.recipe_stage.operation_role:
@@ -748,7 +956,7 @@ class CUDAScheduleApplier(object):
             self.compute_key, self.shape_key, self.recipe_stage.capsule_key[op])
         axis = self.get_tensorize_iter(op)
         sch[X(op)].tensorize(axis, intrin)
-    
+
     def apply(self, sch, params, mapping_func=lambda x: x):
         X = mapping_func
         primitives = [
@@ -760,7 +968,7 @@ class CUDAScheduleApplier(object):
             self.unroll,
             self.tensorize
         ]
-        
+
         # initialize parameters
         self.initialize_parameters(params)
         # check if parameters are ready
@@ -771,6 +979,7 @@ class CUDAScheduleApplier(object):
         dag = self.target_dag
         total_op = len(dag.op_lst)
         for op_id, op in enumerate(reversed(dag.op_lst)):
+            self.state.op_to_id.update({op: total_op - op_id - 1})
             if not isinstance(op, tvm.te.ComputeOp):
                 continue
             else:
