@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 
-def conv_transpose2d(H, W, N, C, outC, kernel_size, stride, padding, dtype):
-  A_np = np.random.uniform(-10, 10, [N, outC, H, W]).astype("float32")
-  B_np = np.random.uniform(-10, 10, [outC, C, kernel_size, kernel_size]).astype("float32")
+def conv_transpose2d(H, W, N, C, K, kernel_size, stride, padding, dtype):
+  A_np = np.random.uniform(-10, 10, [N, K, H, W]).astype("float32")
+  B_np = np.random.uniform(-10, 10, [K, C, kernel_size, kernel_size]).astype("float32")
 
   # What's supported by NVIDIA? Refer to https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html
 
@@ -60,12 +60,8 @@ def conv_transpose2d(H, W, N, C, outC, kernel_size, stride, padding, dtype):
         total = start.elapsed_time(end)
         time_record.append(total)
       if i == repeats - 1:
-        print("Average conv_transpose2d latency", np.mean(time_record))
-        print("Median  conv_transpose2d latency", np.median(time_record))
-  print("conv_transpose2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
-  print("H, W, C, outC, kernel_size, stride, padding")
-  print(",".join(map(str, [H, W, C, outC, kernel_size, stride, padding])))
-  print("------------------")
+        mean_cost = np.mean(time_record)
+  print(",".join(map(str, [N, C, H, W, K, kernel_size, kernel_size, stride, padding, dtype, mean_cost])))
 
 
 _ = None
@@ -94,16 +90,14 @@ if __name__ == "__main__":
     torch.backends.cudnn.enabled = True
     batches = [2**i for i in range(1)]
     beg = 0
-    for batch in batches:
+    print("N, C, H, W, K, R, S, stride, padding, type, cost")
+    for dtype in ["FP16", "FP32", "TF32", "FP64"]: # "INT8", "BOOL", "BF16"
+      for batch in batches:
         costs = []
         for i, shape in enumerate(transpose2d_config):
             (  N,   C,   H,   W,   K, kernel_size, stride, padding, dilation) = shape
             iH = (H + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
             iW = (W + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
             N = batch
-            conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, "FP16")
-            conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, "FP32")
-            conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, "TF32")
-            conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, "FP64")
-            # conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, "BF16")
+            conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
