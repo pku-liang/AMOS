@@ -24,7 +24,7 @@ template <typename T1, typename T2>
 int time_gemv(Tensor<T1> A, Tensor<T1> X, Tensor<T2> Y, int m, int n,
               bool trans, cublasHandle_t cublas_handle) {
   T2 alpha = 1.0;
-  T2 beta = 1.0;
+  T2 beta = 0.0;
 
   int numRepeats = 6;
   cublasStatus_t stat;

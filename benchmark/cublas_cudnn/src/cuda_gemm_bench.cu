@@ -24,7 +24,7 @@ template <typename T1, typename T2>
 int time_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
               cublasHandle_t cublas_handle, bool use_tensor_core) {
   const T2 alpha = 1.f;
-  const T2 beta = 1.f;
+  const T2 beta = 0.f;
 
   int m = C.dims()[0];
   int k = a_t ? A.dims()[0] : A.dims()[1];
@@ -100,7 +100,7 @@ bool check_gemm(Tensor<T1> A, Tensor<T1> B, Tensor<T2> C, bool a_t, bool b_t,
               cublasHandle_t cublas_handle, bool use_tensor_core) {
 
   const T2 alpha = 1.f;
-  const T2 beta = 1.f;
+  const T2 beta = 0.f;
 
   int m = C.dims()[0];
   int k = a_t ? A.dims()[0] : A.dims()[1];

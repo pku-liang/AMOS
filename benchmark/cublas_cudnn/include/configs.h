@@ -158,6 +158,7 @@ std::vector<std::tuple<int, int, int, bool, bool>> gemm_set = {
 };
 
 // Vector saves m, n, trans
+// deprecated!
 std::vector<std::tuple<int, int, bool>> gemv_noTC = {
     std::make_tuple(1024, 256, false),
     std::make_tuple(512, 1024, false)
@@ -165,10 +166,9 @@ std::vector<std::tuple<int, int, bool>> gemv_noTC = {
 
 // Vector saves m, n, k, a_t, b_t
 std::vector<std::tuple<int, int, int, bool, bool>> gemv_to_gemm = {
-    std::make_tuple(1024, 1, 2816, false, false),
-    std::make_tuple(1024, 1, 2048, false, false),
-    std::make_tuple(1024, 1, 2560, false, false),
-    std::make_tuple(1024, 1, 1536, false, false),
-    std::make_tuple(512, 1, 512, false, false),
-    std::make_tuple(1024, 1, 512, false, false)
+    std::make_tuple(512, 1, 16, false, false),
+    std::make_tuple(1024, 1, 256, false, false),
+    std::make_tuple(256, 1, 1024, false, false),
+    std::make_tuple(512, 1, 256, false, false),
+    std::make_tuple(1024, 1, 1024, false, false),
 };
