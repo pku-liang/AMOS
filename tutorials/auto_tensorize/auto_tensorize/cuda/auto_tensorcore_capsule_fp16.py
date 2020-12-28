@@ -22,12 +22,13 @@ def zero_pad2d(inputs, padding=0):
         name='Padding'
         )
 
-def conv2d_nchw(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
+def conv2d_capsule(inputs, weight, stride=1, padding=0, dilation=1, groups=1, num_caps=8):
     batch_size, in_channel, in_h, in_w = inputs.shape
-    out_channel, channel_per_group, k_h, k_w = weight.shape
-    assert (channel_per_group * groups).value == in_channel.value
+    out_channel, channel_per_group, k_h, k_w, num_caps_ = weight.shape
+    assert channel_per_group * groups == in_channel, "%d vs. %d" % (channel_per_group * groups, in_channel)
     out_channel_per_group = out_channel // groups
-    assert (out_channel_per_group * groups).value == out_channel.value
+    assert out_channel_per_group * groups == out_channel
+    assert num_caps_ == num_caps
 
     stride = (stride, stride) if isinstance(stride, (int, tvm.tir.IntImm)) else stride
     padding = (padding, padding) if isinstance(padding, (int, tvm.tir.IntImm)) else padding
@@ -38,61 +39,28 @@ def conv2d_nchw(inputs, weight, bias=None, stride=1, padding=0, dilation=1, grou
 
     out_h = (in_h + 2 * padding[0] - dilation[0] * (k_h - 1) - 1) // stride[0] + 1
     out_w = (in_w + 2 * padding[1] - dilation[1] * (k_w - 1) - 1) // stride[1] + 1
-    rc = tvm.te.reduce_axis((0, channel_per_group), name="rc")
-    rh = tvm.te.reduce_axis((0, k_h), name="rh")
-    rw = tvm.te.reduce_axis((0, k_w), name="rw")
 
     padded = zero_pad2d(inputs, padding=padding)
-    output = tvm.te.compute(
-        (batch_size, out_channel, out_h, out_w),
-        lambda b, c, h, w: tvm.te.sum(
+    conv_out_shape = (batch_size, out_channel, out_h, out_w, num_caps)
+
+    rc = tvm.te.reduce_axis((0, channel_per_group), name="rc")
+    rw = tvm.te.reduce_axis((0, k_w), name="rw")
+    rh = tvm.te.reduce_axis((0, k_h), name="rh")
+    return tvm.te.compute(conv_out_shape,
+        lambda b, c, h, w, s: tvm.te.sum(
             (padded[b, c // out_channel_per_group * channel_per_group + rc, 
                     h * stride[0] + rh * dilation[0], w * stride[1] + rw * dilation[1]]
-            * weight[c, rc, rh, rw]),
-            axis=[rc, rw, rh]
+            * weight[c, rc, rh, rw, s]),
+            axis=[rc, rw, rh]),
+            name="conv2d_capsule",
         )
-    )
-    if bias is not None:
-        output = tvm.te.compute(
-            (batch_size, out_channel, out_h, out_w),
-            lambda b, c, h, w: output[b, c, h, w] + bias[c]
-        )
-    return output
-
-def concat_eight_vector_lastdim(cap0, cap1, cap2, cap3, cap4, cap5, cap6, cap7):
-    batch, channel, h, w = cap0.shape
-    eight = 8
- 
-    return tvm.te.compute([batch, channel, h, w, eight],
-            lambda i, j, p, q, k:
-                tvm.te.if_then_else(k == 0, cap0[i, j, p, q],
-                    tvm.te.if_then_else(k == 1, cap1[i, j, p, q],
-                        tvm.te.if_then_else(k == 2, cap2[i, j, p, q],
-                            tvm.te.if_then_else(k == 3, cap3[i, j, p, q],
-                                tvm.te.if_then_else(k == 4, cap4[i, j, p, q],
-                                    tvm.te.if_then_else(k == 5, cap5[i, j, p, q], 
-                                        tvm.te.if_then_else(k == 6, cap6[i, j, p, q],
-                                            cap7[i, j, p, q]))))))),
-            name="concat")
-
-def capsule(H, W, N, C, outC, kernel_size, stride, padding, capsule_num):
-    assert capsule_num == 8
-    A_lst = []
-    B_lst = []
-    cap_lst = []
-    for i in range(capsule_num):
-        A_lst.append(tvm.te.placeholder([N, C, H, W], dtype="float16"))
-        B_lst.append(tvm.te.placeholder([outC, C, kernel_size, kernel_size], dtype="float16"))
-    for i in range(capsule_num):
-        cap_lst.append(conv2d_nchw(A_lst[i], B_lst[i], bias=None, stride=stride, padding=padding))
-    CapsuleConv = concat_eight_vector_lastdim(*cap_lst)
-    return CapsuleConv
-
 
 def tensorize_tensorcore_fp16fp16(
     H, W, N, C, outC, kernel_size, stride, padding, capsule_num, layer
 ):
-    CapsuleConv = capsule(H, W, N, C, outC, kernel_size, stride, padding, capsule_num)
+    A = tvm.te.placeholder([N, C, H, W], dtype="float16", name="A")
+    B = tvm.te.placeholder([outC, C, kernel_size, kernel_size, capsule_num], dtype="float16", name="B")
+    CapsuleConv = conv2d_capsule(A, B, stride=stride, padding=padding, num_caps=capsule_num)
     target_dag = at.compute_dag_from_tensors([CapsuleConv])
     target = "cuda"
 
@@ -143,7 +111,7 @@ if __name__ == "__main__":
             assert capsule_num == 8
             N = batch
             print("\n\nProblem size:")
-            print("H, W, N, C, outC, kernel_size, stride, padding, capsule_num,")
+            print("H, W, N, C, outC, kernel_size, stride, padding, capsule_num")
             print(H, W, N, C, outC, kernel_size, stride, padding, capsule_num)
             try:
                 cost = run(

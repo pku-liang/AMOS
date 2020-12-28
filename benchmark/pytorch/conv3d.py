@@ -61,12 +61,9 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dil
           total = start.elapsed_time(end)
           time_record.append(total)
       if i == repeats - 1:
-        print("Average conv3d latency", np.mean(time_record))
-        print("Median  conv3d latency", np.median(time_record))
-  print("conv3d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
-  print("N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation")
-  print(",".join(map(str, [N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation])))
-  print("------------------")
+        mean_cost = np.mean(time_record)
+  #print("conv3d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
+  print(",".join(map(str, [N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, dtype, mean_cost])))
 
 
 _ = None
@@ -99,18 +96,13 @@ if __name__ == "__main__":
   batches = [2**i for i in range(1)]
   beg = 0
   num = len(res3d_18_shapes)
-  for batch in batches:
-      costs = []
-      for i, shape in enumerate(res3d_18_shapes[beg:beg+num]):
-          (_, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation) = shape
-          N = batch
-          conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "FP16")
-          conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "FP32")
-          conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "TF32")
-          conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "FP64")
-          conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "BF16")
-          #conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "INT8")
-          #conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, "BOOL")
-
+  print("N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, type, cost")
+  for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: #"INT8", "BOOL"
+    for batch in batches:
+        costs = []
+        for i, shape in enumerate(res3d_18_shapes[beg:beg+num]):
+            (_, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation) = shape
+            N = batch
+            conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, dtype)
 
   print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

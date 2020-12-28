@@ -356,7 +356,7 @@ def find_optimized_parameters(
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
-        top1 = schedule_gen.topk(k=1)
+        top1 = schedule_gen.topk(k=1)[0]
         best_value = top1.value
         best_params = top1.record
     if measure_opt.use_rpc:
