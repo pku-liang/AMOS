@@ -3,44 +3,59 @@ import os
 from tvm import auto_tensorize as at
 
 
-def conv1d(N, C, L, K, KL, stride, padding, dilation):
-    assert dilation == 1 and stride == 1
-    pL = L + 2 * padding
-    A = tvm.te.placeholder([N, C, L], dtype="float16", name="A")
-    B = tvm.te.placeholder([K, C, KL], dtype="float16", name="B")
+def zero_pad1d(inputs, padding=0):
+    padding = (padding, padding) if isinstance(padding, (int, tvm.tir.IntImm)) else padding
+    assert isinstance(padding, tuple), "type(padding)={}".format(type(padding))
+    assert len(padding) == 2
 
-    Pad = tvm.te.compute(
-        [N, C, pL],
-        lambda n, c, l: tvm.tir.if_then_else(
-            tvm.tir.all(l >= padding, l - padding < L),
-            A[n, c, l - padding],
-            tvm.tir.const(0.0, A.dtype)
-        ),
-        name="Pad")
+    padding_zero = tvm.tir.expr.const(0, inputs.dtype)
 
-    rc = tvm.te.reduce_axis([0, C], name="rc")
-    rr = tvm.te.reduce_axis([0, KL], name="rr")
+    batch_size, in_channel, in_len = inputs.shape
+    return tvm.te.compute(
+        (batch_size, in_channel, in_len + padding[0] + padding[1]),
+        lambda b, c, l: tvm.te.if_then_else(
+                            tvm.te.all(l >= padding[0], l < in_len + padding[0]),
+                            inputs[b, c, l - padding[0]],
+                            padding_zero
+                            )
+        )
 
-    outL = (pL - KL) // stride + 1
-    Conv = tvm.te.compute(
-            [N, K, outL],
-            lambda n, k, l:
-                tvm.te.sum((Pad[n, rc, l*stride+rr] * B[k, rc, rr]).astype("float16"), axis=[rc, rr]),
-            name="Conv"
+
+def conv1d(inputs, weight, stride=1, padding=0, dilation=1):
+    batch_size, in_channel, in_len = inputs.shape
+    out_channel, channel_per_group, k_len = weight.shape
+    assert channel_per_group.value == in_channel.value
+
+    stride = stride[0] if isinstance(stride, tuple) else stride
+    padding = padding[0] if isinstance(padding, tuple) else padding
+    assert isinstance(stride, (int, tvm.tir.IntImm)), "type(stride)={}".format(type(stride))
+    assert isinstance(padding, (int, tvm.tir.IntImm)), "type(padding)={}".format(type(padding))
+    assert isinstance(dilation, (int, tvm.tir.IntImm)), "type(dilation)={}".format(type(dilation))
+
+    out_len = (in_len + 2 * padding - dilation * (k_len - 1) - 1) // stride + 1
+
+    rc = tvm.te.reduce_axis((0, channel_per_group))
+    rl = tvm.te.reduce_axis((0, k_len))
+
+    padded = zero_pad1d(inputs, padding=padding)
+    conved = tvm.te.compute(
+        (batch_size, out_channel, out_len),
+        lambda b, c, l: tvm.te.sum(
+            (padded[b, rc, l * stride + rl * dilation] * 
+            weight[c, rc, rl]), 
+            axis=[rc, rl]
             )
-    # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
-    # E = tvm.te.compute(
-    #     [N, K, P, Q],
-    #     lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
-    #     name="E"
-    # )
-    return [A, B, Conv]
+    )
+    return conved
 
 
 def tensorize_tensorcore_fp16fp16(
     N, C, L, K, KL, stride, padding, dilation, layer
 ):
-    A, B, Conv = conv1d(N, C, L, K, KL, stride, padding, dilation)
+    A = tvm.te.placeholder([N, C, L], dtype="float16", name="A")
+    B = tvm.te.placeholder([K, C, KL], dtype="float16", name="B")
+
+    Conv = conv1d(A, B, stride=stride, padding=padding, dilation=dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
     target = "cuda"
 
@@ -76,20 +91,26 @@ def run(N, C, L, K, KL, stride, padding, dilation, layer):
        N, C, L, K, KL, stride, padding, dilation, layer)
 
 
-conv1d_shapes = [
-    # C,  L,  K, KL, stride, padding, dilation
-    (16, 16, 32, 3,      1,        1,        1),
-    (32, 32, 64, 5,      1,        0,        1)
+byte_net_shapes = [
+  # (   C,   L,   K,  KL, stride,padding, dilation)
+    ( 512, 892, 512,   3,       1,     2,        1),
+    ( 512, 892,1024,   1,       1,     0,        1),
+    (1024, 892, 512,   1,       1,     0,        1),
+    ( 512, 892, 512,   3,       1,     4,        2),
+    ( 512, 892, 512,   3,       1,     8,        4),
+    ( 512, 892, 512,   3,       1,    16,        8),
+    ( 512, 892, 512,   3,       1,    32,       16),
+    (1024, 892, 250,   1,       1,     0,        1)
 ]
 
 
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 15
+    num = len(byte_net_shapes)
     for batch in batches:
         costs = []
-        for i, shape in enumerate(conv1d_shapes[beg:beg+num]):
+        for i, shape in enumerate(byte_net_shapes[beg:beg+num]):
             (C, L, K, KL, stride, padding, dilation) = shape
             N = batch
             print("\n\nProblem size:")
