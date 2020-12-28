@@ -1,6 +1,6 @@
 import tvm
 import numpy as np
-from tensor_graph.core import compute, GraphOp, GraphTensor
+from tvm.tensor_graph.core import compute, GraphOp, GraphTensor
 
 
 #################################################3

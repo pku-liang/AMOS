@@ -2,13 +2,13 @@ import numpy as np
 import torch
 from torchvision import datasets
 import torchvision.transforms as transforms
-from tensor_graph.nn.layers import Layer, Conv2d, BatchNorm2d, ReLU, \
+from tvm.tensor_graph.nn.layers import Layer, Conv2d, BatchNorm2d, ReLU, \
                                   AvgPool2d, GlobalAvgPool2d, Linear, Sequential, CapsuleConv2d
-from tensor_graph.nn.functional import elementwise_add
+from tvm.tensor_graph.nn.functional import elementwise_add
 import tvm
-from tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
 
-from tensor_graph.testing.models import helper
+from tvm.tensor_graph.testing.models import helper
 
 batch_size = 20
 capsule_nums = 8

@@ -12,7 +12,7 @@ import lenet
 import tvm.relay.testing.init as init
 from tvm.autotvm.tuner import XGBTuner, GATuner, RandomTuner, GridSearchTuner
 from tvm.contrib.util import tempdir
-from tensor_graph.testing.datasets import load_mnist_dataset
+from tvm.tensor_graph.testing.datasets import load_mnist_dataset
 from keras.utils import to_categorical
 import tvm.contrib.graph_runtime as runtime
 

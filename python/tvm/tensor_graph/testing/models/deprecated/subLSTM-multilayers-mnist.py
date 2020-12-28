@@ -5,7 +5,7 @@ import torch
 import torchvision
 from torch.autograd import Variable
 from torchvision import transforms
-from tensor_graph.testing.learners.utils import to_tuple, assert_print
+from tvm.tensor_graph.testing.learners.utils import to_tuple, assert_print
 
 print_per_iteration = 100
 debug_mode = False

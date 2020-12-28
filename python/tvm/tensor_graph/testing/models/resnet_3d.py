@@ -1,11 +1,11 @@
-from tensor_graph.nn.layers import Layer, Conv3d, BatchNorm3d, ReLU, \
+from tvm.tensor_graph.nn.layers import Layer, Conv3d, BatchNorm3d, ReLU, \
                                   GlobalAvgPool3d, Linear, Sequential
-from tensor_graph.nn.functional import elementwise_add
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.nn.functional import elementwise_add
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph, make_fwd_graph, \
                               make_tir_graph
-from tensor_graph.core.transform import apply_layout_change
-from tensor_graph.nn import CELoss, SGD
+from tvm.tensor_graph.core.transform import apply_layout_change
+from tvm.tensor_graph.nn import CELoss, SGD
 
 class ResidualUnit(Layer):
   """

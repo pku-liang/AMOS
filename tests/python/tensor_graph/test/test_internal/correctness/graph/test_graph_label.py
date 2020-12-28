@@ -1,14 +1,14 @@
 import tvm
 import time
 import numpy as np
-from tensor_graph.core import ForwardGraph, compute, \
+from tvm.tensor_graph.core import ForwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph
-from tensor_graph.nn import MSELoss, SGD
-from tensor_graph.core.schedule_generator import LayoutTransform
+from tvm.tensor_graph.nn import MSELoss, SGD
+from tvm.tensor_graph.core.schedule_generator import LayoutTransform
                                   
-from tensor_graph.core.utils import flatten_tir_graph
-from tensor_graph.core.space import ForwardGraphSpace
-from tensor_graph.core.tuner import RandomForwardTuner
+from tvm.tensor_graph.core.utils import flatten_tir_graph
+from tvm.tensor_graph.core.space import ForwardGraphSpace
+from tvm.tensor_graph.core.tuner import RandomForwardTuner
 
 
 def test1():

@@ -1,11 +1,11 @@
 import tvm
 import numpy as np
 from tvm import tg
-from tensor_graph.core import compute, GraphOp, GraphTensor, ForwardGraph, \
+from tvm.tensor_graph.core import compute, GraphOp, GraphTensor, ForwardGraph, \
   make_fwd_graph, make_tir_graph
-from tensor_graph.testing.models import yolo_v1
-from tensor_graph.nn import CELoss, SGD
-from tensor_graph.core.utils import to_tuple
+from tvm.tensor_graph.testing.models import yolo_v1
+from tvm.tensor_graph.nn import CELoss, SGD
+from tvm.tensor_graph.core.utils import to_tuple
 
 
 def test1():

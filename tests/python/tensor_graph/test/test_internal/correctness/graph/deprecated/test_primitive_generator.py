@@ -1,15 +1,15 @@
 import tvm
 import numpy as np
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph
-from tensor_graph.nn import MSELoss, SGD
-from tensor_graph.core.schedule_generator import ConnectedSet, GPUScheduleBaseSet, \
+from tvm.tensor_graph.nn import MSELoss, SGD
+from tvm.tensor_graph.core.schedule_generator import ConnectedSet, GPUScheduleBaseSet, \
       GPUScheduleMasterBaseSet, form_connected_sets, GPUScheduleMasterSet
                                   
-from tensor_graph.core.utils import flatten_tir_graph
-from tensor_graph.core.space import PrimitiveSpace
-from tensor_graph.core.tuner import RandomPrimitiveTuner
-from tensor_graph.core.scheduler import PrimitiveScheduler
+from tvm.tensor_graph.core.utils import flatten_tir_graph
+from tvm.tensor_graph.core.space import PrimitiveSpace
+from tvm.tensor_graph.core.tuner import RandomPrimitiveTuner
+from tvm.tensor_graph.core.scheduler import PrimitiveScheduler
 
 
 def test1():

@@ -1,5 +1,5 @@
 import tvm
-from tensor_graph.core import GraphTensor, GraphOp, compute
+from tvm.tensor_graph.core import GraphTensor, GraphOp, compute
 import tensor_graph.nn.functional as F
 
 

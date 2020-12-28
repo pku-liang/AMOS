@@ -7,9 +7,9 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import lightgbm
 
-from tensor_graph.core.auto_schedule.train_cost_model.dataset import get_data_pytorch, LightGBMDataset
-from tensor_graph.core.auto_schedule.train_cost_model.mlp_model import FCModel, train, evaluate, FCModelCriterion
-from tensor_graph.core.auto_schedule.train_cost_model.utils import get_git_revision_short_hash
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.dataset import get_data_pytorch, LightGBMDataset
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.mlp_model import FCModel, train, evaluate, FCModelCriterion
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.utils import get_git_revision_short_hash
 
 
 class LightGBMTrainer:

@@ -1,10 +1,10 @@
 import tvm
 import numpy as np
 from tvm import tg
-from tensor_graph.core import compute, GraphOp, GraphTensor, ForwardGraph, \
+from tvm.tensor_graph.core import compute, GraphOp, GraphTensor, ForwardGraph, \
   make_fwd_graph, make_tir_graph
-from tensor_graph.testing.models import resnet
-from tensor_graph.nn import CELoss, SGD
+from tvm.tensor_graph.testing.models import resnet
+from tvm.tensor_graph.nn import CELoss, SGD
 
 
 def zero_pad2d(inputs, padding=0):

@@ -1,8 +1,8 @@
 import tvm
 from graphviz import Digraph
 
-from tensor_graph.core2.graph.concrete import Tensor, Operator
-from tensor_graph.core2.graph.graph import Graph
+from tvm.tensor_graph.core2.graph.concrete import Tensor, Operator
+from tvm.tensor_graph.core2.graph.graph import Graph
 
 
 class ModelVisualizer(object):

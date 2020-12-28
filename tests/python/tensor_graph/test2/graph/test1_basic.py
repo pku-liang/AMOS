@@ -2,9 +2,9 @@ import tvm
 import numpy as np
 from collections import OrderedDict
 
-from tensor_graph.core2.graph.abstract import Compute, FloatTensor
-from tensor_graph.core2.graph.concrete import Compute as concrete_compute
-from tensor_graph.core2.graph.concrete import FloatTensor as concrete_floattensor
+from tvm.tensor_graph.core2.graph.abstract import Compute, FloatTensor
+from tvm.tensor_graph.core2.graph.concrete import Compute as concrete_compute
+from tvm.tensor_graph.core2.graph.concrete import FloatTensor as concrete_floattensor
 
 
 TEST_CASES = OrderedDict()

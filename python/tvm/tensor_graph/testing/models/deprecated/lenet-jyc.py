@@ -1,8 +1,8 @@
 from collections import OrderedDict
 
-from tensor_graph.nn import Conv2d, Linear
-from tensor_graph.nn.functional import relu, avg_pool2d, flatten
-from tensor_graph.nn.modules.model import Model
+from tvm.tensor_graph.nn import Conv2d, Linear
+from tvm.tensor_graph.nn.functional import relu, avg_pool2d, flatten
+from tvm.tensor_graph.nn.modules.model import Model
 
 
 class LeNet(Model):

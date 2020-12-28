@@ -4,8 +4,8 @@ import torch
 import numpy as np
 from collections import namedtuple
 
-from tensor_graph.core.utils import *
-from tensor_graph.core.perf_model import AllreduceModel
+from tvm.tensor_graph.core.utils import *
+from tvm.tensor_graph.core.perf_model import AllreduceModel
 
 
 def test_choose_from_any():

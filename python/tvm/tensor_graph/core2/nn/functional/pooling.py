@@ -1,6 +1,6 @@
 import tvm
 
-from tensor_graph.core2.graph.concrete import Compute, Tensor
+from tvm.tensor_graph.core2.graph.concrete import Compute, Tensor
 
 from .padding import zero_pad2d
 

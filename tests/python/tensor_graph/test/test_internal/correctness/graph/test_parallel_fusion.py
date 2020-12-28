@@ -3,8 +3,8 @@ from itertools import chain
 import numpy as np
 import tvm
 
-from tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph
-from tensor_graph.core.transform import ParallelFusionFinder, ParallelFusionApplier
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph
+from tvm.tensor_graph.core.transform import ParallelFusionFinder, ParallelFusionApplier
 
 
 def check_graph_connectivity(graph: ForwardGraph, verbose=False):

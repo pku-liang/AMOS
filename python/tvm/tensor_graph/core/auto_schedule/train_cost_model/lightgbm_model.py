@@ -1,6 +1,6 @@
 from scipy.misc import derivative
 import numpy as np
-from tensor_graph.core.auto_schedule.train_cost_model.dataset import LightGBMDataset
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.dataset import LightGBMDataset
 import lightgbm
 
 

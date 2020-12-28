@@ -1,6 +1,6 @@
 import tensor_graph.core2.nn.functional as F
 
-from tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, AvgPool2d, Linear
+from tvm.tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, AvgPool2d, Linear
 
 
 class YOLOV1(Module):

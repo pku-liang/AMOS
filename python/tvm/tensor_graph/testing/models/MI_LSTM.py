@@ -5,9 +5,9 @@ import torch
 import torchvision
 from torch.autograd import Variable
 from torchvision import transforms
-from tensor_graph.nn.layers import Layer, Linear
-from tensor_graph.nn.functional import dense, gemm
-from tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
+from tvm.tensor_graph.nn.layers import Layer, Linear
+from tvm.tensor_graph.nn.functional import dense, gemm
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
 
 def internal_gate(alpha, beta1, beta2, xi, hh, activation):
     # alpha [hidden_size]

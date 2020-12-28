@@ -3,10 +3,10 @@ import tvm
 import sys
 import time
 import numpy as np
-from tensor_graph.testing.models import resnet
+from tvm.tensor_graph.testing.models import resnet
 
-from tensor_graph.core import ForwardGraph, GraphTensor
-from tensor_graph.nn import CELoss, SGD
+from tvm.tensor_graph.core import ForwardGraph, GraphTensor
+from tvm.tensor_graph.nn import CELoss, SGD
 
 
 def partition(fwd_graph, loss=None, optimizer=None, inference=True):

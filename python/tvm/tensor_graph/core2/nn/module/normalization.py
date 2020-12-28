@@ -1,6 +1,6 @@
-from tensor_graph.core2.graph.abstract import TensorType
-from tensor_graph.core2.graph.concrete import Tensor, FloatTensor, Compute
-from tensor_graph.core2.nn import functional as F
+from tvm.tensor_graph.core2.graph.abstract import TensorType
+from tvm.tensor_graph.core2.graph.concrete import Tensor, FloatTensor, Compute
+from tvm.tensor_graph.core2.nn import functional as F
 
 from .base import StateTensor, Module
 

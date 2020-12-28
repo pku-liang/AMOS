@@ -1,7 +1,7 @@
 from tvm import topi
 import tvm
 from numbers import Integral
-from tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
 from functools import reduce
 
 class TagGenerator(object):

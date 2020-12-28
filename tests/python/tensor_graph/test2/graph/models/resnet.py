@@ -7,9 +7,9 @@ __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
            'wide_resnet50_2', 'wide_resnet101_2']
 
-from tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, \
+from tvm.tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, \
                                   AvgPool2d, GlobalAvgPool2d, Linear, Sequential
-from tensor_graph.core2.nn.functional import add_no_broadcast
+from tvm.tensor_graph.core2.nn.functional import add_no_broadcast
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):

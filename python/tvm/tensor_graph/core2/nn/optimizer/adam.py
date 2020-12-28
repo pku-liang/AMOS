@@ -1,8 +1,8 @@
 import tvm
 import numpy as np
 
-from tensor_graph.core2.graph.abstract import TensorType
-from tensor_graph.core2.graph.concrete import Tensor, FloatTensor, StateTensor, Compute
+from tvm.tensor_graph.core2.graph.abstract import TensorType
+from tvm.tensor_graph.core2.graph.concrete import Tensor, FloatTensor, StateTensor, Compute
 from .base import Optimizer
 
 

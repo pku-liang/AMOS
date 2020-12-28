@@ -7,13 +7,13 @@ except ImportError:
     import multiprocessing as _multi
 multi = _multi.get_context("fork")
 
-from tensor_graph.nn.layers import Layer, BatchNorm2d, Conv2d, ReLU
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.nn.layers import Layer, BatchNorm2d, Conv2d, ReLU
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph
                                   
-from tensor_graph.core.scheduler import schedule_all
-from tensor_graph.core.build_graph import build_all
-from tensor_graph.core.runtime import run_all
+from tvm.tensor_graph.core.scheduler import schedule_all
+from tvm.tensor_graph.core.build_graph import build_all
+from tvm.tensor_graph.core.runtime import run_all
 
 batch = 64
 in_channel = 3

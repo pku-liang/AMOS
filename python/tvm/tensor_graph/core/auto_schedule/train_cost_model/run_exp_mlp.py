@@ -1,8 +1,8 @@
 import numpy as np
 import fire
 
-from tensor_graph.core.auto_schedule.train_cost_model.dataset import get_data_pytorch
-from tensor_graph.core.auto_schedule.train_cost_model.run_exp_common import run_pytorch_experiment
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.dataset import get_data_pytorch
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.run_exp_common import run_pytorch_experiment
 
 
 def run_exp(json_path,

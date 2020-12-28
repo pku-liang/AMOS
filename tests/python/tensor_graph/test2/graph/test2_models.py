@@ -2,12 +2,12 @@ import tvm
 import numpy as np
 from collections import OrderedDict
 
-from tensor_graph.core2.graph.concrete import Compute, FloatTensor
-from tensor_graph.core2.nn import module as nn
-from tensor_graph.core2.graph.concrete import ComputeDAGMaker, ModelMaker
-from tensor_graph.core2.graph.graph import make_backward, make_forward
-from tensor_graph.core2.nn import optim
-from tensor_graph.core2.visualize import visualize_model, visualize_graph
+from tvm.tensor_graph.core2.graph.concrete import Compute, FloatTensor
+from tvm.tensor_graph.core2.nn import module as nn
+from tvm.tensor_graph.core2.graph.concrete import ComputeDAGMaker, ModelMaker
+from tvm.tensor_graph.core2.graph.graph import make_backward, make_forward
+from tvm.tensor_graph.core2.nn import optim
+from tvm.tensor_graph.core2.visualize import visualize_model, visualize_graph
 import models as M
 
 

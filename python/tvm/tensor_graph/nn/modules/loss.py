@@ -1,5 +1,5 @@
 import tvm
-from tensor_graph.core import compute, GraphTensor, GraphOp
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp
 
 
 ###################################################

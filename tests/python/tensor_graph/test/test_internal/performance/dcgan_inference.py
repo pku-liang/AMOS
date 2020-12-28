@@ -6,13 +6,13 @@ import tvm._ffi
 import numpy as np
 from tvm import tg
 from pebble import concurrent
-from tensor_graph.testing.models import dcgan
-from tensor_graph.core import evaluate_function_for, start_evaluate, stop_evaluate
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.testing.models import dcgan
+from tvm.tensor_graph.core import evaluate_function_for, start_evaluate, stop_evaluate
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph, make_fwd_graph, \
                               make_tir_graph
-from tensor_graph.core.utils import to_tuple
-from tensor_graph.core.transform import apply_layout_change
+from tvm.tensor_graph.core.utils import to_tuple
+from tvm.tensor_graph.core.transform import apply_layout_change
 import argparse
 
 

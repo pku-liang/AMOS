@@ -1,9 +1,9 @@
 import json
 
-from tensor_graph.nn.functional import cross_entropy
-from tensor_graph.testing.datasets import load_mnist_dataset
-from tensor_graph.testing.learners.image_classification_learner import ImageClassificationLearner
-from tensor_graph.testing.models import LeNet
+from tvm.tensor_graph.nn.functional import cross_entropy
+from tvm.tensor_graph.testing.datasets import load_mnist_dataset
+from tvm.tensor_graph.testing.learners.image_classification_learner import ImageClassificationLearner
+from tvm.tensor_graph.testing.models import LeNet
 
 
 def pprint_dict(d):

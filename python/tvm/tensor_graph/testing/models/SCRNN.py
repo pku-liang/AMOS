@@ -5,9 +5,9 @@ import torch
 import torchvision
 from torch.autograd import Variable
 from torchvision import transforms
-from tensor_graph.nn.layers import Layer
-from tensor_graph.nn.functional import dense, gemm
-from tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
+from tvm.tensor_graph.nn.layers import Layer
+from tvm.tensor_graph.nn.functional import dense, gemm
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
 
 def internel_SCRNN(inputs, B, U, V, fc_weight, state_h, state_c, alpha = 0.5):
     '''

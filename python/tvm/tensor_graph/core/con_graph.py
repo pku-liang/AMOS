@@ -2,7 +2,7 @@ import tvm
 import tvm._ffi
 import numpy as np
 from functools import reduce
-from tensor_graph.core.utils import to_int, to_tuple, flatten_tir_graph, op_feature
+from tvm.tensor_graph.core.utils import to_int, to_tuple, flatten_tir_graph, op_feature
 
 
 def make_tir_graph(fwd_graph, loss=None, optimizer=None, inference=True, need_output=True, need_grad=True):

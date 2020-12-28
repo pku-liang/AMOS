@@ -1,6 +1,6 @@
 import tensor_graph.core2.nn.functional as F
 
-from tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, AvgPool2d, Linear, Sequential
+from tvm.tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, AvgPool2d, Linear, Sequential
 
 import math
 

@@ -1,7 +1,7 @@
 import tvm
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph
-from tensor_graph.nn import MSELoss, SGD
+from tvm.tensor_graph.nn import MSELoss, SGD
 
 
 def test1():

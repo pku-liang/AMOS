@@ -1,5 +1,5 @@
 import tvm
-from tensor_graph.core2.graph.concrete import Tensor, StateTensor
+from tvm.tensor_graph.core2.graph.concrete import Tensor, StateTensor
 
 
 class Module(object):

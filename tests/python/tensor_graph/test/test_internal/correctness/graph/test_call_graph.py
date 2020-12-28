@@ -1,8 +1,8 @@
 import tvm
 import time
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp
-from tensor_graph.nn import MSELoss, SGD
+from tvm.tensor_graph.nn import MSELoss, SGD
 
 
 def test1():

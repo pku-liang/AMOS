@@ -1,17 +1,17 @@
 import tvm
 import time
 import numpy as np
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph
-from tensor_graph.nn import MSELoss, SGD
-from tensor_graph.core.schedule_generator import ConnectedSet, GPUScheduleBaseSet, \
+from tvm.tensor_graph.nn import MSELoss, SGD
+from tvm.tensor_graph.core.schedule_generator import ConnectedSet, GPUScheduleBaseSet, \
       GPUScheduleMasterBaseSet, form_connected_sets, GPUScheduleMasterSet, \
       SingleCut, form_cut_candidates, LayoutTransform
                                   
-from tensor_graph.core.utils import flatten_tir_graph
-from tensor_graph.core.space import PrimitiveSpace, PartitionSpace, ForwardGraphSpace
-from tensor_graph.core.tuner import RandomPrimitiveTuner, RandomPartitionTuner, RandomForwardTuner
-from tensor_graph.core.scheduler import PrimitiveScheduler as Scheduler
+from tvm.tensor_graph.core.utils import flatten_tir_graph
+from tvm.tensor_graph.core.space import PrimitiveSpace, PartitionSpace, ForwardGraphSpace
+from tvm.tensor_graph.core.tuner import RandomPrimitiveTuner, RandomPartitionTuner, RandomForwardTuner
+from tvm.tensor_graph.core.scheduler import PrimitiveScheduler as Scheduler
 
 
 def test1():

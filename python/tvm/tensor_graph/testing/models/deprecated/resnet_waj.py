@@ -1,10 +1,10 @@
 import tvm
 import numpy as np
-from tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph, \
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph, \
                               BackwardGraph, GraphMutator, PyTIRGraph
 import tensor_graph.nn.functional as F
-from tensor_graph.nn.modules.loss import CELoss
-from tensor_graph.nn.modules.optimize import SGD
+from tvm.tensor_graph.nn.modules.loss import CELoss
+from tvm.tensor_graph.nn.modules.optimize import SGD
 
 batch_size = 4
 num_class = 1000

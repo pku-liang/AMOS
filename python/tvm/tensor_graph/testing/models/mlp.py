@@ -1,8 +1,8 @@
 from collections import OrderedDict
 
-from tensor_graph.nn import Linear
-from tensor_graph.nn.functional import flatten
-from tensor_graph.nn.modules.model import Model
+from tvm.tensor_graph.nn import Linear
+from tvm.tensor_graph.nn.functional import flatten
+from tvm.tensor_graph.nn.modules.model import Model
 
 
 class MLP(Model):

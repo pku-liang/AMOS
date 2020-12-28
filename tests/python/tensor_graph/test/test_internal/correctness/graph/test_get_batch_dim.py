@@ -1,5 +1,5 @@
 import tvm 
-from tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph
 
 def test1():
   print("test 1 ########################")

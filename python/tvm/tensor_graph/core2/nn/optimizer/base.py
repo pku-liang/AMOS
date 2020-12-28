@@ -1,7 +1,7 @@
 import tvm
 import numpy as np
 
-from tensor_graph.core2.graph.concrete import FloatTensor, StateTensor
+from tvm.tensor_graph.core2.graph.concrete import FloatTensor, StateTensor
 
 
 class Optimizer(object):

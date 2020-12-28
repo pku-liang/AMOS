@@ -1,5 +1,5 @@
-from tensor_graph.nn.layers import Layer, Conv2d, CapsuleConv2d
-from tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
+from tvm.tensor_graph.nn.layers import Layer, Conv2d, CapsuleConv2d
+from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, GraphNode
 import tvm
 
 

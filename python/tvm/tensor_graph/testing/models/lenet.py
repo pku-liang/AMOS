@@ -1,6 +1,6 @@
-from tensor_graph.nn.layers import Layer, Conv2d, BatchNorm2d, ReLU, \
+from tvm.tensor_graph.nn.layers import Layer, Conv2d, BatchNorm2d, ReLU, \
                                   AvgPool2d, GlobalAvgPool2d, Linear, Sequential
-from tensor_graph.nn.functional import elementwise_add
+from tvm.tensor_graph.nn.functional import elementwise_add
 
 
 class LeNet5(Layer):

@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from tensor_graph.core.auto_schedule.train_cost_model.dataset import to_cuda
+from tvm.tensor_graph.core.auto_schedule.train_cost_model.dataset import to_cuda
 
 
 class FCModel(nn.Module):

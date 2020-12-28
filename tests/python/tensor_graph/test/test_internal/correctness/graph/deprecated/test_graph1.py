@@ -2,11 +2,11 @@ import tvm
 import numpy as np
 import tensor_graph
 import tensor_graph.nn.functional as F
-from tensor_graph.core.abs_graph import Graph
-from tensor_graph.core.space import Space
-from tensor_graph.core.schedule_generator import Scheduler
-from tensor_graph.testing.models import LeNet
-from tensor_graph.core.utils import to_tuple
+from tvm.tensor_graph.core.abs_graph import Graph
+from tvm.tensor_graph.core.space import Space
+from tvm.tensor_graph.core.schedule_generator import Scheduler
+from tvm.tensor_graph.testing.models import LeNet
+from tvm.tensor_graph.core.utils import to_tuple
 
 
 batch_size = 2

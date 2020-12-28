@@ -1,8 +1,8 @@
-from tensor_graph.nn.layers import Layer, Conv2d, BatchNorm2d, ReLU, \
+from tvm.tensor_graph.nn.layers import Layer, Conv2d, BatchNorm2d, ReLU, \
                                   AvgPool2d, GlobalAvgPool2d, Linear, Sequential
-from tensor_graph.nn.functional import elementwise_add, batch_flatten, \
+from tvm.tensor_graph.nn.functional import elementwise_add, batch_flatten, \
                                 conv_transpose2d_nchw
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph, make_fwd_graph, \
                               make_tir_graph
 import math

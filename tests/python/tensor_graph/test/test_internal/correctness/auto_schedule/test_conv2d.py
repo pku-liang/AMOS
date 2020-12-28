@@ -5,12 +5,12 @@ import time
 import tvm._ffi
 import numpy as np
 from tvm import tg
-from tensor_graph.nn.layers import Conv2d
-from tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
+from tvm.tensor_graph.nn.layers import Conv2d
+from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph, make_fwd_graph, \
                               make_tir_graph
-from tensor_graph.core.utils import to_tuple
-from tensor_graph.nn.layers import Conv2d
+from tvm.tensor_graph.core.utils import to_tuple
+from tvm.tensor_graph.nn.layers import Conv2d
 
 
 def random_initialize_weights(weight_tensors, ctx):

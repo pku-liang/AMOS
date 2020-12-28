@@ -1,6 +1,6 @@
 import tvm
 
-from tensor_graph.core.scheduler import PrimitiveScheduler
+from tvm.tensor_graph.core.scheduler import PrimitiveScheduler
 
 
 def test1():

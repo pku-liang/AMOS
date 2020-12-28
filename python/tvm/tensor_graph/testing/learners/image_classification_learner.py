@@ -5,8 +5,8 @@ import numpy as np
 import torch
 import tvm
 
-from tensor_graph.nn.functional import cross_entropy
-from tensor_graph.testing.learners.utils import to_tuple
+from tvm.tensor_graph.nn.functional import cross_entropy
+from tvm.tensor_graph.testing.learners.utils import to_tuple
 
 
 class ImageClassificationLearner:
