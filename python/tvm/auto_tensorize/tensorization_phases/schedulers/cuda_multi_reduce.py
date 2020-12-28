@@ -30,14 +30,14 @@ class CUDAParamsMultiReduce(object):
     def __init__(
             self, vectorize, spatial_factors, reduce_factors,
             left_spatial_factors_map, left_reduce_factors_map,
-            output_unroll_step, left_op_unroll_step_map):
+            output_unroll_step, left_op_unroll_step):
         self.vectorize = vectorize
         self.spatial_factors = spatial_factors
         self.reduce_factors = reduce_factors
         self.left_spatial_factors_map = left_spatial_factors_map
         self.left_reduce_factors_map = left_reduce_factors_map
         self.output_unroll_step = output_unroll_step
-        self.left_op_unroll_step_map = left_op_unroll_step_map
+        self.left_op_unroll_step = left_op_unroll_step
 
     def to_json(self):
         ret = {
@@ -47,7 +47,7 @@ class CUDAParamsMultiReduce(object):
             "left_spatial_factors_map": self.left_spatial_factors_map,
             "left_reduce_factors_map": self.left_reduce_factors_map,
             "output_unroll_step": self.output_unroll_step,
-            "left_op_unroll_step_map": self.left_op_unroll_step_map
+            "left_op_unroll_step": self.left_op_unroll_step
         }
         return ret
 
@@ -55,10 +55,12 @@ class CUDAParamsMultiReduce(object):
         self.vectorize = obj["vectorize"]
         self.spatial_factors = obj["spatial_factors"]
         self.reduce_factors = obj["reduce_factors"]
-        self.left_spatial_factors_map = obj["left_spatial_factors_map"]
-        self.left_reduce_factors_map = obj["left_reduce_factors_map"]
+        self.left_spatial_factors_map = OrderedDict(
+            {int(x): y for x, y in obj["left_spatial_factors_map"].items()})
+        self.left_reduce_factors_map = OrderedDict(
+            {int(x): y for x, y in obj["left_reduce_factors_map"].items()})
         self.output_unroll_step = obj["output_unroll_step"]
-        self.left_unroll_step_lst = obj["left_op_unroll_step_map"]
+        self.left_unroll_step = obj["left_op_unroll_step"]
 
     def __str__(self):
         obj = self.to_json()
@@ -80,7 +82,7 @@ class CUDAParamsMultiReduce(object):
 
 def empty_cuda_params_multi_reduce():
     return CUDAParamsMultiReduce(
-        None, [], [], OrderedDict(), OrderedDict(), None, OrderedDict())
+        None, [], [], OrderedDict(), OrderedDict(), None, None)
 
 
 #####################################################
@@ -273,8 +275,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                     total_reduce_extents, self.left_reduce_tiling_parts)
                 self.left_reduce_splits[op_id] = rd_gen
 
-            self.unroll_left[op_id] = UnrollStepGenerator([16, 64, 512, 1500])
-
+        self.unroll_left = UnrollStepGenerator([16, 64, 512, 1500])
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
@@ -285,7 +286,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             *list(self.left_spatial_splits.values()),
             *list(self.left_reduce_splits.values()),
             self.unroll_output,
-            *list(self.unroll_left.values())
+            self.unroll_left
         ]
 
     def init_score_table(self):
@@ -330,14 +331,9 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
         return True
 
     def record_from_json(self, obj):
-        return self.record_cls(
-            obj["vectorize"],
-            obj["spatial_factors"],
-            obj["reduce_factors"],
-            obj["left_spatial_factors_map"],
-            obj["left_reduce_factors_map"],
-            obj["output_unroll_step"],
-            obj["left_op_unroll_step_map"])
+        ret = empty_cuda_params_multi_reduce()
+        ret.from_json(obj)
+        return ret
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
@@ -354,10 +350,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                         policy=policy) for x, gen
                         in self.left_reduce_splits.items()}),
                 self.unroll_output.get(policy=policy),
-                OrderedDict(
-                    {x: gen.get(
-                        policy=policy) for x, gen
-                        in self.unroll_left.items()}))
+                self.unroll_left.get(policy=policy))
         else:
             record = self.record_cls(
                 self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
@@ -377,11 +370,8 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                             entry.record.left_reduce_factors_map)}),
                 self.unroll_output.get(
                     hint=entry.record.output_unroll_step[0], policy="q"),
-                OrderedDict(
-                    {y: gen.get(
-                        hint=x[0], policy="q") for (y, gen), x in zip(
-                        self.unroll_left.items(),
-                        hint=entry.record.left_op_unroll_step_map)})
+                self.unroll_left.get(
+                    hint=entry.record.left_op_unroll_step[0], policy="q")
                 )
         return record
 
@@ -393,7 +383,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
         left_spatial = record.left_spatial_factors_map.values()
         left_reduce = record.left_reduce_factors_map.values()
         unroll_output = record.output_unroll_step
-        unroll_left = record.left_op_unroll_step_map.values()
+        unroll_left = record.left_op_unroll_step
 
         next_vec = self.vectorize.get_next(
             vec[0], to_mutate)
@@ -416,11 +406,9 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
         next_unroll_output = self.unroll_output.get_next(
             unroll_output[0], to_mutate
         )
-        next_unroll_left = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.unroll_left.values(), unroll_left)
-        ]
-
+        next_unroll_left = self.unroll_left.get_next(
+            unroll_left[0], to_mutate
+        )
         has_mutate = False
 
         def helper(_gen, org_val):
@@ -451,10 +439,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                     next_left_reduce, left_reduce)
             ]
             unroll_output = helper(next_unroll_output, unroll_output)
-            unroll_left = [
-                helper(_gen, org_val) for _gen, org_val in zip(
-                    next_unroll_left, unroll_left)
-            ]
+            unroll_left = helper(next_unroll_left, unroll_left)
             if has_mutate:
                 yield self.record_cls(
                     vec,
@@ -467,9 +452,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                         x: y for x, y in zip(
                             self.left_reduce_splits.keys(), left_reduce)}),
                     unroll_output,
-                    OrderedDict({
-                        x: y for x, y in zip(
-                            self.unroll_left.keys(), unroll_left)}))
+                    unroll_left)
             has_mutate = False
 
     def feedback_value(self, entry, value):
@@ -489,10 +472,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                 entry.record.left_reduce_factors_map):
             gen.feedback(*factors, value)
         self.unroll_output.feedback(*entry.record.output_unroll_step, value)
-        for gen, step in zip(
-                self.unroll_left.values(),
-                entry.record.left_op_unroll_step_map):
-            gen.feedback(*step, value)
+        self.unroll_left.feedback(*entry.record.left_op_unroll_step, value)
 
 
 class CUDAScheduleApplierMultiReduce(object):
@@ -694,11 +674,11 @@ class CUDAScheduleApplierMultiReduce(object):
     #     assert self.params.last_unroll_step is not None
     #     return self.params.last_unroll_step[0]
 
-    def get_left_op_unroll_step(self, op):
-        assert op in self.state.op_to_id
-        op_id = self.state.op_to_id[op]
-        assert op_id in self.params.left_op_unroll_step_map
-        unroll_step = self.params.left_op_unroll_step_map[op_id][0]
+    def get_left_op_unroll_step(self):
+        # assert op in self.state.op_to_id
+        # op_id = self.state.op_to_id[op]
+        # assert op_id in self.params.left_op_unroll_step
+        unroll_step = self.params.left_op_unroll_step[0]
         return unroll_step
 
     def check_parameter_ready(self):
@@ -942,7 +922,7 @@ class CUDAScheduleApplierMultiReduce(object):
             tile_spatial, tile_reduce = need_tiling(op, self.target_dag)
             if tile_reduce:
                 axis = self.get_left_op_outermost_axis(op)
-                step = self.get_left_op_unroll_step(op)
+                step = self.get_left_op_unroll_step()
                 sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
                 # sch[X(op)].pragma(axis, "unroll_explicit", 0)
             else:

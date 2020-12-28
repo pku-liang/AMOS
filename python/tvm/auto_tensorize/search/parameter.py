@@ -296,7 +296,7 @@ class SAEntryGenerator(EntryGenerator):
 
     def get_generators(self):
         raise NotImplementedError()
-    
+
     def get_records_mutate_one_generator(self, record, to_mutate, steps):
         raise NotImplementedError()
 
