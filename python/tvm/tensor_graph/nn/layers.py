@@ -1,6 +1,6 @@
 import tvm
 from tvm.tensor_graph.core import GraphTensor, GraphOp, compute
-import tensor_graph.nn.functional as F
+import tvm.tensor_graph.nn.functional as F
 
 
 class Layer(object):

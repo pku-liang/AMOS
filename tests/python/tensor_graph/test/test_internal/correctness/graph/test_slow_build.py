@@ -2,7 +2,7 @@ import tvm
 
 from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph, \
                               BackwardGraph, GraphMutator, PyTIRGraph
-import tensor_graph.nn.functional as F
+import tvm.tensor_graph.nn.functional as F
 from tvm.tensor_graph.nn.modules.loss import CELoss
 from tvm.tensor_graph.nn.modules.optimize import SGD
 from tvm.tensor_graph.core.utils import flatten_tir_graph

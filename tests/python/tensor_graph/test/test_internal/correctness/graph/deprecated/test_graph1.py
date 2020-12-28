@@ -1,7 +1,7 @@
 import tvm
 import numpy as np
-import tensor_graph
-import tensor_graph.nn.functional as F
+import tvm.tensor_graph
+import tvm.tensor_graph.nn.functional as F
 from tvm.tensor_graph.core.abs_graph import Graph
 from tvm.tensor_graph.core.space import Space
 from tvm.tensor_graph.core.schedule_generator import Scheduler

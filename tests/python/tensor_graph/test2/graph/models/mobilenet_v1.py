@@ -1,4 +1,4 @@
-import tensor_graph.core2.nn.functional as F
+import tvm.tensor_graph.core2.nn.functional as F
 
 from tvm.tensor_graph.core2.nn.module import Module, Conv2d, BatchNorm2d, ReLU, AvgPool2d, Linear, Sequential
 

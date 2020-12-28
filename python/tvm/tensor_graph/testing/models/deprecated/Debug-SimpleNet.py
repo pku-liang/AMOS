@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from tvm.tensor_graph.core import compute, GraphTensor, GraphOp, ForwardGraph, \
                               BackwardGraph, GraphMutator, PyTIRGraph
-import tensor_graph.nn.functional as F
+import tvm.tensor_graph.nn.functional as F
 from tvm.tensor_graph.nn.modules.loss import CELoss, MSELoss
 from tvm.tensor_graph.nn.modules.optimize import SGD
 
