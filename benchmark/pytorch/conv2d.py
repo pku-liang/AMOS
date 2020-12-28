@@ -61,12 +61,9 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
           total = start.elapsed_time(end)
           time_record.append(total)
       if i == repeats - 1:
-        print("Average conv2d latency", np.mean(time_record))
-        print("Median  conv2d latency", np.median(time_record))
-  print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
-  print("N, C, H, W, K, R, S, stride, padding, dilation")
-  print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation])))
-  print("------------------")
+        mean_cost = np.mean(time_record)
+  #print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
+  print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation, dtype, mean_cost])))
 
 
 
@@ -93,16 +90,12 @@ if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
     num = len(res18_shapes_b1)
-    for batch in batches:
-        costs = []
-        for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
-            (_, C, H, W, K, _, R, S, _, stride, padding, dilation, _) = shape
-            N = batch
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "FP16")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "FP32")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "TF32")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "FP64")
-            conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "BF16")
-            #conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "INT8")
-            #conv2d(N, C, H, W, K, R, S, stride, padding, dilation, "BOOL")
+    print("N, C, H, W, K, R, S, stride, padding, dilation, type, cost")
+    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
+      for batch in batches:
+          costs = []
+          for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
+              (_, C, H, W, K, _, R, S, _, stride, padding, dilation, _) = shape
+              N = batch
+              conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
