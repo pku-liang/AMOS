@@ -86,10 +86,11 @@ def auto_tensorize(target_dag, target,
             builder=builder,
             runner=runner,
             verbose=verbose)
-    else:
-        entry = schedule_gen.get_best_entry()
-        # we store 1/time_cost in file
-        params, value = entry.record, 1 / entry.value
+
+    entry = schedule_gen.get_best_entry()
+    # we store 1/time_cost in file
+    params, value = entry.record, 1 / entry.value
+    # print("Evaluation only:", params, value, flush=True)
 
     return AutoTensorizeResult(
         schedule_gen,
