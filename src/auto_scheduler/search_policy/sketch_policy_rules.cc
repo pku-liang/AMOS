@@ -962,7 +962,7 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
       if (stage->compute_at != ComputeAtKind::kIter) {
         // This stage is not multi-level tiled,
         // so it must be produced by RuleCrossThreadReduction.
-        CHECK(HasCrossThreadReduction(*state, stage_id));
+        // CHECK(HasCrossThreadReduction(*state, stage_id));
       } else {
         const auto res = (*state)->attach_map->stage_to_attach_iter.find(stage_id);
         CHECK(res != (*state)->attach_map->stage_to_attach_iter.end());

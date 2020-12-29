@@ -30,7 +30,8 @@ class Layer(object):
 
 class Conv2d(Layer):
   def __init__(self, in_channel, out_channel, kernel_size,
-        bias=False, stride=1, padding=0, dilation=1, groups=1, dtype="float32"):
+        bias=False, stride=1, padding=0, dilation=1, groups=1,
+        dtype="float32", out_dtype="float32"):
     super(Conv2d, self).__init__()
     self.in_channel = in_channel
     self.out_channel = out_channel
@@ -49,6 +50,8 @@ class Conv2d(Layer):
     self.padding = padding
     self.dilation = dilation
     self.groups = groups
+    self.dtype = dtype
+    self.out_dtype = out_dtype
 
     self.weight = GraphTensor(
       (out_channel, in_channel // groups, *kernel_size), dtype=dtype, name="conv2d_weight", requires_grad=True)
@@ -58,13 +61,21 @@ class Conv2d(Layer):
       self.bias = None
 
   def forward(self, inputs):
-    return F.conv2d_nchw(
-      inputs, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+    if self.groups == 1:
+      return F.conv2d_nchw(
+        inputs, self.weight, self.bias, self.stride, self.padding, self.dilation,
+        out_dtype=self.out_dtype)
+    else:
+      return F.conv2d_nchw_grouped(
+        inputs, self.weight, self.bias, self.stride, self.padding, self.dilation,
+        self.groups, out_dtype=self.out_dtype
+      )
 
 
 class Conv3d(Layer):
   def __init__(self, in_channel, out_channel, kernel_size,
-        bias=False, stride=1, padding=0, dilation=1, groups=1, dtype="float32"):
+        bias=False, stride=1, padding=0, dilation=1, groups=1,
+        dtype="float32", out_dtype="float32"):
     super(Conv3d, self).__init__()
     self.in_channel = in_channel
     self.out_channel = out_channel
@@ -83,6 +94,8 @@ class Conv3d(Layer):
     self.padding = padding
     self.dilation = dilation
     self.groups = groups
+    self.dtype = dtype
+    self.out_dtype = out_dtype
 
     self.weight = GraphTensor(
       (out_channel, in_channel, *kernel_size), dtype=dtype, name="conv3d_weight", requires_grad=True)
@@ -92,13 +105,22 @@ class Conv3d(Layer):
       self.bias = None
 
   def forward(self, inputs):
-    return F.conv3d_ncdhw(
-      inputs, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+    if self.groups == 1:
+      return F.conv3d_ncdhw(
+        inputs, self.weight, self.bias,
+        self.stride, self.padding, self.dilation,
+        out_dtype=self.out_dtype)
+    else:
+      return F.conv3d_ncdhw_grouped(
+        inputs, self.weight, self.bias,
+        self.stride, self.padding, self.dilation, self.groups,
+        out_dtype=self.out_dtype) 
 
 
 class CapsuleConv2d(Layer):
   def __init__(self, in_channel, out_channel, kernel_size,
-        bias=False, stride=1, padding=0, dilation=1, groups=1, num_caps=8, dtype="float32"):
+        bias=False, stride=1, padding=0, dilation=1, groups=1, num_caps=8,
+        dtype="float32", out_dtype="float32"):
     super(CapsuleConv2d, self).__init__()
     self.in_channel = in_channel
     self.out_channel = out_channel
@@ -120,6 +142,11 @@ class CapsuleConv2d(Layer):
     self.groups = groups
     self.num_caps = num_caps
 
+    assert groups == 1
+
+    self.dtype = dtype
+    self.out_dtype = out_dtype
+
     self.weight = GraphTensor(
       (out_channel, in_channel, *kernel_size, num_caps), dtype=dtype, name="conv2d_weight", requires_grad=True)
     if bias:
@@ -129,27 +156,40 @@ class CapsuleConv2d(Layer):
 
   def forward(self, inputs):
     return F.conv2d_capsule(
-      inputs, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.num_caps)
+      inputs, self.weight, self.bias, self.stride,
+      self.padding, self.dilation, self.num_caps,
+      out_dtype=self.out_dtype)
 
 
 class BatchNorm2d(Layer):
-  def __init__(self, num_features, eps=1e-5, dtype="float32"):
+  def __init__(self, num_features, eps=1e-5,
+    dtype="float32", out_dtype="float32"):
     super(BatchNorm2d, self).__init__()
-    self.alpha = GraphTensor((num_features,), dtype=dtype, name="bn_alpha", requires_grad=True)
-    self.beta = GraphTensor((num_features,), dtype=dtype, name="bn_beta", requires_grad=True)
+    self.alpha = GraphTensor(
+      (num_features,), dtype=dtype, name="bn_alpha", requires_grad=True)
+    self.beta = GraphTensor(
+      (num_features,), dtype=dtype, name="bn_beta", requires_grad=True)
     self.eps = eps
-    
+
+    self.dtype = dtype
+    self.out_dtype = out_dtype
+
   def forward(self, inputs):
-    return F.batch_norm2d(inputs, self.alpha, self.beta, self.eps, not self.train)
+    return F.batch_norm2d(
+      inputs, self.alpha, self.beta, self.eps, not self.train)
 
 
 class BatchNorm3d(Layer):
-  def __init__(self, num_features, eps=1e-5, dtype="float32"):
+  def __init__(self, num_features, eps=1e-5,
+    dtype="float32", out_dtype="float32"):
     super(BatchNorm3d, self).__init__()
     self.alpha = GraphTensor((num_features,), dtype=dtype, name="bn_alpha", requires_grad=True)
     self.beta = GraphTensor((num_features,), dtype=dtype, name="bn_beta", requires_grad=True)
     self.eps = eps
-    
+
+    self.dtype = dtype
+    self.out_dtype = out_dtype
+
   def forward(self, inputs):
     return F.batch_norm3d(inputs, self.alpha, self.beta, self.eps, not self.train)
 
@@ -157,7 +197,7 @@ class BatchNorm3d(Layer):
 class ReLU(Layer):
   def __init__(self):
     super(ReLU, self).__init__()
-  
+
   def forward(self, inputs):
     return F.ReLU(inputs)
 
@@ -205,18 +245,24 @@ class GlobalAvgPool3d(Layer):
 
 
 class Linear(Layer):
-  def __init__(self, in_features, out_features, bias=False, dtype="float32"):
+  def __init__(self, in_features, out_features, bias=False,
+    dtype="float32", out_dtype="float32"):
     super(Linear, self).__init__()
     self.in_features = in_features
     self.out_features = out_features
-    self.weight = GraphTensor([out_features, in_features], dtype=dtype, name="linear_weight")
+    self.weight = GraphTensor(
+      [out_features, in_features], dtype=dtype, name="linear_weight")
     if bias:
-      self.bias = GraphTensor([out_features], dtype=dtype, name="linear_bias", requires_grad=True)
+      self.bias = GraphTensor(
+        [out_features], dtype=dtype, name="linear_bias", requires_grad=True)
     else:
       self.bias = None
+
+    self.dtype = dtype
+    self.out_dtype = out_dtype
     
   def forward(self, x):
-    return F.dense(x, self.weight, self.bias)
+    return F.dense(x, self.weight, self.bias, out_dtype=self.out_dtype)
 
 
 class Sequential(Layer):

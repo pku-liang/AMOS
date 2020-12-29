@@ -18,13 +18,18 @@ tvm::runtime::Module FunctionBuilder::build_func(
   // const tvm::BuildConfig& config
   ) {
   
-  auto lowered = tvm::lower(sch, args, name, binds);
-  print(4, log_out) << "Check lowered function:\n" << lowered << "\n";
+  // auto lowered = tvm::lower(sch, args, name, binds);
+  // print(4, log_out) << "Check lowered function:\n" << lowered << "\n";
 
-  tvm::runtime::Module ret = tvm::build(
-    lowered,
-    target,
-    target_host
+  // tvm::runtime::Module ret = tvm::build(
+  //   lowered,
+  //   target,
+  //   target_host
+  // );
+  const auto* f = runtime::Registry::Get("tg.autoschedule.build_func");
+  ASSERT(f != nullptr) << "Can't find tg.autoschedule.build_func";
+  tvm::runtime::Module ret = (*f)(
+    sch, args, target, target_host, name, Map<te::Tensor, tir::Buffer>(binds)
   );
   return ret;
 }

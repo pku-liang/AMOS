@@ -509,6 +509,13 @@ TVM_REGISTER_GLOBAL("tg.make_tir_multi_graph")
   *rv = TIRMultiGraph(args[0], engine);
 });
 
+
+TVM_REGISTER_GLOBAL("tg.get_graphs_from_tir_multi_graph")
+.set_body_typed([](TIRMultiGraph multi_graph) {
+  Map<IntKey, TIRGraph> ret(multi_graph->graphs.begin(), multi_graph->graphs.end());
+  return ret;
+});
+
 }  // namespace tg
 
 }  // namespace tvm

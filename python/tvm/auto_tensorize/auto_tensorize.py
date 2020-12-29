@@ -1,5 +1,6 @@
 import os
 import tvm
+import tvm._ffi
 from .search import pebble_local_builder_build, pebble_local_runner_run
 from .tensorization_phases import get_match_results, TransformGenerator, TransformApplier
 from .tensorization_phases import CUDAScheduleGenerator, CUDAScheduleApplier
@@ -25,12 +26,9 @@ class AutoTensorizeResult(object):
                 and (self.perf is not None))
 
 
-def auto_tensorize(target_dag, target,
+def auto_tensorize_compute(target_dag, target,
         log_file,
         measure_opt,
-        trials=200,
-        builder=pebble_local_builder_build,
-        runner=pebble_local_runner_run,
         verbose=False,
         transform_dump=False):
     # refactor target
@@ -39,7 +37,7 @@ def auto_tensorize(target_dag, target,
 
     if len(match_results) == 0:
         print("This workload has no matched intrinsic for target: %s" % target, flush=True)
-        return AutoTensorizeResult(None, None, None, None)
+        return None, None
     elif verbose:
         print("Matched results:", flush=True)
         for m in match_results:
@@ -69,6 +67,20 @@ def auto_tensorize(target_dag, target,
             sch, new_inputs + list(new_target_dag.tensors), simple_mode=True),
             flush=True)
 
+    return match_result, new_state
+
+
+def auto_tensorize_schedule(target_dag, target,
+        log_file,
+        measure_opt,
+        match_result,
+        new_state,
+        trials=200,
+        builder=pebble_local_builder_build,
+        runner=pebble_local_runner_run,
+        verbose=False):
+    if match_result is None or new_state is None:
+        return AutoTensorizeResult(None, None, None, None)
     if str(target) == "cuda":
         schedule_gen = CUDAScheduleGenerator(
             match_result, new_state, log_file=log_file)
@@ -99,6 +111,36 @@ def auto_tensorize(target_dag, target,
         schedule_app,
         params,
         value
+    )
+
+
+def auto_tensorize(target_dag, target,
+        log_file,
+        measure_opt,
+        trials=200,
+        builder=pebble_local_builder_build,
+        runner=pebble_local_runner_run,
+        verbose=False,
+        transform_dump=False):
+    match_result, new_state = auto_tensorize_compute(
+        target_dag,
+        target,
+        log_file,
+        measure_opt,
+        verbose,
+        transform_dump)
+
+    return auto_tensorize_schedule(
+        target_dag,
+        target,
+        log_file,
+        measure_opt,
+        match_result,
+        new_state,
+        trials,
+        builder,
+        runner,
+        verbose
     )
 
 

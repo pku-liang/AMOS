@@ -193,3 +193,7 @@ def flatten_tir_graph(ops, output_first=False):
   """
   ret = _ffi_api.flatten_tir_graph(ops, output_first)
   return ret
+
+
+def get_graphs_from_tir_multi_graph(multi_graph):
+  return _ffi_api.get_graphs_from_tir_multi_graph(multi_graph)

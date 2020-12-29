@@ -30,6 +30,7 @@ def create_session_option(
     execution_timeout=100.0,
     synchronize_subgraph=True,
     execution_log_file="execution_log.txt",
+    use_tensor_core=False,
 ):
     """Creates a SessionOption
 
@@ -82,6 +83,8 @@ def create_session_option(
 
     execution_log_file : str
 
+    use_tensor_core: bool
+
     Returns
     -------
     SessionOption
@@ -108,6 +111,7 @@ def create_session_option(
         execution_timeout,
         synchronize_subgraph,
         execution_log_file,
+        use_tensor_core
     )
 
 

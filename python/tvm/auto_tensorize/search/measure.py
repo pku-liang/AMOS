@@ -43,6 +43,7 @@ class MeasureOptions(object):
 
 
 EVALUTE_INPUTS = None
+EVALUTE_SCHEDULE_INPUTS = None
 GLOBAL_BUILD_INPUTS = None
 GLOBAL_RUN_INPUTS = None
 GLOBAL_RPC_RUN_INPUTS = None
@@ -87,7 +88,9 @@ def get_tvm_arrays(tensors, ctx):
     return ret
 
 
-def evaluate_schedule(sch, args, measure_opt):
+def evaluate_schedule_worker(dummy):
+    global EVALUTE_SCHEDULE_INPUTS
+    sch, args, measure_opt = EVALUTE_SCHEDULE_INPUTS
     target = measure_opt.target
     dev_id = measure_opt.dev_id
     number = measure_opt.number
@@ -100,6 +103,43 @@ def evaluate_schedule(sch, args, measure_opt):
     ctx.sync()
     cost = evaluator(*arrays).mean * 1e3
     return cost
+
+
+def evaluate_schedule(sch, args, measure_opt, new_process=False):
+    if not new_process:
+        target = measure_opt.target
+        dev_id = measure_opt.dev_id
+        number = measure_opt.number
+        min_repeat_ms = measure_opt.min_repeat_ms
+        ctx = tvm.context(target, dev_id)
+        arrays = get_tvm_arrays(args, ctx)
+        func = tvm.build(sch, args, target=target)
+        evaluator = func.time_evaluator(
+            func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
+        ctx.sync()
+        cost = evaluator(*arrays).mean * 1e3
+        return cost
+    else:
+        global EVALUTE_SCHEDULE_INPUTS
+        EVALUTE_SCHEDULE_INPUTS = (sch, args, measure_opt)
+        with ProcessPool(1) as pool:
+            future = pool.map(evaluate_schedule_worker, [0], timeout=100)
+            iterator = future.result()
+
+            while True:
+                try:
+                    results = next(iterator)
+                except StopIteration:
+                    break
+                except TimeoutError as error:
+                    print("Evaluate Timeout.", flush=True)
+                    results = MAX_FLOAT
+                except Exception as error:
+                    print("Evaluate Fatal Error\n",
+                        auto_scheduler.measure.make_error_msg(), flush=True)
+                    results = MAX_FLOAT
+
+        return results
 
 
 def evaluate_params_worker(dump):
@@ -141,7 +181,7 @@ def evaluate_params(schedule_app, params, measure_opt, timeout=100, dump=False):
                 print("Evaluate Fatal Error\n",
                        auto_scheduler.measure.make_error_msg(), flush=True)
                 results = MAX_FLOAT
-            
+
     return results
 
 # this is similar to auto_scheduler

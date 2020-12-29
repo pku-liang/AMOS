@@ -46,6 +46,7 @@ class SessionOptionNode : public Object {
   double execution_timeout;
   bool synchronize_subgraph;
   std::string execution_log_file;
+  bool use_tensor_core;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("report_profile", &report_profile);
@@ -69,6 +70,7 @@ class SessionOptionNode : public Object {
     v->Visit("execution_timeout", &execution_timeout);
     v->Visit("synchronize_subgraph", &synchronize_subgraph);
     v->Visit("execution_log_file", &execution_log_file);
+    v->Visit("use_tensor_core", &use_tensor_core);
   }
 
   static constexpr const char* _type_key = "tg.autoschedule.SessionOption";
@@ -99,7 +101,8 @@ class SessionOption : public ObjectRef {
     int execution_parallel,
     double execution_timeout,
     bool synchronize_subgraph,
-    std::string execution_log_file);
+    std::string execution_log_file,
+    bool use_tensor_core);
   
   SessionOption(int dummy);
 
@@ -122,6 +125,7 @@ class Session {
   std::unordered_map<int, std::thread> build_threads;
   std::unordered_map<int, std::thread> evaluate_threads;
 
+  std::unordered_map<int, TIRGraph> task_graph;
   std::unordered_map<int, TIRMultiGraph> task_cache;
   std::unordered_map<int, std::vector<IntKey> > static_call_order;
   std::unordered_map<te::Tensor, tvm::runtime::NDArray> persistent_tensors;
@@ -156,6 +160,7 @@ class Session {
   // void enable_autoschedule() {
   //   use_autoschedule = true;
   // }
+  void initialize_weights(TIRGraph graph);
   void initialize_weights(TIRGraph graph, std::vector<tvm::runtime::NDArray> bindings);
   void allocate_output_buffer(TIRMultiGraph multi_graph);
   Array<tvm::runtime::NDArray> get_data(Array<te::Tensor> keys);

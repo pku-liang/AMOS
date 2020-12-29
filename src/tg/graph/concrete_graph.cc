@@ -243,21 +243,21 @@ TIRGraph::TIRGraph(
 
   std::vector<te::Tensor> ordered_tensors;
   std::unordered_set<te::Tensor> added_tensors;
-  node->tag += "operations: ";
+  node->tag += "operations:";
   std::unordered_map<Operation, int> op_to_id;
   int count_id = 0;
   for (auto op : node->operation_list) {
     op_to_id[op] = count_id++;
     node->operation_key_dict.Set(op, OperationKey(op));
     node->operation_stat_dict.Set(op, OpAttr(op, node->down_graph, node->root_ops));
-    node->tag += "inputs: ";
+    node->tag += "inputs:";
     std::ostringstream oss;
     for (auto inp : op->InputTensors()) {
       if (added_tensors.find(inp) == added_tensors.end()) {
         ordered_tensors.push_back(inp);
         added_tensors.insert(inp);
       }
-      oss << inp->shape << " ";
+      oss << inp->shape << ",";
     }
     for (int i = 0; i < op->num_outputs(); ++i) {
       auto out = op.output(i);
@@ -267,11 +267,11 @@ TIRGraph::TIRGraph(
       }
     }
     node->tag += oss.str();
-    node->tag += "body: " + op->tag + "$";
+    node->tag += "body:" + op->tag + "$";
     node->gflop += get_gflop(op);
   }
   
-  node->tag += "tensors: ";
+  node->tag += "tensors:";
   std::ostringstream tensors_oss;
   // set tensors
   for (auto t : ordered_tensors) {
@@ -282,7 +282,7 @@ TIRGraph::TIRGraph(
   }
   node->tag += tensors_oss.str();
 
-  node->tag += "graph: ";
+  node->tag += "graph:";
   for (int i = 0; i < count_id; ++i) {
     Operation op = node->operation_list[i];
     if (node->down_graph.find(op) != node->down_graph.end()) {

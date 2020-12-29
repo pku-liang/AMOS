@@ -148,12 +148,12 @@ def interpret(sch, tensors, subgraph, target, entity):
     if schedule_entity.schedule_skeleton.do_tiling_and_binding:
       tiling_and_binding = schedule_entity.tiling_and_binding
       tiling, binding = tiling_and_binding.tiling, tiling_and_binding.binding
-      if target.target_name == "cuda":
+      if str(target.kind) == "cuda":
         schedule_cuda_tiling_and_binding(sch, op, tiling, binding)
-      elif target.target_name == "llvm":
+      elif str(target.kind) == "llvm":
         schedule_llvm_tiling_and_binding(sch, op, tiling, binding)
       else:
-        print("Currently no support for target", target)
+        print("Currently no support for target", target.kind, type(target.kind))
         sys.exit(1)
   # print(tvm.lower(sch, tensors))
   return

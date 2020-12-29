@@ -75,6 +75,29 @@ void AutoScheduler::auto_schedule(
   Array<te::Tensor> tensors;
   std::tie(sch, tensors) = empty_schedule(subgraph);
 
+  /*
+   * Allow external schedule
+   * Use string to represent external schedule
+   */
+  if (context->target->kind->name == "cuda" && this->use_tensor_core) {
+    const auto* f = runtime::Registry::Get("tg.autoschedule.auto_tensorize_cuda");
+    ASSERT(f != nullptr) << "Can't find tg.autoschedule.auto_tensorize_cuda";
+    std::string log_name = subgraph->tag + ".log";
+    int trials = 400;
+    Map<te::Schedule, Array<te::Tensor>> ret = (*f)(sch, tensors, log_name, trials);
+    ASSERT(ret.size() == 1U);
+    te::Schedule new_sch;
+    Array<te::Tensor> new_tensors;
+    for (auto kv : ret) {
+      new_sch = kv.first;
+      new_tensors = kv.second;
+    }
+    if (new_tensors.size() > 0U) {
+      results = ScheduleResult(new_sch, new_tensors, log_name);
+      return;
+    }
+  }
+
   /* the schedule logic
    * a schedule is two-level: skeleton + paramter
    * when the topk cache is empty, all random enumerated
@@ -202,34 +225,36 @@ void AutoScheduler::auto_schedule(
 
 
 void AutoScheduleContext::add_feedback(ScheduleResult schedule_result, double evaluation) {
-  auto self = (*this);
-  if (evaluation > 0.0) {
-    EvaluatedScheduleResult evaluated = EvaluatedScheduleResult(schedule_result, evaluation);
-    if ((int)self->topk_schedules.size() < self->topk) {
-      self->topk_schedules.push(evaluated);
-    } else {
-      if (evaluated < self->topk_schedules.top()) {
-        return;
-      } else {
-        self->topk_schedules.pop();
+  if (schedule_result->schedule_entities.defined()) {
+    auto self = (*this);
+    if (evaluation > 0.0) {
+      EvaluatedScheduleResult evaluated = EvaluatedScheduleResult(schedule_result, evaluation);
+      if ((int)self->topk_schedules.size() < self->topk) {
         self->topk_schedules.push(evaluated);
+      } else {
+        if (evaluated < self->topk_schedules.top()) {
+          return;
+        } else {
+          self->topk_schedules.pop();
+          self->topk_schedules.push(evaluated);
+        }
       }
     }
-  }
 
-  self->known_schedules.insert(schedule_result->schedule_entities);
-  self->knowing_schedules.erase(schedule_result->schedule_entities);
-  if (self->known_schedules.size() > 2000U) {
-    int count = 0;
-    std::vector<MultiScheduleEntity> to_delete;
-    for (auto val : self->known_schedules) {
-      to_delete.push_back(val);
-      if (count > 1000)
-        break;
-      count += 1;
-    }
-    for (auto val : to_delete) {
-      self->known_schedules.erase(val);
+    self->known_schedules.insert(schedule_result->schedule_entities);
+    self->knowing_schedules.erase(schedule_result->schedule_entities);
+    if (self->known_schedules.size() > 2000U) {
+      int count = 0;
+      std::vector<MultiScheduleEntity> to_delete;
+      for (auto val : self->known_schedules) {
+        to_delete.push_back(val);
+        if (count > 1000)
+          break;
+        count += 1;
+      }
+      for (auto val : to_delete) {
+        self->known_schedules.erase(val);
+      }
     }
   }
 }
@@ -262,6 +287,34 @@ ScheduleResult AutoScheduler::schedule_with_entity(
 }
 
 
+ScheduleResult AutoScheduler::schedule_with_external(
+  TIRGraph subgraph, Target target, String external_schedule
+) {
+  if (target->kind->name == "cuda") {
+    const auto* f = runtime::Registry::Get("tg.autoschedule.auto_tensorize_cuda");
+    ASSERT(f != nullptr) << "Can't find tg.autoschedule.auto_tensorize_cuda";
+    std::string log_name = external_schedule;
+    int trials = 0;
+    te::Schedule sch;
+    Array<te::Tensor> tensors;
+    std::tie(sch, tensors) = empty_schedule(subgraph);
+    Map<te::Schedule, Array<te::Tensor>> ret = (*f)(sch, tensors, log_name, trials);
+    ASSERT(ret.size() == 1U);
+    te::Schedule new_sch;
+    Array<te::Tensor> new_tensors;
+    for (auto kv : ret) {
+      new_sch = kv.first;
+      new_tensors = kv.second;
+    }
+    ASSERT(new_tensors.size() > 0U);
+    return ScheduleResult(new_sch, new_tensors, log_name);
+  } else {
+    ERROR << "Do not support schedule with external for target " << target << "\n";
+    throw;
+  }
+}
+
+
 std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
   IntKey key, TIRGraph subgraph, Target target, int priority) {
   
@@ -283,44 +336,46 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 
 
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, Target target, ScheduleResult schedule_result, double evaluation) {
-  const auto* f = runtime::Registry::Get("tg.autoschedule.store_feedback");
-  ASSERT(f != nullptr) << "Can't find tg.autoschedule.store_feedback";
-  if (contexts.find(key) == contexts.end()) {
-    contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
-  }
-  contexts[key].add_feedback(schedule_result, evaluation);
-  Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
-  std::ostringstream oss;
-  double gflop = get_gflop(subgraph);
+  if (schedule_result->schedule_entities.defined()) {
+    const auto* f = runtime::Registry::Get("tg.autoschedule.store_feedback");
+    ASSERT(f != nullptr) << "Can't find tg.autoschedule.store_feedback";
+    if (contexts.find(key) == contexts.end()) {
+      contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
+    }
+    contexts[key].add_feedback(schedule_result, evaluation);
+    Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
+    std::ostringstream oss;
+    double gflop = get_gflop(subgraph);
 
-  oss << "{ ";
-  oss << "\"gflop\": ";
-  oss << gflop << ", ";
-  oss << "\"loop_nests\": ";
-  oss << "[";
-  for (int i = 0; i < (int)feature.size(); ++i) {
-    if (i != 0)
-      oss << ", ";
-    oss << std::pow(2, feature[i]->features[15]->value);
+    oss << "{ ";
+    oss << "\"gflop\": ";
+    oss << gflop << ", ";
+    oss << "\"loop_nests\": ";
+    oss << "[";
+    for (int i = 0; i < (int)feature.size(); ++i) {
+      if (i != 0)
+        oss << ", ";
+      oss << std::pow(2, feature[i]->features[15]->value);
+    }
+    oss << "], ";
+    oss << "\"features\": ";
+    oss << "[";
+    for (int i = 0; i < (int)feature.size(); ++i) {
+      if (i != 0)
+        oss << ", ";
+      oss << feature[i];
+    }
+    oss << "], ";
+    // oss << "\"schedules\": ";
+    // oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
+    oss << "\"evaluation\": ";
+    oss << evaluation;
+    oss << " }\n";
+    profile_log << oss.str();
+    
+    if (evaluation > 0)
+      (*f)(oss.str());
   }
-  oss << "], ";
-  oss << "\"features\": ";
-  oss << "[";
-  for (int i = 0; i < (int)feature.size(); ++i) {
-    if (i != 0)
-      oss << ", ";
-    oss << feature[i];
-  }
-  oss << "], ";
-  // oss << "\"schedules\": ";
-  // oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
-  oss << "\"evaluation\": ";
-  oss << evaluation;
-  oss << " }\n";
-  profile_log << oss.str();
-  
-  if (evaluation > 0)
-    (*f)(oss.str());
 }
 
 

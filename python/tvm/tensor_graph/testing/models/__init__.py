@@ -1,1 +1,1 @@
-
+from .shufflenet import ShuffleNet

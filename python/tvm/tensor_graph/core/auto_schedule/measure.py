@@ -14,6 +14,7 @@ from pebble import concurrent
 from concurrent.futures import TimeoutError
 from pebble import ProcessPool, ProcessExpired
 from ..utils import to_tuple, ERROR
+from tvm import auto_tensorize as at
 
 
 
@@ -41,6 +42,16 @@ class EvaluationContext(object):
 
 
 GLOBAL_EVAL_CTX = EvaluationContext()
+
+
+class TensorizeContext(object):
+  def __init__(self):
+    self.task_queue = multiprocessing.Queue()
+    self.result_queue = multiprocessing.Queue()  
+    self.stop = False
+
+
+GLOBAL_TENSORIZE_CTX = TensorizeContext()
 
 
 def set_measure_card_id(new_id):
@@ -135,7 +146,7 @@ def call_func_with_timeout(timeout, func, args=(), kwargs=None):
 
 def evaluate_function(sch, tensors, target):
   arrays = []
-  ctx = tvm.context(target.target_name, measure_card_id)
+  ctx = tvm.context(target.kind, measure_card_id)
   for t in tensors:
     ary = tvm.nd.array(np.random.uniform(-1, 1, to_tuple(t.shape)).astype(t.dtype))
     arrays.append(ary)
@@ -158,7 +169,7 @@ def measure_function(index, q=None):
 
   schedules, tensors, target = GLOBAL_BUILD_ARGS
 
-  print("check context outer:", tvm.context(target.target_name, 0).exist)
+  print("check context outer:", tvm.context(target.kind, 0).exist)
 
   sch = schedules[index]
   measure = call_func_with_timeout(measure_timeout, evaluate_function, args=(sch, tensors, target))
@@ -191,7 +202,7 @@ def measure_multi_function(number):
 
 # @tvm._ffi.register_func("tg.autoschedule.judge_schedule")
 def judge_schedule(schedules, tensors, target, gflop, policy):
-  print("check context outer outer:", tvm.context(target.target_name, 0).exist)
+  print("check context outer outer:", tvm.context(target.kind, 0).exist)
   if policy == "profile":
     global GLOBAL_BUILD_ARGS
     GLOBAL_BUILD_ARGS = (schedules, tensors, target)
@@ -301,6 +312,78 @@ def evaluate_function_for(target, dev_id, timeout=10):
           results.append(result)
         GLOBAL_EVAL_CTX.result_queue.put(results)
   return 0
+
+
+def _auto_tensorize_cuda(args):
+  sch, tensors, log_file, trials = args
+  target = "cuda"
+  measure_opt = at.MeasureOptions(
+      target=target, timeout=100, number=200, min_repeat_ms=500)
+  target_dag = at.compute_dag_from_tensors(tensors)
+  result = at.auto_tensorize(
+      target_dag, target, log_file, measure_opt, trials=trials, transform_dump=True)
+  if result.defined():
+    sch, args = at.get_schedule(result.sch_app, result.params)
+    return {sch: args}
+  else:
+    return {sch: []}
+
+
+@concurrent.process(daemon=False)
+def auto_tensorize_for(timeout=3600):
+  global GLOBAL_TENSORIZE_CTX
+  while not GLOBAL_TENSORIZE_CTX.stop:
+    if not GLOBAL_TENSORIZE_CTX.task_queue.empty():
+      tensorize_ctx = GLOBAL_TENSORIZE_CTX.task_queue.get()
+      if isinstance(tensorize_ctx, int) and tensorize_ctx == -1:
+        break
+      sch = tensorize_ctx["sch"]
+      tensors = tensorize_ctx["tensors"]
+      log_file = tensorize_ctx["log_file"]
+      trials = tensorize_ctx["trials"]
+
+      # with ProcessPool(1) as pool:
+      args = (sch, tensors, log_file, trials)
+      #   future = pool.map(_auto_tensorize_cuda, args, timeout=timeout)
+      #   iterator = future.result()
+
+      #   results = []
+      #   while True:
+      #     try:
+      #       result = next(iterator)
+      #     except StopIteration:
+      #       break
+      #     except Exception as error:
+      #       # print("Exception!", type(error), str(error), flush=True)
+      #       result = {sch: []}
+      #     results.append(result)
+
+      results = _auto_tensorize_cuda(args)
+      GLOBAL_TENSORIZE_CTX.result_queue.put(results)
+  return 0
+
+
+# @tvm._ffi.register_func("tg.autoschedule.auto_tensorize_cuda")
+def auto_tensorize_cuda(sch, tensors, log_file, trials):
+  global GLOBAL_TENSORIZE_CTX
+  GLOBAL_TENSORIZE_CTX.task_queue.put(
+    {"sch": sch, "tensors": tensors, "log_file": log_file, "trials": trials})
+
+  results = GLOBAL_TENSORIZE_CTX.result_queue.get()
+
+  print("auto_tensorize success!", flush=True)
+  return results
+
+
+def start_tensorize():
+  global GLOBAL_TENSORIZE_CTX
+  GLOBAL_TENSORIZE_CTX.stop = False
+
+
+def stop_tensorize():
+  global GLOBAL_TENSORIZE_CTX
+  GLOBAL_TENSORIZE_CTX.stop = True
+  GLOBAL_TENSORIZE_CTX.task_queue.put(-1)
 
 
 def set_evaluate_performance(func):

@@ -50,7 +50,7 @@ def shuffle(x, y):
 
 
 def train(target):
-    ctx = tvm.context(target.target_name, 0)
+    ctx = tvm.context(target.kind, 0)
     (train_data, train_label), (test_data, test_label) = load_dataset()
     train_size = len(train_data)
     test_size = len(test_data)

@@ -31,11 +31,13 @@ class ScheduleResultNode : public Object {
   te::Schedule schedule;
   Array<te::Tensor> tensors;
   MultiScheduleEntity schedule_entities;
+  String external_schedule;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("schedule", &schedule);
     v->Visit("tensors", &tensors);
     v->Visit("schedule_entities", &schedule_entities);
+    v->Visit("external_schedule", &external_schedule);
   }
 
   static constexpr const char* _type_key = "tg.autoschedule.ScheduleResult";
@@ -51,6 +53,16 @@ class ScheduleResult : public ObjectRef {
     node->schedule = sch;
     node->tensors = tensors;
     node->schedule_entities = entities;
+    node->external_schedule = "";
+    data_ = std::move(node);
+  }
+
+  ScheduleResult(te::Schedule sch, Array<te::Tensor> tensors,
+                 String external_schedule) {
+    auto node = make_object<ScheduleResultNode>();
+    node->schedule = sch;
+    node->tensors = tensors;
+    node->external_schedule = external_schedule;
     data_ = std::move(node);
   }
 
@@ -149,6 +161,7 @@ class AutoScheduler {
   double profile_timeout;
   bool report_profile;
   unsigned warm_up_trials = 20;
+  bool use_tensor_core = false;
 
   DLContext ctx;
   ThreadPool *thread_pool = nullptr;
@@ -161,10 +174,13 @@ class AutoScheduler {
  public:
   AutoScheduler(DLContext context, int topk, int new_trial, std::string policy, int parallel,
   int profile_parallel, double timeout, double profile_timeout, bool report_profile=false,
-  std::ostream& log_out=std::cerr, std::string log_file_name="autoschedule_log_profile.txt")
+  std::ostream& log_out=std::cerr, std::string log_file_name="autoschedule_log_profile.txt",
+  bool use_tensor_core = false)
   : topk(topk), new_trial(new_trial), policy(policy), parallel(parallel),
     profile_parallel(profile_parallel), timeout(timeout),
-    profile_timeout(profile_timeout), report_profile(report_profile), log_out(log_out) {
+    profile_timeout(profile_timeout), report_profile(report_profile),
+    use_tensor_core(use_tensor_core),
+    log_out(log_out) {
     ctx = context;
     thread_pool = new ThreadPool(parallel, (int)(timeout * 1000));
     std::vector<std::string> parts = string_split(".", log_file_name);
@@ -183,6 +199,7 @@ class AutoScheduler {
     // if (measurer != nullptr) {delete measurer; measurer = new Measurer(profile_parallel, profile_timeout);}
   }
   ScheduleResult schedule_with_entity(TIRGraph subgraph, Target target, MultiScheduleEntity entity);
+  ScheduleResult schedule_with_external(TIRGraph subgraph, Target target, String external_schedule);
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);
   void feedback_for(IntKey key, TIRGraph subgraph, Target target, ScheduleResult schedule_result, double evaluation);
   std::vector<double> judge_schedule(

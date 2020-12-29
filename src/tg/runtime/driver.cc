@@ -36,7 +36,8 @@ SessionOption::SessionOption(
   int execution_parallel,
   double execution_timeout,
   bool synchronize_subgraph,
-  std::string execution_log_file) {
+  std::string execution_log_file,
+  bool use_tensor_core) {
   auto node = make_object<SessionOptionNode>();
   node->report_profile = report_profile;
   node->report_iteration = report_iteration;
@@ -59,6 +60,7 @@ SessionOption::SessionOption(
   node->execution_timeout = execution_timeout;
   node->synchronize_subgraph = synchronize_subgraph;
   node->execution_log_file = execution_log_file;
+  node->use_tensor_core = use_tensor_core;
   data_ = std::move(node);
 }
 
@@ -86,7 +88,7 @@ Session::Session(Target target, int dev_id, SessionOption sess_option)
   auto_scheduler = new AutoScheduler(ctx, sess_option->autoschedule_topk, sess_option->autoschedule_new_trial,
     sess_option->autoschedule_policy, sess_option->autoschedule_parallel, sess_option->profile_parallel,
     sess_option->autoschedule_timeout, sess_option->profile_timeout, sess_option->report_profile,
-    autoschedule_log, profile_log_name);
+    autoschedule_log, profile_log_name, sess_option->use_tensor_core);
   function_builder = new FunctionBuilder(
     sess_option->build_parallel, sess_option->build_timeout, build_log);
   task_count = 0;
@@ -1008,7 +1010,12 @@ void Session::run_functions(
       if (!kv.second.empty()) {
         auto sch_mod_func_perf = kv.second.front();
         std::string tag = multi_graph.Self()->graphs[kv.first]->tag;
-        std::string entity_string = std::get<0>(sch_mod_func_perf)->schedule_entities.to_string();
+        std::string entity_string = "";
+        if (std::get<0>(sch_mod_func_perf)->schedule_entities.defined()) {
+          entity_string = std::get<0>(sch_mod_func_perf)->schedule_entities.to_string();
+        } else {
+          entity_string = std::get<0>(sch_mod_func_perf)->external_schedule;
+        }
         double perf = std::get<3>(sch_mod_func_perf);
         double time = std::get<4>(sch_mod_func_perf);
         if (stored.find(tag) == stored.end()) {
@@ -1113,11 +1120,22 @@ void Session::prepare_for_test(int task_id, std::string reference) {
   /* helper for schedule and build */
   ThreadPool pool;
   auto schedule_and_build = [&] (IntKey key, std::vector<std::string> parts) {
-    MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
-    double perf = std::stod(parts[2]);
-    double time = std::stod(parts[3]);
-    ScheduleResult schedule_result = auto_scheduler->schedule_with_entity(
-      multi_graph.Self()->graphs[key], target, entity);
+      ScheduleResult schedule_result;
+      double perf;
+      double time;
+      try {
+        MultiScheduleEntity entity = multi_schedule_entity_from_string(parts[1]);
+        perf = std::stod(parts[2]);
+        time = std::stod(parts[3]);
+        schedule_result = auto_scheduler->schedule_with_entity(
+          multi_graph.Self()->graphs[key], target, entity);
+      } catch (...) {
+        std::string external_schedule = parts[1];
+        perf = std::stod(parts[2]);
+        time = std::stod(parts[3]);
+        schedule_result = auto_scheduler->schedule_with_external(
+          multi_graph.Self()->graphs[key], target, external_schedule);
+      }
       std::string name = get_func_name(key);
       
       auto module = function_builder->build_func(
@@ -1487,7 +1505,8 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
   int execution_parallel,
   double execution_timeout,
   bool synchronize_subgraph,
-  std::string execution_log_file
+  std::string execution_log_file,
+  bool use_tensor_core
 ) {
   SessionOption ret = SessionOption(
     report_profile,
@@ -1510,7 +1529,8 @@ TVM_REGISTER_GLOBAL("tg.create_session_option")
     execution_parallel,
     execution_timeout,
     synchronize_subgraph,
-    execution_log_file);
+    execution_log_file,
+    use_tensor_core);
   return ret;
 });
 

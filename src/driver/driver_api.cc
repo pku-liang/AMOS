@@ -166,7 +166,7 @@ IRModule lower(te::Schedule sch, const Array<te::Tensor>& args, const std::strin
   if (true)
     pass_list.push_back(tir::transform::BF16Legalize());
 
-  pass_list.push_back(tir::transform::NarrowDataType(32));
+  // pass_list.push_back(tir::transform::NarrowDataType(32));
   pass_list.push_back(tir::transform::Simplify());
   pass_list.push_back(tir::transform::LoopPartition());
   pass_list.push_back(tir::transform::VectorizeLoop(!disable_vectorize));

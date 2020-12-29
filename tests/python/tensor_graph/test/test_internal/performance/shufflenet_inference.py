@@ -120,7 +120,7 @@ def producer_process(
     report_iteration_period=1,
     autoschedule_topk=20,
     autoschedule_new_trial=4,
-    autoschedule_policy="fc_model",
+    autoschedule_policy="random",
     autoschedule_parallel=1,
     autoschedule_timeout=200.0,
     autoschedule_log_file=autoschedule_log_file,

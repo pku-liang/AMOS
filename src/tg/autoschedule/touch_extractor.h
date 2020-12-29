@@ -183,28 +183,28 @@ class TouchExtractor : public FeatureVisitor {
   }
 
   void VisitExpr_(const DivNode* op) final {
-    assert(!op->dtype.is_float());
+    // assert(!op->dtype.is_float());
     if (current_stmt)
       innermost_stmt_map[current_stmt].int_div_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const ModNode* op) final {
-    assert(!op->dtype.is_float());
+    // assert(!op->dtype.is_float());
     if (current_stmt)
       innermost_stmt_map[current_stmt].int_mod_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const FloorDivNode* op) final {
-    assert(op->dtype.is_float());
+    // assert(op->dtype.is_float());
     if (current_stmt)
       innermost_stmt_map[current_stmt].flt_div_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const FloorModNode* op) final {
-    assert(op->dtype.is_float());
+    // assert(op->dtype.is_float());
     if (current_stmt)
       innermost_stmt_map[current_stmt].flt_mod_ct++;
     FeatureVisitor::VisitExpr_(op);
