@@ -66,11 +66,16 @@ def conv1d(N, C, L, K, KL, stride, padding, dilation, dtype):
   print(",".join(map(str, [N, C, L, K, KL, stride, padding, dilation, dtype, mean_cost])))
 
 
-
-conv1d_shapes = [
-    # C,  L,  K, KL, stride, padding, dilation
-    (16, 16, 32, 3,      1,        1,        1),
-    (32, 32, 64, 5,      1,        0,        1)
+byte_net_shapes = [
+  # (   C,   L,   K,  KL, stride,padding, dilation)
+    ( 512, 892, 512,   3,       1,     2,        1),
+    ( 512, 892,1024,   1,       1,     0,        1),
+    (1024, 892, 512,   1,       1,     0,        1),
+    ( 512, 892, 512,   3,       1,     4,        2),
+    ( 512, 892, 512,   3,       1,     8,        4),
+    ( 512, 892, 512,   3,       1,    16,        8),
+    ( 512, 892, 512,   3,       1,    32,       16),
+    (1024, 892, 250,   1,       1,     0,        1)
 ]
 
 
@@ -79,12 +84,12 @@ if __name__ == "__main__":
     torch.backends.cudnn.enabled = True
     batches = [2**i for i in range(1)]
     beg = 0
-    num = len(conv1d_shapes)
+    num = len(byte_net_shapes)
     print("N, C, L, K, KL, stride, padding, dilation, type, cost")
     for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
       for batch in batches:
           costs = []
-          for i, shape in enumerate(conv1d_shapes[beg:beg+num]):
+          for i, shape in enumerate(byte_net_shapes[beg:beg+num]):
               (C, L, K, KL, stride, padding, dilation) = shape
               N = batch
               conv1d(N, C, L, K, KL, stride, padding, dilation, dtype)

@@ -91,7 +91,7 @@ if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
     print("N, C, H, W, K, R, S, stride, padding, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64"]: # "INT8", "BOOL", "BF16"
+    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: #"INT8", "BOOL", 
       for batch in batches:
         costs = []
         for i, shape in enumerate(transpose2d_config):
