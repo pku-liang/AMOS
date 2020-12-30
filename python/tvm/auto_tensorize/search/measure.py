@@ -15,6 +15,9 @@ from concurrent.futures import TimeoutError
 from pebble import ProcessPool, ProcessExpired
 from tvm import tg
 from collections import OrderedDict
+from tempfile import mkstemp
+from tvm import rpc
+from tvm.contrib import ndk
 
 
 
@@ -98,6 +101,19 @@ def evaluate_schedule_worker(dummy):
     ctx = tvm.context(target, dev_id)
     arrays = get_tvm_arrays(args, ctx)
     func = tvm.build(sch, args, target=target)
+    if target == "opencl":
+        device_key = "android"
+        rpc_host = "0.0.0.0"
+        rpc_port = 9190
+        tracker = rpc.connect_tracker(rpc_host, rpc_port)
+        remote = tracker.request(device_key, session_timeout=20)
+        ctx = remote.context(target)
+        print("Uploading...")
+        fd, lib_file = mkstemp(suffix=".so", prefix="gemm")
+        os.close(fd)
+        func.export_library(lib_file, ndk.create_shared)
+        remote.upload(lib_file)
+        func = remote.load_module(os.path.split(lib_file)[-1])
     evaluator = func.time_evaluator(
         func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
     ctx.sync()

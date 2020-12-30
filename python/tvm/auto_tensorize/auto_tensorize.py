@@ -89,6 +89,15 @@ def auto_tensorize_schedule(target_dag, target,
         sc_info = schedule_gen.get_schedule_compute_info()
         schedule_app = CUDAScheduleApplier(match_result, sc_info)
         checker = CUDAProgramChecker(arch=get_cuda_compute_version(measure_opt.dev_id))
+    elif str(target) == "opencl":
+        schedule_gen = MaliScheduleGenerator(
+            match_result, new_state, log_file=log_file)
+        if os.path.exists(log_file) and os.path.isfile(log_file):
+            schedule_gen.load_from_file(log_file)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = MaliScheduleApplier(match_result, sc_info)
+        # TODO: write a checker for MALI GPU
+        # checker = MALIProgramChecker(arch=get_cuda_compute_version(measure_opt.dev_id))
     else:
         raise RuntimeError("Do not support target: %s" % target)
 
