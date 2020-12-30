@@ -12,31 +12,6 @@ namespace tg {
 std::pair<te::Schedule, Array<te::Tensor> >
 empty_schedule (TIRGraph subgraph) {
   te::Schedule sch = te::create_schedule(subgraph->root_ops);
-  // Array<te::Tensor> tensors;
-  // for (auto t : subgraph->inputs) {
-  //   tensors.push_back(t);
-  // }
-  // for (auto t : subgraph->labels) {
-  //   tensors.push_back(t);
-  // }
-  // for (auto t : subgraph->outputs) {
-  //   tensors.push_back(t);
-  // }
-  // for (auto t : subgraph->weights) {
-  //   tensors.push_back(t);
-  // }
-  // if (subgraph->loss.defined()) {
-  //   tensors.push_back(subgraph->loss);
-  // }
-  // for (auto t : subgraph->gradients) {
-  //   tensors.push_back(t);
-  // }
-  // if (subgraph->lr.defined()) {
-  //   tensors.push_back(subgraph->lr);
-  // }
-  // for (auto t : subgraph->updates) {
-  //   tensors.push_back(t);
-  // }
 
   return std::make_pair(sch, subgraph->tensors);
 }
@@ -337,44 +312,44 @@ std::shared_future<ScheduleResult> AutoScheduler::schedule_for(
 
 void AutoScheduler::feedback_for(IntKey key, TIRGraph subgraph, Target target, ScheduleResult schedule_result, double evaluation) {
   if (schedule_result->schedule_entities.defined()) {
-    const auto* f = runtime::Registry::Get("tg.autoschedule.store_feedback");
-    ASSERT(f != nullptr) << "Can't find tg.autoschedule.store_feedback";
+    // const auto* f = runtime::Registry::Get("tg.autoschedule.store_feedback");
+    // ASSERT(f != nullptr) << "Can't find tg.autoschedule.store_feedback";
     if (contexts.find(key) == contexts.end()) {
       contexts[key] = AutoScheduleContext(key, subgraph, target, topk, new_trial, policy);
     }
     contexts[key].add_feedback(schedule_result, evaluation);
-    Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
-    std::ostringstream oss;
-    double gflop = get_gflop(subgraph);
+    // Array<Feature> feature = get_feature(schedule_result->schedule, schedule_result->tensors, contexts[key]->target);
+    // std::ostringstream oss;
+    // double gflop = get_gflop(subgraph);
 
-    oss << "{ ";
-    oss << "\"gflop\": ";
-    oss << gflop << ", ";
-    oss << "\"loop_nests\": ";
-    oss << "[";
-    for (int i = 0; i < (int)feature.size(); ++i) {
-      if (i != 0)
-        oss << ", ";
-      oss << std::pow(2, feature[i]->features[15]->value);
-    }
-    oss << "], ";
-    oss << "\"features\": ";
-    oss << "[";
-    for (int i = 0; i < (int)feature.size(); ++i) {
-      if (i != 0)
-        oss << ", ";
-      oss << feature[i];
-    }
-    oss << "], ";
-    // oss << "\"schedules\": ";
-    // oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
-    oss << "\"evaluation\": ";
-    oss << evaluation;
-    oss << " }\n";
-    profile_log << oss.str();
+    // oss << "{ ";
+    // oss << "\"gflop\": ";
+    // oss << gflop << ", ";
+    // oss << "\"loop_nests\": ";
+    // oss << "[";
+    // for (int i = 0; i < (int)feature.size(); ++i) {
+    //   if (i != 0)
+    //     oss << ", ";
+    //   oss << std::pow(2, feature[i]->features[15]->value);
+    // }
+    // oss << "], ";
+    // oss << "\"features\": ";
+    // oss << "[";
+    // for (int i = 0; i < (int)feature.size(); ++i) {
+    //   if (i != 0)
+    //     oss << ", ";
+    //   oss << feature[i];
+    // }
+    // oss << "], ";
+    // // oss << "\"schedules\": ";
+    // // oss << "\"" << schedule_result->schedule_entities.to_string() << "\", ";
+    // oss << "\"evaluation\": ";
+    // oss << evaluation;
+    // oss << " }\n";
+    // profile_log << oss.str();
     
-    if (evaluation > 0)
-      (*f)(oss.str());
+    // if (evaluation > 0)
+    //   (*f)(oss.str());
   }
 }
 
@@ -385,6 +360,120 @@ void AutoScheduler::clear_schedule_cache_for(IntKey key) {
     context->knowing_schedules.clear();
   }
 }
+
+
+ScheduleResult get_schedule_result(
+  String name,
+  TIRGraph subgraph,
+  Target target,
+  int dev_id,
+  int timeout,
+  double perf=0.0,  // gflops
+  bool do_feedback=false,
+  ScheduleResult result=ScheduleResult()) {
+  std::string name_key = std::string(name);
+  static std::unordered_map<std::string, AutoScheduler*> scheduler_map;
+  DLContext ctx;
+  if (target->kind->name == "cuda") {
+    ctx = DLContext({kDLGPU, dev_id});
+  } else if (target->kind->name == "llvm") {
+    ctx = DLContext({kDLCPU, dev_id});
+  } else {
+    ERROR << "Currently only support CUDA/LLVM but get " << target->kind->name << ".";
+  }
+  if (!scheduler_map.count(name_key)) {
+    scheduler_map[name_key] = new AutoScheduler(
+      /* DLContext context, */ ctx,
+      /* int topk, */ 10,
+      /* int new_trial, */ 10,
+      /* std::string policy, */ "random",
+      /* int parallel, */ 1,
+      /* int profile_parallel, */ 1,
+      /* double timeout, */ (double)timeout,
+      /* double profile_timeout, */ (double)timeout
+      /* bool report_profile=false, */
+      /* std::ostream& log_out=std::cerr, */
+      /* std::string log_file_name="autoschedule_log_profile.txt", */
+      /* bool use_tensor_core = false */
+    );
+  }
+  IntKey dummy_key = 0;
+  if (do_feedback && result.defined()) {
+    scheduler_map[name_key]->feedback_for(
+      dummy_key, subgraph, target, result, perf
+    );
+    return result;
+  }
+  ScheduleResult ret_result = scheduler_map[name_key]->schedule_func(
+    dummy_key, subgraph, target);
+  return ret_result;
+}
+
+
+TVM_REGISTER_NODE_TYPE(ScheduleResultNode);
+
+
+TVM_REGISTER_GLOBAL("tg.get_schedule_result_with_feedback")
+.set_body_typed([](
+  String name,
+  TIRGraph subgraph,
+  Target target,
+  int dev_id,
+  int timeout,
+  double perf,
+  bool do_feedback,
+  ScheduleResult result
+){
+  return get_schedule_result(
+    name, subgraph, target, dev_id, timeout, perf, do_feedback, result);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.get_schedule_result_without_feedback")
+.set_body_typed([](
+  String name,
+  TIRGraph subgraph,
+  Target target,
+  int dev_id,
+  int timeout
+){
+  return get_schedule_result(
+    name, subgraph, target, dev_id, timeout);
+});
+
+
+TVM_REGISTER_GLOBAL("tg.get_schedule_result_from_entity")
+.set_body_typed([](
+  String name,
+  TIRGraph subgraph,
+  Target target,
+  MultiScheduleEntity entity
+){
+  DLContext ctx;
+  if (target->kind->name == "cuda") {
+    ctx = DLContext({kDLGPU, 0});
+  } else if (target->kind->name == "llvm") {
+    ctx = DLContext({kDLCPU, 0});
+  } else {
+    ERROR << "Currently only support CUDA/LLVM but get " << target->kind->name << ".";
+  }
+  AutoScheduler tmp(
+      /* DLContext context, */ ctx,
+      /* int topk, */ 10,
+      /* int new_trial, */ 10,
+      /* std::string policy, */ "random",
+      /* int parallel, */ 1,
+      /* int profile_parallel, */ 1,
+      /* double timeout, */ (double)0,
+      /* double profile_timeout, */ (double)0
+      /* bool report_profile=false, */
+      /* std::ostream& log_out=std::cerr, */
+      /* std::string log_file_name="autoschedule_log_profile.txt", */
+      /* bool use_tensor_core = false */
+    );
+  return tmp.schedule_with_entity(subgraph, target, entity);
+});
+
 
 
 }  // namespace tg

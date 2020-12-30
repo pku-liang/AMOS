@@ -129,14 +129,14 @@ def evaluate_schedule(sch, args, measure_opt, new_process=False):
             while True:
                 try:
                     results = next(iterator)
+                    print(".Y", end="", flush=True)
                 except StopIteration:
                     break
                 except TimeoutError as error:
-                    print("Evaluate Timeout.", flush=True)
+                    print(".T", end="", flush=True)
                     results = MAX_FLOAT
                 except Exception as error:
-                    print("Evaluate Fatal Error\n",
-                        auto_scheduler.measure.make_error_msg(), flush=True)
+                    print(".E", end="", flush=True)
                     results = MAX_FLOAT
 
         return results

@@ -169,8 +169,6 @@ class AutoScheduler {
   std::ostream& log_out;
   std::ofstream profile_log;
   // Measurer *measurer = nullptr;
-
-  ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
  public:
   AutoScheduler(DLContext context, int topk, int new_trial, std::string policy, int parallel,
   int profile_parallel, double timeout, double profile_timeout, bool report_profile=false,
@@ -198,6 +196,7 @@ class AutoScheduler {
     }
     // if (measurer != nullptr) {delete measurer; measurer = new Measurer(profile_parallel, profile_timeout);}
   }
+  ScheduleResult schedule_func(IntKey key, TIRGraph subgraph, Target target);
   ScheduleResult schedule_with_entity(TIRGraph subgraph, Target target, MultiScheduleEntity entity);
   ScheduleResult schedule_with_external(TIRGraph subgraph, Target target, String external_schedule);
   std::shared_future<ScheduleResult> schedule_for(IntKey key, TIRGraph subgraph, Target target, int priority=0);

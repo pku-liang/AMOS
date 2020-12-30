@@ -147,70 +147,85 @@ def string_to_schedule_entity(string):
   return _ffi_api.schedule_entity_from_string(string)
 
 
-#   Feature get_feature(
-#     te::Schedule sch, const Array<te::Tensor>& tensors, Target target)
-#   Array<Array<Array<PrimExpr>>> get_feature_structured(
-#     te::Schedule sch, const Array<te::Tensor>& tensors, Target target)
-#   """
-#   if flatten:
-#     features = _ffi_api.get_feature(schedule, tensors, target)
-#     features = [v.value for v in features.features]
-#   else:
-#     def pythonify_features(f):
-#       if isinstance(f, tvm.ir.container.Array):
-#         return [pythonify_features(ff) for ff in f]
-#       else:
-#         return f.name if isinstance(f, tvm.tir.expr.Var) else f.value
 
-#     def feature_row_to_dict(row):
-#       from collections import defaultdict
-#       LOOP_ANNOTS = [
-#         'kBlockX', 'kBlockY', 'kBlockZ', 'kThreadX', 'kThreadY', 'kThreadZ',
-#         'kUnrolled', 'kVectorized', 'kParallel', 'kSerial', 'kVirtualThread',
-#       ]
-#       TOUCH_PATTERN_DEF = ('stride', 'mod', 'bytes', 'reuse', 'thread_count', 'thread_reuse', 'loop_reuse')
-#       FEATURE_DEF = defaultdict(lambda: TOUCH_PATTERN_DEF)
-#       FEATURE_DEF.update({
-#         '_itervar_': ('name',),
-#         '_access_type_': ('write', 'read',),
-#         '_attr_': ('length', 'nest_level', 'topdown', 'bottomup', *LOOP_ANNOTS, 'serial_reuse',),
-#         '_arith_': ('add_ct', 'mul_ct', 'div_ct',),
-#       })
-#       return {
-#         entry[0]: dict(zip(FEATURE_DEF[entry[0]], entry[1:]))
-#         for entry in row
-#       }
+def multi_schedule_entity_to_string(entity):
+  """Get the string representation of ScheduleEntity
+  This is function is used to test
+  the internal of TensorGraph AutoScheduler
 
-#     def untake_log(row):
-#       from collections import defaultdict
+  Parameters
+  ----------
+  entity: ScheduleEntity
 
-#       def weak_round(x, eps=1e-6):
-#         return round(x) if abs(x - round(x)) < eps else x
+  Returns
+  -------
+  str
+  """
+  return _ffi_api.multi_schedule_entity_to_string(entity)
 
-#       def unlog(x):
-#         y1 = weak_round(pow(2, x) - 1)
-#         y2 = weak_round(1 - pow(2, -x))
-#         return y1 if y1 >= 0 else y2
 
-#       SHOULD_UNLOG = defaultdict(lambda:('stride', 'mod', 'bytes', 'reuse', 'thread_count', 'thread_reuse'))
-#       SHOULD_UNLOG.update({
-#         '_itervar_': (),
-#         '_access_type_': (),
-#         '_attr_': ('length', 'topdown', 'bottomup',),
-#         '_arith_': ('add_ct', 'mul_ct', 'div_ct',),
-#       })
+def string_to_multi_schedule_entity(string):
+  """Get the ScheduleEntity from string representation
+  This is function is used to test
+  the internal of TensorGraph AutoScheduler
 
-#       return {
-#         k: {kk: unlog(vv) if kk in SHOULD_UNLOG[k] else vv for kk, vv in v.items()}
-#         for k, v in row.items()
-#       }
+  Parameters
+  ----------
+  string: str
 
-#     features = _ffi_api.get_feature_structured(schedule, tensors, target)
-#     features = pythonify_features(features)
-#     features = [feature_row_to_dict(row) for row in features]
-#     features = [untake_log(row) for row in features]
-  
-#   return features
+  Returns
+  -------
+  ScheduleEntity
+  """
+  return _ffi_api.multi_schedule_entity_from_string(string)
+
+
+def get_schedule_result(
+  name,
+  subgraph,
+  target,
+  dev_id,
+  timeout,
+  perf=0.0,
+  do_feedback=False,
+  result=None
+):
+  """Get schedule result
+
+  Parameters
+  ----------
+
+  Returns
+  -------
+  ScheduleResult
+  """
+  if result is not None and do_feedback:
+    return _ffi_api.get_schedule_result_with_feedback(
+      name, subgraph, target, dev_id, timeout, perf, do_feedback, result
+    )
+  else:
+    return _ffi_api.get_schedule_result_without_feedback(
+      name, subgraph, target, dev_id, timeout
+    )
+
+
+def get_schedule_result_from_entity(
+  name,
+  subgraph,
+  target,
+  entity
+):
+  """Get schedule result
+
+  Parameters
+  ----------
+
+  Returns
+  -------
+  ScheduleResult
+  """
+  return _ffi_api.get_schedule_result_from_entity(
+    name, subgraph, target, entity)
 
 
 def get_feature(schedule, tensors, target, flatten=True):

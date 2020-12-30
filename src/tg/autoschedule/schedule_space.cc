@@ -1791,6 +1791,18 @@ TVM_REGISTER_GLOBAL("tg.schedule_entity_from_string")
 });
 
 
+TVM_REGISTER_GLOBAL("tg.multi_schedule_entity_to_string")
+.set_body_typed([](MultiScheduleEntity entity){
+  return entity.to_string();
+});
+
+
+TVM_REGISTER_GLOBAL("tg.multi_schedule_entity_from_string")
+.set_body_typed([](std::string s){
+  return multi_schedule_entity_from_string(s);
+});
+
+
 }  // namespace tg
 
 

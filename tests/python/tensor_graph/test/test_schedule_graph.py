@@ -42,7 +42,8 @@ def test1():
     dispatch = tensor_graph.core.AutoScheduleMultiGraphDispatch
     measure_opt = at.MeasureOptions(
         target=target, timeout=10, number=200, min_repeat_ms=500)
-    tid = dispatch.add_graph_task("shufflenet", multi_graph, measure_opt)
+    tid = dispatch.add_graph_task(
+        "shufflenet", multi_graph, measure_opt, scheduler_option="ansor")
     dispatch.auto_schedule(tid)
 
 

@@ -97,9 +97,104 @@ def build_func(
     return tvm.build(sch, args, target, target_host, name, binds)
 
 
+class TGAutoScheduleContext(object):
+  def __init__(self, name, subgraph, measure_option, verbose=False):
+    self.measure_option = measure_option
+    self.target = tvm.target.Target(measure_option.target)
+    self.name = name
+    self.subgraph = subgraph
+    self.log_name = "tg:" + name + ".log"
+    self.logger = open(self.log_name, "a")
+    self.best_perf = 0.0
+    self.best_result = None
+    self.verbose = verbose
+    self.result = self.get_new_schedule()
+    self.counter = 0
+
+    if os.path.exists(self.log_name) and os.path.isfile(self.log_name):
+      with open(self.log_name, "r") as fin:
+        print("Loading from %s..." % self.log_name, flush=True)
+        for line in fin:
+          obj = json.loads(line)
+          entity = obj["entity"]
+          perf = obj["perf"]
+          entity = tg.string_to_multi_schedule_entity(entity)
+          result = tg.get_schedule_result_from_entity(
+            name, subgraph, self.target, entity)
+          if perf > self.best_perf:
+            self.best_perf = perf
+            self.best_result = result
+          # feedback
+          tg.get_schedule_result(
+            self.name, self.subgraph, self.target,
+            self.measure_option.dev_id, self.measure_option.timeout,
+            perf, True, result)
+
+  def __del__(self):
+    self.logger.close()
+
+  def get_new_schedule(self):
+    ret = None
+    while ret is None:
+      try:
+        ret = tg.get_schedule_result(
+          self.name, self.subgraph, self.target,
+          self.measure_option.dev_id, self.measure_option.timeout)
+      except Exception as e:
+        if self.verbose:
+          print(e)
+        pass
+    return ret
+
+  def count(self):
+    self.counter = (self.counter + 1) % 16
+    if self.counter == 0:
+      print("\n", flush=True)
+      print("Currently best performance:", 1 / self.best_perf, flush=True)
+
+  def auto_schedule(self, trials):
+    print("#############################################", flush=True)
+    print(self.subgraph.tag, flush=True)
+    print("Autoscheduling %s..." % self.log_name, flush=True)
+    for i in range(trials):
+      # measure current result
+      sch = self.result.schedule
+      args = self.result.tensors
+      timecost = at.evaluate_schedule(
+        sch, args, self.measure_option, new_process=True)
+      perf = 1.0 / (timecost + 1e-10)
+      if perf > self.best_perf:
+        self.best_perf = perf
+        self.best_result = self.result
+        entity = tg.multi_schedule_entity_to_string(self.result.schedule_entities)
+        log = {"entity": entity, "perf": perf}
+        print(
+          json.dumps(log),
+          file=self.logger, flush=True)
+        print(".B", end="", flush=True)
+      elif timecost != at.MAX_FLOAT:
+        print(".N", end="", flush=True)
+      self.count()
+      # this one is feedback
+      tg.get_schedule_result(
+        self.name, self.subgraph, self.target,
+        self.measure_option.dev_id, self.measure_option.timeout,
+        perf, True, self.result)
+      # this one is get new schedule
+      self.result = self.get_new_schedule()
+
+    sch = self.result.schedule
+    args = self.result.tensors
+    return sch, args
+
+  def get_measure_opt(self):
+    return self.measure_option
+
+
 class AnsorAutoScheduleContext(object):
   def __init__(self, name, subgraph, measure_option):
-    pass
+    self.name = name
+    self.subgraph = subgraph
     self.measure_option = measure_option
     self.target_dag = at.compute_dag_from_tensors(
       [x.output(0) for x in subgraph.root_ops])
@@ -124,8 +219,8 @@ class AnsorAutoScheduleContext(object):
         1024, # cache line bytes
       ))
 
-    task_name = self.task.workload_key[0]
-    self.log_name = task_name + ".log"
+    task_name = self.task.workload_key[2:-2]
+    self.log_name = "ansor:" + task_name + ".log"
 
     # self.measure_ctx = auto_scheduler.LocalRPCMeasureContext(
     #   priority=measure_option.priority,
@@ -145,10 +240,13 @@ class AnsorAutoScheduleContext(object):
         enable_cpu_cache_flush=measure_option.enable_cpu_cache_flush)
 
   def auto_schedule(self, trials, model="xgb"):
+    print("#############################################", flush=True)
+    print(self.subgraph.tag, flush=True)
+    print("Autoscheduling %s..." % self.log_name, flush=True)
     sch, args = None, None
     tune_option = auto_scheduler.TuningOptions(
         num_measure_trials=trials,
-        runner=self.runner,
+        # runner=self.runner,
         measure_callbacks=[auto_scheduler.RecordToFile(self.log_name)],
     )
 
@@ -182,13 +280,15 @@ class AutoTensorizeContext(object):
       [x.output(0) for x in subgraph.root_ops])
     measure_option = measure_option
     task_name = name
-    log_name = task_name + ".log"
+    log_name = "at:" + task_name + ".log"
     match_result, new_state = at.auto_tensorize_compute(
       target_dag, measure_option.target, log_name, measure_option
     )
     return match_result is not None and new_state is not None
 
   def __init__(self, name, subgraph, measure_option):
+    self.name = name
+    self.subgraph = subgraph
     self.target_dag = at.compute_dag_from_tensors(
       [x.output(0) for x in subgraph.root_ops])
     self.measure_option = measure_option
@@ -218,6 +318,9 @@ class AutoTensorizeContext(object):
     self.runner = at.pebble_local_runner_run
 
   def auto_schedule(self, trials):
+    print("#############################################", flush=True)
+    print(self.subgraph.tag, flush=True)
+    print("Autoscheduling %s..." % self.log_name, flush=True)
     if trials:
       value, params = at.find_optimized_parameters(
         self.match_result, self.schedule_gen, self.schedule_app,
@@ -247,9 +350,11 @@ class AutoScheduleGraphDispatch(object):
       if AutoTensorizeContext.can_use(name, subgraph, measure_option):
         ctx = AutoTensorizeContext(name, subgraph, measure_option)
       else:
-        # fallback to Ansor
-        print("Fallback to Ansor")
-        ctx = AnsorAutoScheduleContext(name, subgraph, measure_option)
+        # fallback to TG
+        print("Fallback to TG")
+        ctx = TGAutoScheduleContext(name, subgraph, measure_option)
+    elif scheduler_option == "tg":
+          ctx = TGAutoScheduleContext(name, subgraph, measure_option)
     elif scheduler_option == "ansor":
       ctx = AnsorAutoScheduleContext(name, subgraph, measure_option)
     else:
@@ -268,19 +373,20 @@ class AutoScheduleGraphDispatch(object):
       if tid in AutoScheduleGraphDispatch.working_set:
         ctx = AutoScheduleGraphDispatch.working_set[tid]
         sch, args = ctx.auto_schedule(trials)
-        perf = at.evaluate_schedule(sch, args, ctx.get_measure_opt())
+        perf = at.evaluate_schedule(sch, args, ctx.get_measure_opt(), new_process=True)
         AutoScheduleGraphDispatch.results[tid] = (sch, args, perf)
 
   @classmethod
   def query_schedule(cls, tid):
     if tid in AutoScheduleGraphDispatch.results:
-      return AutoScheduleGraphDispatch.working_set[tid]
+      return AutoScheduleGraphDispatch.results[tid]
     else:
       return (None, None, at.MAX_FLOAT)
 
 
 class AutoScheduleMultiGraphContext(object):
-  def __init__(self, name, tir_multi_graph, measure_option):
+  def __init__(self, name, tir_multi_graph, measure_option,
+      scheduler_option="auto_tensorize"):
     self.tir_multi_graph = tir_multi_graph
     self.performance_trace = {}
     self.schedules = {}
@@ -292,7 +398,8 @@ class AutoScheduleMultiGraphContext(object):
       new_name = name + ":" + str(key)
       if subgraph.tag in self.graph_tag_to_tid:
         continue
-      tid = AutoScheduleGraphDispatch.add_task(new_name, subgraph, measure_option)
+      tid = AutoScheduleGraphDispatch.add_task(
+        new_name, subgraph, measure_option, scheduler_option=scheduler_option)
       self.performance_trace[tid] = []
       self.schedules[tid] = (None, None)
       self.graph_tag_to_tid[subgraph.tag] = tid
@@ -303,7 +410,7 @@ class AutoScheduleMultiGraphContext(object):
     trials = []
     for tid in self.performance_trace.keys():
       ret.append(tid)
-      trials.append(400)
+      trials.append(0)
     return ret, trials
 
   def auto_schedule(self):
@@ -333,7 +440,9 @@ class AutoScheduleMultiGraphDispatch(object):
     scheduler_option="auto_tensorize"):
     next_id = len(AutoScheduleMultiGraphDispatch.working_set)
     AutoScheduleMultiGraphDispatch.working_set[next_id] = \
-      AutoScheduleMultiGraphContext(name, tir_multi_graph, measure_option)
+      AutoScheduleMultiGraphContext(
+        name, tir_multi_graph, measure_option,
+        scheduler_option=scheduler_option)
     return next_id
 
   @classmethod

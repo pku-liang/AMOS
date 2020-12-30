@@ -1133,7 +1133,9 @@ PopulationGenerationRule::ResultKind InitThreadBind::Apply(SketchPolicyNode* pol
         }
         output_stage_id++;
       }
-      CHECK(output_stage_id < (int)(*state)->stages.size());
+      if (output_stage_id >= (int)(*state)->stages.size()) {
+        output_stage_id = target_stage_id;
+      }
       Array<Integer> spatial_split_step_ids = GetSpatialSplitStepIds(*state, output_stage_id);
 
       // Fuse all iterators to do cooperative fetching
