@@ -2,18 +2,85 @@ import json
 from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
+from ..compute_transform import TransformState
+from ...capsules.capsule_base import ComputeDAG
 from ...recipes import OperationRole, RecipeStage, InstructionScope
 from ..schedule_base import *
-# TODO: (renze) remove this dependency
-from .cuda import CUDAParams, empty_cuda_params, empty_cuda_state
+
+
+class MaliState(object):
+    def __init__(
+            self, inlined, main_op_reduce_axis,
+            output_op_axis, last_op_axis, tensorize_iter):
+        self.inlined_ops = inlined
+        self.main_op_reduce_axis_parts = main_op_reduce_axis
+        self.output_op_axis_parts = output_op_axis
+        self.last_op_axis_parts = last_op_axis
+        self.tensorized_axis = tensorize_iter
+
+
+def empty_mali_state():
+    return MaliState(set(), [], [], [], {})
+
+
+class MaliParams(object):
+    def __init__(
+            self, vectorize, spatial_factors, reduce_factors,
+            last_factors, output_unroll_step, last_unroll_step):
+        self.vectorize = vectorize
+        self.spatial_factors = spatial_factors
+        self.reduce_factors = reduce_factors
+        self.last_factors = last_factors
+        self.output_unroll_step = output_unroll_step
+        self.last_unroll_step = last_unroll_step
+
+    def to_json(self):
+        ret = {
+            "vectorize": self.vectorize,
+            "spatial_factors": self.spatial_factors,
+            "reduce_factors": self.reduce_factors,
+            "last_factors": self.last_factors,
+            "output_unroll_step": self.output_unroll_step,
+            "last_unroll_step": self.last_unroll_step
+        }
+        return ret
+
+    def from_json(self, obj):
+        self.vectorize = obj["vectorize"]
+        self.spatial_factors = obj["spatial_factors"]
+        self.reduce_factors = obj["reduce_factors"]
+        self.last_factors = obj["last_factors"]
+        self.output_unroll_step = obj["output_unroll_step"]
+        self.last_unroll_step = obj["last_unroll_step"]
+
+    def __str__(self):
+        obj = self.to_json()
+        new_obj = {}
+
+        def handle(v):
+            if isinstance(v, list):
+                return [handle(x) for x in v]
+            if isinstance(v, tuple) and len(v) == 2:
+                return handle(v[0])
+            return v
+
+        for k, v in obj.items():
+            new_obj[k] = handle(v)
+        return json.dumps(new_obj)
+
+
+def empty_mali_params():
+    return MaliParams(None, [], [], [], None, None)
 
 
 class MaliScheduleGenerator(AcceleratorScheduleGenerator):
-    def __init__(self, intrin_match_result, transform_state, eps=0.9,
-            reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch="g76",
-            log_file="mali_schedule_generator.log", steps=1):
-        super(MaliScheduleGenerator, self).__init__(eps, CUDAParams,
-            steps=steps, log_file=log_file)
+    def __init__(self, intrin_match_result,
+                 transform_state: TransformState,
+                 eps=0.9, reduce_tiling=3, spatial_tiling=4, last_tiling=3,
+                 arch="g76", log_file="mali_schedule_generator.log", steps=1):
+        super(MaliScheduleGenerator, self).__init__(eps, MaliParams,
+                                                    steps=steps,
+                                                    log_file=log_file)
         self.init_recipe(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_recipe_stage(nodes)
@@ -26,9 +93,9 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
             elif op == self.output_op:
                 self.output_op_id = i
         # constants
-        self.reduce_tiling_parts = reduce_tiling
-        self.spatial_tiling_parts = spatial_tiling
-        self.last_op_tiling_parts = last_tiling
+        self.n_reduce_tiling_parts = reduce_tiling
+        self.n_spatial_tiling_parts = spatial_tiling
+        self.n_last_op_tiling_parts = last_tiling
         self.arch_info = Mali(arch=arch)
         self.warp_size = self.arch_info.get_warp_size()
         # params generator
@@ -70,6 +137,7 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
             if cur in self.recipe.capsules:
                 return True
             return False
+
         capsule_names, read_graph, feed_graph = self.recipe.serialize_dag(
             cond1=cond)
 
@@ -128,20 +196,21 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         for i, iv in enumerate(self.main_op.reduce_axis):
             if i not in reserve_reduce_axis:
                 gen = SplitFactorGenerator(
-                    int(iv.dom.extent), self.reduce_tiling_parts)
+                    int(iv.dom.extent), self.n_reduce_tiling_parts)
                 self.reduce_splits.append(gen)
         self.spatial_splits = []
-        reserve_axis_count = int(self.recipe_stage.reserve_inner_axis_count[self.output_op])
+        reserve_axis_count = int(
+            self.recipe_stage.reserve_inner_axis_count[self.output_op])
         for iv in self.output_op.axis[:-reserve_axis_count]:
             gen = SplitFactorGenerator(
-                int(iv.dom.extent), self.spatial_tiling_parts)
+                int(iv.dom.extent), self.n_spatial_tiling_parts)
             self.spatial_splits.append(gen)
         last_total_extent = 1
         for iv in self.target_dag.op_lst[-1].axis:
             last_total_extent *= int(iv.dom.extent)
         self.last_splits = [
             SplitFactorGenerator(last_total_extent // self.warp_size,
-                                 self.last_op_tiling_parts)]
+                                 self.n_last_op_tiling_parts)]
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
@@ -169,9 +238,9 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
             self.main_op_id,
             self.output_op_id,
             self.recipe_stage,
-            spatial_tiling = self.spatial_tiling_parts,
-            reduce_tiling = self.reduce_tiling_parts,
-            last_tiling = self.last_op_tiling_parts
+            spatial_tiling=self.n_spatial_tiling_parts,
+            reduce_tiling=self.n_reduce_tiling_parts,
+            last_tiling=self.n_last_op_tiling_parts
         )
 
     def valid(self, record):
@@ -225,11 +294,11 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
                     hint=entry.record.output_unroll_step[0], policy="q"),
                 self.unroll_last.get(
                     hint=entry.record.last_unroll_step[0], policy="q"),
-                )
+            )
         return record
 
     def get_records_mutate_one_generator(
-        self, record, to_mutate, steps):
+            self, record, to_mutate, steps):
         vec = record.vectorize
         spatial = record.spatial_factors
         reduce = record.reduce_factors
@@ -272,10 +341,12 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         for s in range(steps):
             vec = helper(next_vec, vec)
             spatial = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)
+                helper(_gen, org_val) for _gen, org_val in
+                zip(next_spatial, spatial)
             ]
             reduce = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)
+                helper(_gen, org_val) for _gen, org_val in
+                zip(next_reduce, reduce)
             ]
             last = [
                 helper(_gen, org_val) for _gen, org_val in zip(next_last, last)
@@ -294,9 +365,11 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
 
     def feedback_value(self, entry, value):
         self.vectorize.feedback(*entry.record.vectorize, value)
-        for gen, factors in zip(self.spatial_splits, entry.record.spatial_factors):
+        for gen, factors in zip(self.spatial_splits,
+                                entry.record.spatial_factors):
             gen.feedback(*factors, value)
-        for gen, factors in zip(self.reduce_splits, entry.record.reduce_factors):
+        for gen, factors in zip(self.reduce_splits,
+                                entry.record.reduce_factors):
             gen.feedback(*factors, value)
         for gen, factors in zip(self.last_splits, entry.record.last_factors):
             gen.feedback(*factors, value)
@@ -315,16 +388,18 @@ class MaliScheduleApplier(object):
         self.compute_key = compute_key
         self.shape_key = shape_key
 
-        self.target_dag = schedule_compute_info.target_dag
+        self.target_dag: ComputeDAG = schedule_compute_info.target_dag
         self.main_op = schedule_compute_info.main_op
         self.output_op = schedule_compute_info.output_op
         self.main_op_id = schedule_compute_info.main_op_id
         self.output_op_id = schedule_compute_info.output_op_id
+        self._last_op_id = len(self.target_dag.op_lst) - 1
+
         self.recipe_stage = schedule_compute_info.recipe_stage
         # the state during schedule
-        self.state = empty_cuda_state()
+        self.state = empty_mali_state()
         # the parameters during schedule
-        self.params = empty_cuda_params()
+        self.params = empty_mali_params()
         # some constants
         self.warp_size = Mali(arch=arch).get_warp_size()
         self.bx = tvm.te.thread_axis("blockIdx.x")
@@ -333,11 +408,14 @@ class MaliScheduleApplier(object):
         self.obx = tvm.te.thread_axis("blockIdx.x")
         self.oty = tvm.te.thread_axis("threadIdx.y")
         self.otx = tvm.te.thread_axis("threadIdx.x")
-        self.reduce_tiling_parts = schedule_compute_info.kwargs["reduce_tiling"]
-        self.spatial_tiling_parts = schedule_compute_info.kwargs["spatial_tiling"]
-        self.last_op_tiling_parts = schedule_compute_info.kwargs["last_tiling"]
+        self.n_reduce_tiling_parts = schedule_compute_info.kwargs[
+            "reduce_tiling"]
+        self.n_spatial_tiling_parts = schedule_compute_info.kwargs[
+            "spatial_tiling"]
+        self.n_last_op_tiling_parts = schedule_compute_info.kwargs[
+            "last_tiling"]
 
-    def initialize_state(self):
+    def _initialize_state(self):
         # self.state = {
         #     "inlined": set(),
         #     "main_op_reduce_axis": [],
@@ -345,16 +423,16 @@ class MaliScheduleApplier(object):
         #     "last_op_axis": [],
         #     "tensorize_iter": {}
         # }
-        self.state = empty_cuda_state()
+        self.state = empty_mali_state()
 
-    def initialize_parameters(self, params):
+    def _initialize_parameters(self, params):
         self.params = params
 
     def get_main_op_outermost_last_reduce_axis(self):
-        if len(self.state.main_op_reduce_axis) > 0:
-            assert isinstance(self.state.main_op_reduce_axis[0], list)
-            assert len(self.state.main_op_reduce_axis[0]) > 0
-            return self.state.main_op_reduce_axis[0][-1]
+        if len(self.state.main_op_reduce_axis_parts) > 0:
+            assert isinstance(self.state.main_op_reduce_axis_parts[0], list)
+            assert len(self.state.main_op_reduce_axis_parts[0]) > 0
+            return self.state.main_op_reduce_axis_parts[0][-1]
         else:
             # no reduce axis
             # print(self.state.main_op_reduce_axis)
@@ -362,10 +440,10 @@ class MaliScheduleApplier(object):
             raise RuntimeError("No reduce axis in main op.")
 
     def get_main_op_outermost_first_reduce_axis(self):
-        if len(self.state.main_op_reduce_axis) > 0:
-            assert isinstance(self.state.main_op_reduce_axis[0], list)
-            assert len(self.state.main_op_reduce_axis[0]) > 0
-            return self.state.main_op_reduce_axis[0][0]
+        if len(self.state.main_op_reduce_axis_parts) > 0:
+            assert isinstance(self.state.main_op_reduce_axis_parts[0], list)
+            assert len(self.state.main_op_reduce_axis_parts[0]) > 0
+            return self.state.main_op_reduce_axis_parts[0][0]
         else:
             # no reduce axis
             # print(self.state.main_op_reduce_axis)
@@ -373,53 +451,55 @@ class MaliScheduleApplier(object):
             raise RuntimeError("No reduce axis in main op.")
 
     def get_main_op_second_outermost_last_reduce_axis(self):
-        if len(self.state.main_op_reduce_axis) > 1:
-            assert isinstance(self.state.main_op_reduce_axis[1], list)
-            assert len(self.state.main_op_reduce_axis[1]) > 0
-            return self.state.main_op_reduce_axis[1][-1]
+        if len(self.state.main_op_reduce_axis_parts) > 1:
+            assert isinstance(self.state.main_op_reduce_axis_parts[1], list)
+            assert len(self.state.main_op_reduce_axis_parts[1]) > 0
+            return self.state.main_op_reduce_axis_parts[1][-1]
         else:
             # no enough reduce axis
             return self.get_main_op_outermost_last_reduce_axis()
 
     def get_output_op_third_innermost_last_axis(self):
-        assert len(self.state.output_op_axis) > 2
-        assert isinstance(self.state.output_op_axis[-3], list)
-        assert len(self.state.output_op_axis[-3]) > 0
-        return self.state.output_op_axis[-3][-1]
+        assert len(self.state.output_op_axis_parts) > 2
+        assert isinstance(self.state.output_op_axis_parts[-3], list)
+        assert len(self.state.output_op_axis_parts[-3]) > 0
+        return self.state.output_op_axis_parts[-3][-1]
 
     def get_output_op_outermost_last_axis(self):
-        assert len(self.state.output_op_axis) > 1
-        assert isinstance(self.state.output_op_axis[0], list)
-        assert len(self.state.output_op_axis[0]) > 0
-        return self.state.output_op_axis[0][-1]
+        assert len(self.state.output_op_axis_parts) > 1
+        assert isinstance(self.state.output_op_axis_parts[0], list)
+        assert len(self.state.output_op_axis_parts[0]) > 0
+        return self.state.output_op_axis_parts[0][-1]
 
     def get_output_op_innermost_last_axis(self):
-        assert len(self.state.output_op_axis) > 1
-        assert isinstance(self.state.output_op_axis[-1], list)
-        assert len(self.state.output_op_axis[-1]) > 0
-        return self.state.output_op_axis[-1][-1]
+        assert len(self.state.output_op_axis_parts) > 1
+        assert isinstance(self.state.output_op_axis_parts[-1], list)
+        assert len(self.state.output_op_axis_parts[-1]) > 0
+        return self.state.output_op_axis_parts[-1][-1]
 
     def get_last_op_innermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[-1], list)
-        assert len(self.state.last_op_axis[-1]) > 0
-        return self.state.last_op_axis[-1][-1]
+        assert len(self.state.last_op_axis_parts) > 0
+        assert isinstance(self.state.last_op_axis_parts[-1], list)
+        assert len(self.state.last_op_axis_parts[-1]) > 0
+        return self.state.last_op_axis_parts[-1][-1]
 
     def get_last_op_second_innermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[-1], list)
-        assert len(self.state.last_op_axis[-1]) > 1
-        return self.state.last_op_axis[-1][-2]
+        assert len(self.state.last_op_axis_parts) > 0
+        assert isinstance(self.state.last_op_axis_parts[-1], list)
+        assert len(self.state.last_op_axis_parts[-1]) > 1
+        return self.state.last_op_axis_parts[-1][-2]
 
     def get_last_op_outermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[0], list), self.state.last_op_axis[0]
-        assert len(self.state.last_op_axis[0]) > 0
-        return self.state.last_op_axis[0][0]
+        assert len(self.state.last_op_axis_parts) > 0
+        assert isinstance(
+            self.state.last_op_axis_parts[0], list), \
+            self.state.last_op_axis_parts[0]
+        assert len(self.state.last_op_axis_parts[0]) > 0
+        return self.state.last_op_axis_parts[0][0]
 
-    def get_tensorize_iter(self, op):
-        assert op in self.state.tensorize_iter
-        return self.state.tensorize_iter[op]
+    def get_tensorized_axis(self, op):
+        assert op in self.state.tensorized_axis
+        return self.state.tensorized_axis[op]
 
     def get_main_op_warp_numbers(self):
         assert len(self.params.spatial_factors) > 0
@@ -461,7 +541,25 @@ class MaliScheduleApplier(object):
         assert self.params.last_unroll_step is not None
         return self.params.last_unroll_step[0]
 
-    def check_parameter_ready(self):
+    @staticmethod
+    def _split_axes(stage: tvm.te.Stage, axes, factors):
+        axis_split_parts = []
+        for iv, factors in zip(axes, factors):
+            part = []
+            for f in reversed(factors[1:]):
+                iv, inner = stage.split(iv, factor=f)
+                part.append(inner)
+            part.append(iv)
+            axis_split_parts.append(list(reversed(part)))
+        return axis_split_parts
+
+    @staticmethod
+    def _reorder_axis_parts(stage: tvm.te.Stage, *parts):
+        ordered_axes = [iv for part in parts for iv in part]
+        stage.reorder(*ordered_axes)
+        return ordered_axes
+
+    def _check_parameter_ready(self):
         return True
 
     def inline(self, op_id, op, sch, X):
@@ -470,14 +568,14 @@ class MaliScheduleApplier(object):
         else:
             if can_inline(op, self.target_dag):
                 sch[X(op)].compute_inline()
-                self.state.inlined.add(op)
+                self.state.inlined_ops.add(op)
 
     def cache_read(self, op_id, op, sch, X):
         if op in self.recipe_stage.operation_role:
             return
-        # if op in self.state.inlined:
+        # if op in self.state.inlined_ops:
         #     return
-        if not op in self.target_dag.feed_graph:
+        if op not in self.target_dag.feed_graph:
             return
         do_cache_read_for_load = False
         do_cache_read_for_last = False
@@ -485,20 +583,21 @@ class MaliScheduleApplier(object):
         if len(consumers) <= 0:
             return
         if consumers[0] in self.recipe_stage.operation_role:
-            if self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
+            if (self.recipe_stage.operation_role[consumers[0]]
+                    == OperationRole.load_op):
                 if len(consumers) == 1:
                     do_cache_read_for_load = True
         if consumers[0] == self.target_dag.op_lst[-1]:
             # the last op
             if len(consumers) == 1:
                 do_cache_read_for_last = True
-        
+
         # can't do both
         assert not (do_cache_read_for_load and do_cache_read_for_last)
-        
+
         if do_cache_read_for_load:
-            # XXX: modify shared to local
-            S = sch.cache_read(X(op).output(0), "local", [X(x) for x in consumers])
+            S = sch.cache_read(X(op).output(0), "local",
+                               [X(x) for x in consumers])
             axis = self.get_main_op_outermost_last_reduce_axis()
             # compute at to main op
             sch[S].compute_at(sch[X(self.main_op)], axis)
@@ -533,171 +632,206 @@ class MaliScheduleApplier(object):
                 sch[X(op)].set_scope("local")
 
     def tiling(self, op_id, op, sch, X):
+        if op in self.state.inlined_ops:
+            return
+        op_stage: tvm.te.Stage = sch[X(op)]
         # only tiling for 3 ops: main, output, last
-        if op == self.main_op:
-            # prepare spatial axis
-            axis = sch[X(op)].op.axis
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
-            spatial_axis_split_parts = [
-                axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
+        if op_id == self.main_op_id:
+            # compute at output op
+            axis = self.get_output_op_third_innermost_last_axis()
+            op_stage.compute_at(sch[X(self.output_op)], axis)
 
-            all_reduce_axis = sch[X(op)].op.reduce_axis
-            reserve_reduce_axis = []
-            split_reduce_axis = []
-            tmp = set([int(x) for x in self.recipe_stage.main_op_reserve_reduce_axis])
+            # prepare spatial axis
+            all_spatial_axes = op_stage.op.axis
+            reserved_spatial_num = int(
+                self.recipe_stage.reserve_inner_axis_count[op])
+
+            # split spatial axis
+            spatial_axis_split_parts = [
+                all_spatial_axes[:-reserved_spatial_num],
+                all_spatial_axes[-reserved_spatial_num:]]
+
+            # prepare reduce axis
+            all_reduce_axis = op_stage.op.reduce_axis
+            reserved_reduce_axes = []
+            split_reduce_axes = []
+            main_op_reserved_reduce_axes = set(
+                int(x) for x in self.recipe_stage.main_op_reserve_reduce_axis)
             for i, iv in enumerate(all_reduce_axis):
-                if i in tmp:
-                    reserve_reduce_axis.append(iv)
+                if i in main_op_reserved_reduce_axes:
+                    reserved_reduce_axes.append(iv)
                 else:
-                    split_reduce_axis.append(iv)
-            reserve_reduce_num = len(reserve_reduce_axis)
-            pos = self.get_output_op_third_innermost_last_axis()
-            sch[X(op)].compute_at(sch[X(self.output_op)], pos)
-            
-            reduce_axis_split_parts = []
+                    split_reduce_axes.append(iv)
+            reserved_reduce_num = len(reserved_reduce_axes)
+
+            # split reduce axis
             reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
-                len(split_reduce_axis)
-            )
-            for iv, factors in zip(split_reduce_axis, reduce_axis_split_factors):
-                part = []
-                for f in reversed(factors[1:]):
-                    iv, inner = sch[X(op)].split(iv, factor=f)
-                    part.append(inner)
-                part.append(iv)
-                part = list(reversed(part))
-                reduce_axis_split_parts.append(part)
-            reordered_reduce_axis = [list(x) for x in zip(*reduce_axis_split_parts)]
-            reordered_reduce_axis.append(reserve_reduce_axis)
-            assert len(reordered_reduce_axis) > 3, "No enough reduce axis split."
-            ordered_axis = reordered_reduce_axis[:-2] + \
-                           [spatial_axis_split_parts[0]] + \
-                           reordered_reduce_axis[-2:-1] + \
-                           [spatial_axis_split_parts[1]] + \
-                           reordered_reduce_axis[-1:]
-            ordered_axis = reduce(lambda x, y: x + y, ordered_axis, [])
-            sch[X(op)].reorder(*ordered_axis)
-            self.state.main_op_reduce_axis = reordered_reduce_axis
-            self.state.tensorize_iter[op] = ordered_axis[
-                -(reserve_spatial_num + reserve_reduce_num)]
-        elif op == self.output_op:
-            axis = sch[X(op)].op.axis
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
-            split_spatial_axis = axis[:-reserve_spatial_num]
-            reserve_spatial_axis = axis[-reserve_spatial_num:]
-            spatial_axis_split_factors = self.get_output_op_axis_factors(
-                len(split_spatial_axis)
-            )
-            spatial_axis_split_parts = []
-            for iv, factors in zip(split_spatial_axis, spatial_axis_split_factors):
-                part = []
-                for f in reversed(factors[1:]):
-                    iv, inner = sch[X(op)].split(iv, factor=f)
-                    part.append(inner)
-                part.append(iv)
-                part = list(reversed(part))
-                spatial_axis_split_parts.append(part)
-            reordered_spatial_axis = [list(x) for x in zip(*spatial_axis_split_parts)]
-            reordered_spatial_axis.append(reserve_spatial_axis)
+                len(split_reduce_axes))
+            reduce_axis_split_parts = self._split_axes(
+                op_stage, split_reduce_axes, reduce_axis_split_factors)
+            reordered_reduce_parts = [
+                list(x) for x in zip(*reduce_axis_split_parts)]
+            reordered_reduce_parts.append(reserved_reduce_axes)
+            assert len(
+                reordered_reduce_parts) > 3, "No enough reduce axis split."
+
             # reorder
-            ordered_axis = reduce(lambda x, y: x + y, reordered_spatial_axis, [])
-            sch[X(op)].reorder(*ordered_axis)
+            ordered_axes = self._reorder_axis_parts(
+                op_stage,
+                *reordered_reduce_parts[:-2],
+                *spatial_axis_split_parts[:1],
+                *reordered_reduce_parts[-2:-1],
+                *spatial_axis_split_parts[1:],
+                *reordered_reduce_parts[-1:],
+            )
+
+            # save state info
+            self.state.main_op_reduce_axis_parts = reordered_reduce_parts
+            self.state.tensorized_axis[op] = ordered_axes[
+                -(reserved_spatial_num + reserved_reduce_num)]
+
+        elif op_id == self.output_op_id:
+            # prepare spatial axis
+            all_spatial_axes = op_stage.op.axis
+            reserved_spatial_num = int(
+                self.recipe_stage.reserve_inner_axis_count[op])
+            split_spatial_axes = all_spatial_axes[:-reserved_spatial_num]
+            reserve_spatial_axes = all_spatial_axes[-reserved_spatial_num:]
+
+            # split spatial axis
+            spatial_axis_split_factors = self.get_output_op_axis_factors(
+                len(split_spatial_axes)
+            )
+            spatial_axis_split_parts = self._split_axes(
+                op_stage, split_spatial_axes, spatial_axis_split_factors)
+            reordered_spatial_parts = [
+                list(x) for x in zip(*spatial_axis_split_parts)]
+            reordered_spatial_parts.append(reserve_spatial_axes)
+
+            # reorder
+            self._reorder_axis_parts(op_stage, *reordered_spatial_parts)
+
             # fuse and bind
-            assert len(reordered_spatial_axis) > 3, "No enough spatial axis split."
-            fused_axis = [sch[X(op)].fuse(*part) for part in reordered_spatial_axis[:-2]]
-            final_axis = [[x] for x in fused_axis]
-            sch[X(op)].bind(fused_axis[0], self.bx)
+            assert len(
+                reordered_spatial_parts) > 3, "No enough spatial axis split."
+            fused_axes = [op_stage.fuse(*part)
+                          for part in reordered_spatial_parts[:-2]]
+            final_axis_parts = [[x] for x in fused_axes]
+            op_stage.bind(fused_axes[0], self.bx)
             # the intermediate bind to vthread
             # for med_fused in fused_axis[1:-1]:
-            #     sch[X(op)].bind(med_fused, tvm.te.thread_axis("vthread"))
-            sch[X(op)].bind(fused_axis[-1], self.ty)
+            #     op_stage.bind(med_fused, tvm.te.thread_axis("vthread"))
+            op_stage.bind(fused_axes[-1], self.ty)
             # thread level intrinsic, still bind to thread x
             if self.recipe_stage.instruction_scope == InstructionScope.thread:
-                fused = sch[X(op)].fuse(*reordered_spatial_axis[-2])
-                outer, inner = sch[X(op)].split(fused, nparts=self.warp_size)
-                sch[X(op)].bind(outer, self.tx)
-                final_axis.append([outer, inner])
-                final_axis.append(reordered_spatial_axis[-1])
+                fused = op_stage.fuse(*reordered_spatial_parts[-2])
+                outer, inner = op_stage.split(fused, nparts=self.warp_size)
+                op_stage.bind(outer, self.tx)
+                final_axis_parts.append([outer, inner])
             else:
-                final_axis.append(reordered_spatial_axis[-2])
-                final_axis.append(reordered_spatial_axis[-1])
-            self.state.output_op_axis = final_axis
-            self.state.tensorize_iter[op] = final_axis[-1][-2]
-        elif op == self.target_dag.op_lst[-1]:
+                final_axis_parts.append(reordered_spatial_parts[-2])
+            final_axis_parts.append(reordered_spatial_parts[-1])
+
+            # save state info
+            self.state.output_op_axis_parts = final_axis_parts
+            self.state.tensorized_axis[op] = final_axis_parts[-1][-2]
+
+        elif op_id == self._last_op_id:
             # last op
-            axis = sch[X(op)].op.axis
-            fused = sch[X(op)].fuse(*axis)
-            fused, thread_level = sch[X(op)].split(fused, factor=self.warp_size)
+
+            # prepare spatial axis
+            all_spatial_axes = op_stage.op.axis
+
+            # fuse
+            fused = op_stage.fuse(*all_spatial_axes)
+            fused, thread_axis = op_stage.split(
+                fused, factor=self.warp_size)
+
+            # split
             split_factors = self.get_last_op_axis_factors(1)
-            split_parts = []
-            for f in reversed(split_factors[0][1:]):
-                fused, inner = sch[X(op)].split(fused, factor=f)
-                split_parts.append(inner)
-            split_parts.append(fused)
-            split_parts = list(reversed(split_parts))
-            sch[X(op)].bind(split_parts[0], self.obx)
-            sch[X(op)].bind(split_parts[-1], self.oty)
-            sch[X(op)].bind(thread_level, self.otx)
-            self.state.last_op_axis = [split_parts + [thread_level]]
+            split_parts = self._split_axes(op_stage, [fused], split_factors)
+            split_axes = split_parts[0]
+
+            # bind
+            op_stage.bind(split_axes[0], self.obx)
+            op_stage.bind(split_axes[-1], self.oty)
+            op_stage.bind(thread_axis, self.otx)
+
+            # save state info
+            self.state.last_op_axis_parts = [split_axes + [thread_axis]]
+
+        else:
+            # TODO(chenrenze): tiling for other axis
+            pass
 
     def compute_at(self, op_id, op, sch, X):
-        if not op in self.recipe_stage.operation_role:
+        op_stage: tvm.te.Stage = sch[X(op)]
+        if op not in self.recipe_stage.operation_role:
             return
         if op_id < self.main_op_id:
             # compute at to main op
             axis = self.get_main_op_second_outermost_last_reduce_axis()
-            sch[X(op)].compute_at(sch[X(self.main_op)], axis)
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
-            self.state.tensorize_iter[op] = sch[X(op)].op.axis[-reserve_spatial_num]
+            op_stage.compute_at(sch[X(self.main_op)], axis)
+            reserve_spatial_num = int(
+                self.recipe_stage.reserve_inner_axis_count[op])
+            self.state.tensorized_axis[op] = op_stage.op.axis[
+                -reserve_spatial_num]
         elif self.main_op_id < op_id < self.output_op_id:
             # compute at to output op
             axis = self.get_output_op_third_innermost_last_axis()
-            sch[X(op)].compute_at(sch[X(self.output_op)], axis)
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
-            self.state.tensorize_iter[op] = sch[X(op)].op.axis[-reserve_spatial_num]
+            op_stage.compute_at(sch[X(self.output_op)], axis)
+            reserve_spatial_num = int(
+                self.recipe_stage.reserve_inner_axis_count[op])
+            self.state.tensorized_axis[op] = op_stage.op.axis[
+                -reserve_spatial_num]
 
     def unroll(self, op_id, op, sch, X):
-        if op == self.output_op:
+        op_stage: tvm.te.Stage = sch[X(op)]
+        if op_id == self.output_op_id:
             axis = self.get_output_op_outermost_last_axis()
             step = self.get_output_op_unroll_step()
-            sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
-        elif op == self.main_op:
+            op_stage.pragma(axis, "auto_unroll_max_step", step)
+            # op_stage.pragma(axis, "unroll_explicit", 0)
+        elif op_id == self.main_op_id:
             axis = self.get_main_op_outermost_first_reduce_axis()
             # reuse output op unroll step
             step = self.get_output_op_unroll_step()
-            sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
-        elif op == self.target_dag.op_lst[-1]:
+            op_stage.pragma(axis, "auto_unroll_max_step", step)
+            # op_stage.pragma(axis, "unroll_explicit", 0)
+        elif op_id == self._last_op_id:
             axis = self.get_last_op_outermost_last_axis()
             step = self.get_last_op_unroll_step()
-            sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
+            op_stage.pragma(axis, "auto_unroll_max_step", step)
+            # op_stage.pragma(axis, "unroll_explicit", 0)
 
-    # XXX: add vectorize
     def vectorize(self, op_id, op, sch, X):
-        if op == self.output_op:
+        # TODO(chenrenze): vectorize
+        return
+        op_stage: tvm.te.Stage = sch[X(op)]
+        if op_id == self.output_op_id:
             axis = self.get_output_op_innermost_last_axis()
             vec_len = self.get_vectorize_length()
-            outer, inner = sch[X(op)].split(axis, factor=vec_len)
-            sch[X(op)].vectorize(inner)
-            self.state.output_op_axis[-1].remove(axis)
-            self.state.output_op_axis[-1].extend([outer, inner])
-        elif op == self.target_dag.op_lst[-1]:
+            outer, inner = op_stage.split(axis, factor=vec_len)
+            op_stage.vectorize(inner)
+            self.state.output_op_axis_parts[-1].remove(axis)
+            self.state.output_op_axis_parts[-1].extend([outer, inner])
+        elif op_id == self._last_op_id:
             axis = self.get_last_op_innermost_last_axis()
             vec_len = self.get_vectorize_length()
-            outer, inner = sch[X(op)].split(axis, factor=vec_len)
-            sch[X(op)].vectorize(inner)
-            self.state.last_op_axis[-1].remove(axis)
-            self.state.last_op_axis[-1].extend([outer, inner])
+            outer, inner = op_stage.split(axis, factor=vec_len)
+            op_stage.vectorize(inner)
+            self.state.last_op_axis_parts[-1].remove(axis)
+            self.state.last_op_axis_parts[-1].extend([outer, inner])
 
     def tensorize(self, op_id, op, sch, X):
-        if not op in self.recipe_stage.operation_role:
+        if op not in self.recipe_stage.operation_role:
             return
         intrin = self.recipe.get_intrinsic(
-            self.compute_key, self.shape_key, self.recipe_stage.capsule_key[op])
-        axis = self.get_tensorize_iter(op)
+            self.compute_key, self.shape_key,
+            self.recipe_stage.capsule_key[op])
+        axis = self.get_tensorized_axis(op)
         sch[X(op)].tensorize(axis, intrin)
-    
+
     def apply(self, sch, params, mapping_func=lambda x: x):
         X = mapping_func
         primitives = [
@@ -710,20 +844,19 @@ class MaliScheduleApplier(object):
             self.vectorize,
             self.tensorize
         ]
-        
+
         # initialize parameters
-        self.initialize_parameters(params)
+        self._initialize_parameters(params)
         # check if parameters are ready
-        self.check_parameter_ready()
+        self._check_parameter_ready()
         # initialize state
-        self.initialize_state()
+        self._initialize_state()
 
         dag = self.target_dag
-        total_op = len(dag.op_lst)
-        for op_id, op in enumerate(reversed(dag.op_lst)):
+        for op_id, op in reversed(list(enumerate(dag.op_lst))):
             if not isinstance(op, tvm.te.ComputeOp):
                 continue
             else:
                 for prim in primitives:
-                    prim(total_op - op_id - 1, op, sch, X)
+                    prim(op_id, op, sch, X)
         return sch
