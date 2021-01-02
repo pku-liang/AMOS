@@ -7,6 +7,7 @@ import numpy as np
 from tempfile import mkstemp
 from tvm import rpc
 from tvm.contrib import ndk
+from traceback import print_exc
 
 
 def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
@@ -58,21 +59,13 @@ def tensorize_tensorcore_s8s8(
     target = "opencl"
     target_host = 'llvm -mtriple=aarch64-linux-android'
 
-    cmds = [
-        "adb reverse tcp:9190 tcp:9190",
-        "adb forward tcp:5001 tcp:5001",
-        "adb shell am start -n org.apache.tvm.tvmrpc/org.apache.tvm.tvmrpc.MainActivity 1> /dev/null 2> /dev/null",
-    ]
-    os.system("; ".join(cmds))
-
-    print("Connecting...")
-
     log_file = "opencl-conv2d-int8-layer-%d-batch-%d.log" % (layer, N)
 
     trials = 1000
     measure_opt = at.MeasureOptions(
         target=target, target_host=target_host, timeout=10, number=200, min_repeat_ms=500)
 
+    print("Begin tensorize...")
     result = at.auto_tensorize(
         target_dag, target, log_file, measure_opt, trials=trials, verbose=True)
     if not result.defined():
@@ -80,6 +73,7 @@ def tensorize_tensorcore_s8s8(
         return
     schedule_gen = result.sch_gen
     schedule_app = result.sch_app
+    print("Tensorize done.")
 
     # load from file
     schedule_gen.load_from_file(log_file, clear=True)
@@ -133,7 +127,15 @@ yolo_shapes_b1 = [
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
-    num = 15
+    num = 1
+
+    cmds = [
+        "adb reverse tcp:9190 tcp:9190",
+        "adb forward tcp:5001 tcp:5001",
+        "adb shell am start -n org.apache.tvm.tvmrpc/org.apache.tvm.tvmrpc.MainActivity 1> /dev/null 2> /dev/null",
+    ]
+    os.system("; ".join(cmds))
+
     for batch in batches:
         costs = []
         for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):
@@ -150,6 +152,7 @@ if __name__ == "__main__":
                 )
                 costs.append(cost)
             except Exception as e:
+                print_exc()
                 print("Fail to run\n", str(e))
                 costs.append(float("inf"))
         print("\nBatch=", batch)
