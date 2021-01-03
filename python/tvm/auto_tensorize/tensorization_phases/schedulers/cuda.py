@@ -758,7 +758,7 @@ class CUDAScheduleApplier(object):
             self.tiling,
             self.compute_at,
             self.unroll,
-            # self.tensorize
+            self.tensorize
         ]
         
         # initialize parameters
