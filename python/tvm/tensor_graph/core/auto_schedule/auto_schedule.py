@@ -357,7 +357,8 @@ class AutoTensorizeContext(object):
         runner=self.runner,
         verbose=False)
 
-    return self.get_best_schedule()
+    sch, args, perf = self.get_best_schedule()
+    return sch, args
 
   def get_best_schedule(self):
     if self.schedule_gen.has_entry():
@@ -416,7 +417,7 @@ class AutoScheduleGraphDispatch(object):
         continue
       if tid in AutoScheduleGraphDispatch.working_set:
         ctx = AutoScheduleGraphDispatch.working_set[tid]
-        sch, args, perf = ctx.auto_schedule(trials)
+        ctx.auto_schedule(trials)
         sch, args, perf = ctx.get_best_schedule()
         # if sch is not None:
         #   perf = at.evaluate_schedule(
