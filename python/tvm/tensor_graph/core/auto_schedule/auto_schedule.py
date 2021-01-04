@@ -367,7 +367,7 @@ class AutoTensorizeContext(object):
       sch, args = at.get_schedule(self.schedule_app, params)
       return sch, args, 1 / entry.value * 1e3
     else:
-      return None, None
+      return None, None, at.MAX_FLOAT
 
   def get_measure_opt(self):
     return self.measure_option
