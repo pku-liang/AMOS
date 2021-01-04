@@ -80,7 +80,7 @@ class Linear_(Layer):
       [out_features, in_features], dtype=dtype, name="linear_weight")
     if bias:
       self.bias = GraphTensor(
-        [out_features], dtype=dtype, name="linear_bias", requires_grad=True)
+        [out_features], dtype=out_dtype, name="linear_bias", requires_grad=True)
     else:
       self.bias = None
 
@@ -90,19 +90,20 @@ class Linear_(Layer):
   def forward(self, x):
     return dense(x, self.weight, self.bias, out_dtype=self.out_dtype)
 
-def scaled_dot_product_attention(Q, K, V, key_masks,
-                                 causality=False):
+def scaled_dot_product_attention(N, Q, K, V,
+                                 causality=False, out_dtype="float32"):
     '''See 3.2.1.
     Q: Packed queries. 3d tensor. [N, T_q, d_k].
     K: Packed keys. 3d tensor. [N, T_k, d_k].
     V: Packed values. 3d tensor. [N, T_k, d_v].
-    key_masks: A 2d tensor with shape of [N, key_seqlen]
+    # key_masks: A 2d tensor with shape of [N, key_seqlen]
     causality: If True, applies masking for future blinding
     '''
-    d_k = Q.shape[-1]
-    T_q = Q.shape[-2]
-    T_k = K.shape[-2]
-    d_v = V.shape[-1]
+    d_k = int(Q.shape[-1])
+    d_k_const = tvm.tir.const(Q.shape[-1], dtype=out_dtype)
+    T_q = int(Q.shape[-2])
+    T_k = int(K.shape[-2])
+    d_v = int(V.shape[-1])
 
     # dot product and scale
     def _inner_dense_t(N, T_q, T_k, d_k, inputs, weight, requires_grad=True):
@@ -110,7 +111,7 @@ def scaled_dot_product_attention(Q, K, V, key_masks,
         return compute(
             [N, T_q, T_k],
             lambda n, tq, tk: tvm.te.sum(
-                (inputs[n, tq, k] * weight[n, tk, k]).astype(out_dtype), axis=[k]) / tvm.te.sqrt(d_k),
+                (inputs[n, tq, k] * weight[n, tk, k] / tvm.te.sqrt(d_k_const)).astype(out_dtype), axis=[k]),
             name="dense",
             requires_grad=requires_grad)
 
@@ -127,7 +128,7 @@ def scaled_dot_product_attention(Q, K, V, key_masks,
     def _inner_sum_val(N, T_q, T_k, data, requires_grad=True):
         k1 = tvm.te.reduce_axis([0, T_k], name="k1")
         return compute(
-            [N],
+            [N, T_q],
             lambda n, t: tvm.te.sum(tvm.tir.exp(data[n, t, k1]), axis=[k1]),
             requires_grad=requires_grad)
     sum_val = GraphOp([N, T_q], [T_k], [outputs], _inner_sum_val)
@@ -135,9 +136,9 @@ def scaled_dot_product_attention(Q, K, V, key_masks,
     def _inner_soft(N, T_q, T_k, data, sum_val, requires_grad=True):
         return compute(
             [N, T_q, T_k],
-            lambda n, tq, tk: data[n, tq, tk] / sum_val[n, tq],
+            lambda n, tq, tk: tvm.tir.exp(data[n, tq, tk]) / sum_val[n, tq],
             requires_grad=requires_grad)
-    outputs = GraphOp([N, T_q, T_k], [], [outputs], _inner_soft)
+    outputs = GraphOp([N, T_q, T_k], [], [outputs, sum_val], _inner_soft)
 
     # weighted sum (context vectors)
     def _inner_dense(B, M, N, K, inputs, weight, requires_grad=True):
@@ -152,9 +153,9 @@ def scaled_dot_product_attention(Q, K, V, key_masks,
 
     return outputs
 
-def multihead_attention(queries, keys, values, key_masks,
+def multihead_attention(queries, keys, values,
                         num_heads=8,
-                        causality=False):
+                        causality=False, dtype="float32", out_dtype="float32"):
     '''Applies multihead attention. See 3.2.2
     queries: A 3d tensor with shape of [N, T_q, d_model].
     keys: A 3d tensor with shape of [N, T_k, d_model].
@@ -168,13 +169,13 @@ def multihead_attention(queries, keys, values, key_masks,
     '''
     N, T, d_model = queries.shape
     # Linear projections
-    Q = Linear_(d_model, d_model, bias=True)(queries) # (N, T_q, d_model)
-    K = Linear_(d_model, d_model, bias=True)(keys) # (N, T_k, d_model)
-    V = Linear_(d_model, d_model, bias=True)(values) # (N, T_k, d_model)
+    Q = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(queries) # (N, T_q, d_model)
+    K = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(keys) # (N, T_k, d_model)
+    V = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(values) # (N, T_k, d_model)
     
     # Split and concat
     def _split_concat(h_N, T, d_model_h, data, requires_grad=False):
-        h = tvm.tir.const(num_heads, data.dtype)
+        h = tvm.tir.const(num_heads, data.tvm_tensor.dtype)
         return compute([h_N, T, d_model_h],
                         lambda n_h, t, d_h: data[n_h / h, t, d_h * h],
                         requires_grad=requires_grad)
@@ -183,13 +184,13 @@ def multihead_attention(queries, keys, values, key_masks,
     V_ = GraphOp([num_heads * N, T, d_model / num_heads], [], [V], _split_concat, requires_grad=False) # (h*N, T_k, d_model/h)
 
     # Attention
-    outputs = scaled_dot_product_attention(Q_, K_, V_, key_masks, causality)
+    outputs = scaled_dot_product_attention(N, Q_, K_, V_, causality, out_dtype=out_dtype)
 
     # Restore shape
     def _split_concat_restore(N, T, d_model, data, requires_grad=False):
-        h = tvm.tir.const(num_heads, data.dtype)
+        h = tvm.tir.const(num_heads, data.tvm_tensor.dtype)
         return compute([N, T, d_model],
-                        lambda n, t, d: data[n_h * h, t, d_h / h],
+                        lambda n, t, d: data[n * h, t, d / h],
                         requires_grad=requires_grad)
     outputs = GraphOp([N, T, d_model], [], [outputs], _split_concat_restore, requires_grad=False) # (N, T_q, d_model)
             
@@ -239,7 +240,7 @@ def ln(inputs, epsilon=1e-8):
     var = GraphOp([d_model], [], [square, mean], _inner_var,
                     name=prefix + "_var", requires_grad=False)
 
-    def _inner_ln(N, T, d_model, inputs, mean, var, alpha, beta, requires_grad=True):
+    def _inner_ln(N, T, d_model, inputs, mean, var, requires_grad=True):
         return compute([N, T, d_model],
                         lambda n, t, d: (
                             inputs[n, t, d] - mean[d]) / tvm.te.sqrt(var[d] + epsilon),
@@ -247,7 +248,7 @@ def ln(inputs, epsilon=1e-8):
                         requires_grad=requires_grad)
     return GraphOp([N, T, d_model], [], [inputs, mean, var], _inner_ln, name=prefix+"layer_norm")
 
-def ff(inputs, num_units):
+def ff(inputs, num_units, dtype="float32", out_dtype="float32"):
     '''position-wise feed forward net. See 3.3
     
     inputs: A 3d tensor with shape of [N, T, C].
@@ -256,11 +257,11 @@ def ff(inputs, num_units):
       A 3d tensor with the same shape and dtype as inputs
     '''
     # Inner layer
-    outputs = Linear_(inputs.shape[-1], num_units[0])(inputs)
+    outputs = Linear_(inputs.shape[-1], num_units[0], dtype=dtype, out_dtype=out_dtype)(inputs)
     outputs = ReLU()(outputs)
 
     # Outer layer
-    outputs = Linear_(num_units[0], num_units[1])(outputs)
+    outputs = Linear_(num_units[0], num_units[1], dtype=dtype, out_dtype=out_dtype)(outputs)
 
     # Residual connection
     outputs = elementwise_add(outputs, inputs)
@@ -270,18 +271,21 @@ def ff(inputs, num_units):
     
     return outputs
 
-class Transformer:
+class Transformer(Layer):
     '''
     xs: tuple of
         x: tensor. (N, T1)
     '''
-    def __init__(self, num_blocks, num_heads, d_ff, d_model):
+    def __init__(self, num_blocks, num_heads, d_ff, d_model, dtype="float32", out_dtype="float32"):
+        super(Transformer, self).__init__()
         self.num_blocks = num_blocks
         self.num_heads = num_heads
         self.d_ff = d_ff
         self.d_model = d_model
+        self.dtype = dtype
+        self.out_dtype = out_dtype
 
-    def encode(self, x, src_masks):
+    def forward(self, x):
         '''
         Returns
         memory: encoder outputs. (N, T1, d_model)
@@ -295,11 +299,10 @@ class Transformer:
             enc = multihead_attention(queries=enc,
                                         keys=enc,
                                         values=enc,
-                                        key_masks=src_masks,
                                         num_heads=self.num_heads,
-                                        causality=False)
+                                        causality=False, dtype=self.dtype, out_dtype=self.out_dtype)
             # feed forward
-            enc = ff(enc, num_units=[self.d_ff, self.d_model])
+            enc = ff(enc, num_units=[self.d_ff, self.d_model], dtype=self.dtype, out_dtype=self.out_dtype)
         return enc
 
 if __name__ == "__main__":
@@ -309,12 +312,12 @@ if __name__ == "__main__":
     d_ff = 4
     num_blocks = 2
     num_heads = 2
+    dtype="float16"
+    out_dtype="float16"
 
-    net = Transformer(num_blocks, num_heads, d_ff, d_model)
+    net = Transformer(num_blocks, num_heads, d_ff, d_model, dtype=dtype, out_dtype=out_dtype)
 
-    dtype = "float32"
     x = GraphTensor([N, T, d_model], dtype, name="data")
-    src_masks = GraphTensor([N, T], dtype=dtype, name="mask")
-    outputs = net.encode(x, src_masks)
+    outputs = net.forward(x)
 
     print(outputs)
