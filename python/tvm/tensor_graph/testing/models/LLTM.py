@@ -90,13 +90,13 @@ def internel_lltm(input, weight_for_gate, bias_for_gate, old_h, old_c):
     return new_h, new_c
 
 class LLTM(Layer):
-    def __init__(self, state_size=128, input_size=28*28):
+    def __init__(self, state_size=128, input_size=28*28, dtype="float32"):
         super(LLTM, self).__init__()
-        self.weight_for_gate = GraphTensor([3*state_size, state_size+input_size], name="weight_for_gate", requires_grad=True)
-        self.bias_for_gate = GraphTensor([3*state_size], name="bias_for_gate", requires_grad=True)
+        self.weight_for_gate = GraphTensor([3*state_size, state_size+input_size], dtype=dtype, name="weight_for_gate", requires_grad=True)
+        self.bias_for_gate = GraphTensor([3*state_size], name="bias_for_gate", dtype=dtype, requires_grad=True)
         
-        self.weight_for_classify = GraphTensor([10, state_size], name="weight_for_classify", requires_grad=True)
-        self.bias_for_classify = GraphTensor([10], name="bias_for_classify", requires_grad=True)
+        self.weight_for_classify = GraphTensor([10, state_size], dtype=dtype, name="weight_for_classify", requires_grad=True)
+        self.bias_for_classify = GraphTensor([10], dtype=dtype, name="bias_for_classify", requires_grad=True)
     
     def forward(self, x, old_h, old_c):
         new_h, new_c = internel_lltm(x, self.weight_for_gate, self.bias_for_gate, old_h, old_c)

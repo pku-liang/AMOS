@@ -69,34 +69,36 @@ def compute_hx(o_g, cx):
     return GraphOp([batch, hidden_size], [], [o_g, cx], _inner_compute_hx, name="compute_hx")
 
 class MI_LSTM(Layer):
-    def __init__(self, input_size=28*28, hidden_size=1024, n_class=10):
+    def __init__(self, input_size=28*28, hidden_size=1024, n_class=10, dtype="float32", out_dtype="float32"):
         super(MI_LSTM, self).__init__()
-        self.weight_fh = Linear(hidden_size, hidden_size, bias=True)
-        self.weight_ih = Linear(hidden_size, hidden_size, bias=True)
-        self.weight_zh = Linear(hidden_size, hidden_size, bias=True)
-        self.weight_oh = Linear(hidden_size, hidden_size, bias=True)
-        self.weight_fx = Linear(input_size, hidden_size, bias=True)
-        self.weight_ix = Linear(input_size, hidden_size, bias=True)
-        self.weight_zx = Linear(input_size, hidden_size, bias=True)
-        self.weight_ox = Linear(input_size, hidden_size, bias=True)
+        self.dtype = dtype
+        self.out_dtype = out_dtype
+        self.weight_fh = Linear(hidden_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_ih = Linear(hidden_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_zh = Linear(hidden_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_oh = Linear(hidden_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_fx = Linear(input_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_ix = Linear(input_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_zx = Linear(input_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
+        self.weight_ox = Linear(input_size, hidden_size, bias=True, dtype=dtype, out_dtype=out_dtype)
         # alphas and betas
-        self.alpha_f = GraphTensor([hidden_size], name="alpha_f", requires_grad=True)
-        self.beta_f1 = GraphTensor([hidden_size], name="beta_f1", requires_grad=True)
-        self.beta_f2 = GraphTensor([hidden_size], name="beta_f2", requires_grad=True)
+        self.alpha_f = GraphTensor([hidden_size], dtype=dtype, name="alpha_f", requires_grad=True)
+        self.beta_f1 = GraphTensor([hidden_size], dtype=dtype, name="beta_f1", requires_grad=True)
+        self.beta_f2 = GraphTensor([hidden_size], dtype=dtype, name="beta_f2", requires_grad=True)
         
-        self.alpha_i = GraphTensor([hidden_size], name="alpha_i", requires_grad=True)
-        self.beta_i1 = GraphTensor([hidden_size], name="beta_i1", requires_grad=True)
-        self.beta_i2 = GraphTensor([hidden_size], name="beta_i2", requires_grad=True)
+        self.alpha_i = GraphTensor([hidden_size], dtype=dtype, name="alpha_i", requires_grad=True)
+        self.beta_i1 = GraphTensor([hidden_size], dtype=dtype, name="beta_i1", requires_grad=True)
+        self.beta_i2 = GraphTensor([hidden_size], dtype=dtype, name="beta_i2", requires_grad=True)
         
-        self.alpha_o = GraphTensor([hidden_size], name="alpha_o", requires_grad=True)
-        self.beta_o1 = GraphTensor([hidden_size], name="beta_o1", requires_grad=True)
-        self.beta_o2 = GraphTensor([hidden_size], name="beta_o2", requires_grad=True)
+        self.alpha_o = GraphTensor([hidden_size], dtype=dtype, name="alpha_o", requires_grad=True)
+        self.beta_o1 = GraphTensor([hidden_size], dtype=dtype, name="beta_o1", requires_grad=True)
+        self.beta_o2 = GraphTensor([hidden_size], dtype=dtype, name="beta_o2", requires_grad=True)
         
-        self.alpha_z = GraphTensor([hidden_size], name="alpha_z", requires_grad=True)
-        self.beta_z1 = GraphTensor([hidden_size], name="beta_z1", requires_grad=True)
-        self.beta_z2 = GraphTensor([hidden_size], name="beta_z2", requires_grad=True)
+        self.alpha_z = GraphTensor([hidden_size], dtype=dtype, name="alpha_z", requires_grad=True)
+        self.beta_z1 = GraphTensor([hidden_size], dtype=dtype, name="beta_z1", requires_grad=True)
+        self.beta_z2 = GraphTensor([hidden_size], dtype=dtype, name="beta_z2", requires_grad=True)
 
-        self.weight_for_classify = GraphTensor([10, hidden_size], name="weight_for_classify", requires_grad=True)
+        self.weight_for_classify = GraphTensor([10, hidden_size], dtype=out_dtype, name="weight_for_classify", requires_grad=True)
     
     def forward(self, inp, old_h, old_c):
         fxi = self.weight_fx(inp)
@@ -118,7 +120,7 @@ class MI_LSTM(Layer):
         cx = compute_cx(f_g, old_c, i_g, z_t)
         hx = compute_hx(o_g, cx)
 
-        result = dense(hx, self.weight_for_classify, bias=None)
+        result = dense(hx, self.weight_for_classify, bias=None, out_dtype=self.out_dtype)
         return result, hx, cx
 
 def get_model():
