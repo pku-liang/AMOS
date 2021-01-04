@@ -416,7 +416,7 @@ class AutoScheduleGraphDispatch(object):
         continue
       if tid in AutoScheduleGraphDispatch.working_set:
         ctx = AutoScheduleGraphDispatch.working_set[tid]
-        sch, args = ctx.auto_schedule(trials)
+        sch, args, perf = ctx.auto_schedule(trials)
         sch, args, perf = ctx.get_best_schedule()
         # if sch is not None:
         #   perf = at.evaluate_schedule(
