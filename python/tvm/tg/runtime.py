@@ -424,3 +424,19 @@ def parallel_build(schs, args, target, target_host="llvm", name="main", binds={}
   return _ffi_api.parallel_build(
     schs, args,
     tvm.target.Target(target), tvm.target.Target(target_host), name, binds)
+
+
+def evaluate_graph(multi_graph, graph_sch_tensors, target, dev_id, number):
+    """Parallel build.
+
+      Parameters
+      ----------
+
+      Returns
+      -------
+      list of FloatImm
+    """
+    target = tvm.target.Target(target)
+    return _ffi_api.evaluate_graph(
+        multi_graph, {tvm.tir.IntImm("int32", x): y for x, y in graph_sch_tensors.items()},
+        tvm.target.Target(target), dev_id, number)

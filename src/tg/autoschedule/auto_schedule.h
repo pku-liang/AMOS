@@ -25,6 +25,33 @@ namespace tvm {
 
 namespace tg {
 
+class ScheduleTensorsNode : public Object {
+ public:
+  te::Schedule schedule;
+  Array<te::Tensor> tensors;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {
+    v->Visit("schedule", &schedule);
+    v->Visit("tensors", &tensors);
+  }
+
+  static constexpr const char* _type_key = "tg.ScheduleTensors";
+  TVM_DECLARE_FINAL_OBJECT_INFO(ScheduleTensorsNode, Object);
+};
+
+
+class ScheduleTensors : public ObjectRef {
+ public:
+  TVM_DLL ScheduleTensors(te::Schedule sch, Array<te::Tensor> tensors) {
+    auto node = make_object<ScheduleTensorsNode>();
+    node->schedule = sch;
+    node->tensors = tensors;
+    data_ = std::move(node);
+  }
+
+  TVM_DEFINE_OBJECT_REF_METHODS(ScheduleTensors, ObjectRef, ScheduleTensorsNode);
+};
+
 
 class ScheduleResultNode : public Object {
  public:

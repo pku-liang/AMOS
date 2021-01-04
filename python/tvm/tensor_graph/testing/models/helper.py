@@ -10,7 +10,7 @@ def norm(inputs, verify_num_caps):
     def _inner_norm(batch_size, vector_dim, num_capsules, inputs, requires_grad=True):
         r = tvm.te.reduce_axis([0, num_capsules])
         return compute([batch_size, vector_dim],
-                lambda i, j: tvm.te.sum(tvm.tir.power(inputs[i, j, r], 2.0), axis=[r]),
+                lambda i, j: tvm.te.sum(inputs[i, j, r] * inputs[i, j, r], axis=[r]),
                 name="inner_norm",
                 tag="inner_norm",
                 requires_grad=requires_grad)
@@ -50,17 +50,17 @@ def weight_squash(input_tensor, squared_norm, verify_num_caps):
     return GraphOp([batch_size, vector_dim, num_capsules], [], [input_tensor, squared_norm], 
             _inner_weight_squash, name="inner_weight_squash")
 
-def cu_multiply(c_ij, u_hat):
+def cu_multiply(c_ij, u_hat, out_dtype="float32"):
     # c_ij torch.Size([10, 20, 1152, 16])
     # u_hat torch.Size([10, 20, 1152, 16])
     # return  [10, 20, 16]
     ten, twenty, n1152, n16 = c_ij.shape
-    assert u_hat.shape == c_ij.shape
+    assert u_hat.shape == c_ij.shape, (u_hat.shape, c_ij.shape)
     assert ten == 10 and n1152 == 1152  and n16 == 16 # and twenty == 20 
     def _inner_cu_multiply(ten, twenty, n16, n1152, c_ij, u_hat, requires_grad=True):
         r = tvm.te.reduce_axis([0, n1152])
         return compute([ten, twenty, n16],
-                lambda i, j, n: tvm.te.sum(c_ij[i,j,r,n] * u_hat[i,j,r,n], axis=[r]),
+                lambda i, j, n: tvm.te.sum((c_ij[i,j,r,n] * u_hat[i,j,r,n]).astype(out_dtype), axis=[r]),
                 name="cu_multiply",
                 tag="cu_multiply",
                 requires_grad=requires_grad)
@@ -76,7 +76,7 @@ def norm2(inputs):
     def _inner_norm(dim1, dim2, dim3, inputs, requires_grad=True):
         r = tvm.te.reduce_axis([0, dim3])
         return compute([dim1, dim2],
-                lambda i, j: tvm.te.sum(tvm.tir.power(inputs[i, j, r], 2.0), axis=[r]),
+                lambda i, j: tvm.te.sum(inputs[i, j, r] * inputs[i, j, r], axis=[r]),
                 name="inner_norm2",
                 tag="inner_norm2",
                 requires_grad=requires_grad)
@@ -129,7 +129,7 @@ def squash2(s_j):
     # assert ten_ == 10 and twenty_ == 20 and n16_ == 16
     return out_squash
 
-def uv_dot(u_hat, v_j):
+def uv_dot(u_hat, v_j, out_dtype="float32"):
     # u_hat torch.Size([10, 20, 1152, 16])
     # v_j torch.Size([10, 20, 16])
     # a_ij = (u_hat * v_j).sum(dim=-1, keepdim=False!)
@@ -141,7 +141,7 @@ def uv_dot(u_hat, v_j):
     def _inner_uv_dot(dim1, dim2, dim3, dim4, u_hat, v_j, requires_grad=True):
         r = tvm.te.reduce_axis([0, dim4])
         return compute([dim1, dim2, dim3],
-                lambda i, j, k: tvm.te.sum(u_hat[i,j,k,r]*v_j[i,j,r],axis=[r]),
+                lambda i, j, k: tvm.te.sum((u_hat[i,j,k,r]*v_j[i,j,r]).astype(out_dtype),axis=[r]),
                 name="uv_dot",
                 tag="uv_dot",
                 requires_grad=requires_grad)
@@ -163,7 +163,7 @@ def update_by_aij(b_ij, a_ij, s):
                 requires_grad=requires_grad)
     return GraphOp(b_ij.shape, [], [b_ij, a_ij], _inner_update_by_aij, name="update_by_aij" + s)
 
-def uW_multiply(u, W, verify_num_caps):
+def uW_multiply(u, W, verify_num_caps, out_dtype="float32"):
     # u torch.Size([20j, 1152k, 8r])
     # W torch.Size([10i, 1152k, 8r, 16n])
     # -> [10i, 20j, 1152k, 16n]
@@ -174,7 +174,7 @@ def uW_multiply(u, W, verify_num_caps):
     def _inner_uW_multiply(dim1, dim2, dim3, dim4, redim, u, W, requires_grad=True):
         r = tvm.te.reduce_axis([0, redim])
         return compute([dim1, dim2, dim3, dim4],
-                lambda i, j, k, n: tvm.te.sum(W[i,k,r,n]*u[j,k,r], axis=[r]),
+                lambda i, j, k, n: tvm.te.sum((W[i,k,r,n]*u[j,k,r]).astype(out_dtype), axis=[r]),
                 name="uW_multiply",
                 tag="uW_multiply",
                 requires_grad=requires_grad)
@@ -239,43 +239,3 @@ def two_flatten(inputs, verify_num_caps):
                     tag="two_flatten",
                     requires_grad=requires_grad)
     return GraphOp([batch, dim1_dim2_dim3, num_caps], [], [inputs], _inner_two_flatten, name="flatten2")
-
-# This is deprecated
-# def concat_eight_vector_lastdim(cap0, cap1, cap2, cap3, cap4, cap5, cap6, cap7):
-#     batch, features, one = cap1.shape
-#     assert one == 1
-#     stacked_one = 8
-#     def _inner_cat(batch, features, stacked_one, cap0, cap1, cap2, cap3, cap4, cap5, cap6, cap7, requires_grad=True):
-#     # def _inner_cat(batch, features, stacked_one, cap0, requires_grad=True):
-#         return compute([batch, features, stacked_one],
-#                 lambda i, j, k:
-#                     tvm.te.if_then_else(k == 0, cap0[i, j, k],
-#                         tvm.te.if_then_else(k == 1, cap1[i, j, k-1],
-#                             tvm.te.if_then_else(k == 2, cap2[i, j, k-2],
-#                                 tvm.te.if_then_else(k == 3, cap3[i, j, k-3],
-#                                     tvm.te.if_then_else(k == 4, cap4[i, j, k-4],
-#                                         tvm.te.if_then_else(k == 5, cap5[i, j, k-5], 
-#                                             tvm.te.if_then_else(k == 6, cap6[i, j, k-6],
-#                                                 cap7[i, j, k-7]))))))),
-#                     #lambda i, j, k: cap0[i,j,k],
-#                 name="concat",
-#                 tag="concat",
-#                 requires_grad=requires_grad)
-#     return GraphOp([batch, features, stacked_one], [], 
-#         [cap0, cap1, cap2, cap3, cap4, cap5, cap6, cap7],
-#            # [cap0],
-#             _inner_cat, name="concat")
-
-# this is deprecated
-# def squeeze_transpose(caps_output):
-#     # caps_output [10, 20, 1, 1, 16]
-#     # caps_output2:[20, 10, 16]
-#     dim0, dim1, dim2, dim3, dim4 = caps_output.shape
-#     assert dim2 == 1 and dim3 == 1
-#     def _inner_squeeze_transpose(dim1, dim0, dim4, caps_output, requires_grad=True):
-#         return compute([dim1, dim0, dim4],
-#                 lambda i, j, k: i+j+k,#caps_output[j, i, 0, 0, k],
-#                 name="sq_tr",
-#                 tag="sq_tr",
-#                 requires_grad=requires_grad)
-#     return GraphOp([dim1, dim0, dim4], [], [caps_output], _inner_squeeze_transpose, name="sq_tr")

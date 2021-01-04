@@ -350,7 +350,7 @@ class SAEntryGenerator(EntryGenerator):
 
 def find_optimized_parameters(
     match_results, schedule_gen, schedule_app,
-        measure_opt, checker, trials, batch_size=32,
+        measure_opt, checker, trials, batch_size=16,
         policy="", builder=tg_parallel_builder_build,
         runner=pebble_local_runner_run, verbose=False):
     best_value = 1 / MAX_FLOAT

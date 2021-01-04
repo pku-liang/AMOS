@@ -28,10 +28,10 @@ def test1():
     dtype = "float16"
     out_dtype = "float16"
     target = "cuda"
-    model = tensor_graph.testing.models.ShuffleNet(dtype=dtype, out_dtype=out_dtype)
+    model = tensor_graph.nn.layers.Conv2d(3, 64, 3, padding=1, dtype=dtype, out_dtype=out_dtype)
     model.eval()
     # model = tensor_graph.nn.layers.Conv2d(3, 64, 3, stride=1, padding=1, dtype=dtype, out_dtype=out_dtype)
-    img_shape = [batch_size, 3, 224, 224]
+    img_shape = [batch_size, 3, 28, 28]
     img_tensor = tensor_graph.core.GraphTensor(img_shape, dtype, name="data")
 
     # get forward graph and tir graph
@@ -43,7 +43,7 @@ def test1():
     measure_opt = at.MeasureOptions(
         target=target, timeout=10, number=200, min_repeat_ms=500)
     tid = dispatch.add_graph_task(
-        "shufflenet", multi_graph, measure_opt, scheduler_option="auto_tensorize")
+        "conv2d", multi_graph, measure_opt, scheduler_option="auto_tensorize")
     dispatch.auto_schedule(tid)
     sch_tensors = dispatch.get_schedules(tid)
     cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)

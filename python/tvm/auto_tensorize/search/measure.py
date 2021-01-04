@@ -45,6 +45,7 @@ class MeasureOptions(object):
         self.priority = priority
 
 
+GRAPH_EVALUATE_INPUTS = None
 EVALUTE_INPUTS = None
 EVALUTE_SCHEDULE_INPUTS = None
 GLOBAL_BUILD_INPUTS = None
@@ -89,6 +90,43 @@ def get_tvm_arrays(tensors, ctx):
             tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
+
+
+def evaluate_graph_worker(dummy):
+    global GRAPH_EVALUATE_INPUTS
+    multi_graph, sch_tensors, target, dev_id, number = GRAPH_EVALUATE_INPUTS
+    results = tg.runtime.evaluate_graph(
+            multi_graph, sch_tensors, target, dev_id, number)
+    return np.mean([float(x.value) for x in results])
+
+
+def evaluate_graph(
+    multi_graph, sch_tensors, target, dev_id, number=10, new_process=False):
+    if not new_process:
+        results = tg.runtime.evaluate_graph(
+            multi_graph, sch_tensors, target, dev_id, number)
+        return np.mean([float(x.value) for x in results])
+    else:
+        global GRAPH_EVALUATE_INPUTS
+        GRAPH_EVALUATE_INPUTS = (
+            multi_graph, sch_tensors, target, dev_id, number)
+        with ProcessPool(1) as pool:
+            future = pool.map(evaluate_graph_worker, [0], timeout=100)
+            iterator = future.result()
+
+            while True:
+                try:
+                    results = next(iterator)
+                    print(".GY", end="", flush=True)
+                except StopIteration:
+                    break
+                except TimeoutError as error:
+                    print(".GT", end="", flush=True)
+                    results = MAX_FLOAT
+                except Exception as error:
+                    print(".GE", end="", flush=True)
+                    results = MAX_FLOAT
+        return results
 
 
 def evaluate_schedule_worker(dummy):

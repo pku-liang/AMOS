@@ -14,6 +14,7 @@ from pebble import concurrent
 from concurrent.futures import TimeoutError
 from pebble import ProcessPool, ProcessExpired
 from ..utils import to_tuple, ERROR
+from tvm import tg
 from tvm import auto_tensorize as at
 
 
@@ -388,3 +389,4 @@ def stop_tensorize():
 
 def set_evaluate_performance(func):
   tvm._ffi.register_func("tg.runtime.evaluate_performance", func, True)
+  

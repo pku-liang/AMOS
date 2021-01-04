@@ -139,7 +139,7 @@ class GraphOp(GraphNode):
       if dtype is None:
         dtype = inp.dtype
       else:
-        assert dtype == inp.dtype, "Find different dtype in inputs"
+        assert dtype == inp.dtype, "Find different dtype in inputs: %s vs %s" % (str(dtype), str(inp.dtype))
       inp.children.append(self)
     self.dtype = dtype
   

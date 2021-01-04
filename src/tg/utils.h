@@ -182,6 +182,64 @@ class CallFunc {
     f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
   }
 
+  void call_func_10(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9]);
+  }
+
+  void call_func_11(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10]);
+  }
+
+  void call_func_12(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11]);
+  }
+
+  void call_func_13(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12]);
+  }
+
+  void call_func_14(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13]);
+  }
+
+  void call_func_15(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14]);
+  }
+
+  void call_func_16(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14], v[15]);
+  }
+
+  void call_func_17(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14], v[15], v[16]);
+  }
+
+  void call_func_18(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14], v[15], v[16], v[17]);
+  }
+
+  void call_func_19(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14], v[15], v[16], v[17], v[18]);
+  }
+
+  void call_func_20(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14], v[15], v[16], v[17], v[18], v[19]);
+  }
+
+  void call_func_21(Function f, std::vector<T> v) {
+    f(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+      v[11], v[12], v[13], v[14], v[15], v[16], v[17], v[18], v[19], v[20]);
+  }
+
   void call_func_any(Function f, std::vector<T> v) {
     const auto* call_unpack = runtime::Registry::Get("tg.runtime.call_unpack");
     ASSERT(call_unpack != nullptr) << "Should prepare call_unpack function.";
@@ -201,6 +259,18 @@ class CallFunc {
       case 7: call_func_7(f, v); break;
       case 8: call_func_8(f, v); break;
       case 9: call_func_9(f, v); break;
+      case 10: call_func_10(f, v); break;
+      case 11: call_func_11(f, v); break;
+      case 12: call_func_12(f, v); break;
+      case 13: call_func_13(f, v); break;
+      case 14: call_func_14(f, v); break;
+      case 15: call_func_15(f, v); break;
+      case 16: call_func_16(f, v); break;
+      case 17: call_func_17(f, v); break;
+      case 18: call_func_18(f, v); break;
+      case 19: call_func_19(f, v); break;
+      case 20: call_func_20(f, v); break;
+      case 21: call_func_21(f, v); break;
       default: call_func_any(f, v);
     }
   }

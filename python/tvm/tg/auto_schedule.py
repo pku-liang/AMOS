@@ -6,6 +6,7 @@ Author: size zheng
 import itertools
 import tvm
 import tvm._ffi
+from tvm.runtime import Object
 from . import _ffi_api
 from tvm import target as _target
 
@@ -145,7 +146,6 @@ def string_to_schedule_entity(string):
   ScheduleEntity
   """
   return _ffi_api.schedule_entity_from_string(string)
-
 
 
 def multi_schedule_entity_to_string(entity):
@@ -349,3 +349,11 @@ def get_feature(schedule, tensors, target, flatten=True):
     features = [get_enum_names(row) for row in features]
 
   return features
+
+
+@tvm._ffi.register_object("tg.ScheduleTensors")
+class ScheduleTensors(Object):
+    def __init__(self, sch, tensors):
+        self.__init_handle_by_constructor__(
+            _ffi_api.ScheduleTensors, sch, tensors
+        )

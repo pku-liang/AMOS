@@ -411,6 +411,19 @@ ScheduleResult get_schedule_result(
 
 
 TVM_REGISTER_NODE_TYPE(ScheduleResultNode);
+TVM_REGISTER_NODE_TYPE(ScheduleTensorsNode);
+
+
+TVM_REGISTER_GLOBAL("tg.ScheduleTensors").set_body_typed(
+    [](
+        te::Schedule sch,
+        Array<te::Tensor> tensors
+    ) {
+  return ScheduleTensors(
+      sch,
+      tensors
+  );
+});
 
 
 TVM_REGISTER_GLOBAL("tg.get_schedule_result_with_feedback")
