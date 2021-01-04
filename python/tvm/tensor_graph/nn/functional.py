@@ -581,7 +581,7 @@ def zero_expand3d(inputs, stride=1):
                    _inner_zero_expand3d, name="zero_expand3d")
 
 
-def conv1d(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
+def conv1d(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, out_dtype="float32"):
     """Convolution 1d
     Args:
     -----------------------------
@@ -625,7 +625,7 @@ def conv1d(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1)
         return compute([batch_size, out_channel, out_len],
                        lambda b, c, l: tvm.te.sum(
             (padded[b, c // out_channel_per_group * channel_per_group + rc, l * stride + rl * dilation] *
-             weight[c, rc, rl]),
+             weight[c, rc, rl]).astype(out_dtype),
             axis=[rc, rl]),
             name="conv1d",
             # tag=tag_gen("conv1d" + str(stride) + str(dilation) + str(groups)),
@@ -648,7 +648,7 @@ def conv1d(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1)
     return conved
 
 
-def conv_transpose1d(inputs, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1):
+def conv_transpose1d(inputs, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, out_dtype="float32"):
     """Convolution transpose 1d
     Args:
     -----------------------------
@@ -702,7 +702,7 @@ def conv_transpose1d(inputs, weight, bias=None, stride=1, padding=0, output_padd
         return compute([batch_size, output_channel, output_len],
                        lambda b, c, l: tvm.te.sum(
             (padded[b, c // channel_per_group * in_channel_per_group + rc, l + rl * dilation] *
-             weight[c // channel_per_group * in_channel_per_group + rc, c % channel_per_group, k_len - rl - 1]),
+             weight[c // channel_per_group * in_channel_per_group + rc, c % channel_per_group, k_len - rl - 1]).astype(out_dtype),
             axis=[rc, rl]),
             name="conv_transpose1d",
             # tag=tag_gen("conv_transpose1d" + str(stride) + str(dilation) + str(groups)),
@@ -1024,7 +1024,7 @@ def conv2d_capsule(inputs, weight, bias=None,
     return conv_out
 
 
-def conv2d_nchwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
+def conv2d_nchwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, out_dtype="float32"):
     """Convolution 2d NCHWc layout
     Args:
     -----------------------------
@@ -1080,7 +1080,7 @@ def conv2d_nchwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, gro
                        lambda b, c_c, h, w, c_b: tvm.te.sum(
             (padded[b, c_c // out_channel_per_group * channel_per_group_chunk + rc_chunk,
                     h * stride[0] + rh * dilation[0], w * stride[1] + rw * dilation[1], rc_block]
-             * weight[c_c, rc_chunk, rh, rw, rc_block, c_b]),
+             * weight[c_c, rc_chunk, rh, rw, rc_block, c_b]).astype(out_dtype),
             axis=[rc_chunk, rc_block, rw, rh]),
             name="conv2d_nchwc",
             # tag=tag_gen("conv2d_nchwc" + str(stride) + str(dilation) + str(groups)),
@@ -1102,7 +1102,7 @@ def conv2d_nchwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, gro
     return conv_result
 
 
-def conv_transpose2d_nchw(inputs, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1):
+def conv_transpose2d_nchw(inputs, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, out_dtype="float32"):
     """Convolution transpose 2d NCHW layout
     Args:
     -----------------------------
@@ -1167,7 +1167,7 @@ def conv_transpose2d_nchw(inputs, weight, bias=None, stride=1, padding=0, output
         return compute([batch_size, output_channel, out_h, out_w],
                        lambda b, c, h, w: tvm.te.sum(
             (padded[b, c // channel_per_group * in_channel_per_group + rc, h + rh * dilation[0], w + rw * dilation[1]] *
-             weight[c // channel_per_group * in_channel_per_group + rc, c % channel_per_group, k_h - rh - 1, k_w - rw - 1]),
+             weight[c // channel_per_group * in_channel_per_group + rc, c % channel_per_group, k_h - rh - 1, k_w - rw - 1]).astype(out_dtype),
             axis=[rc, rw, rh]),
             name="conv_transpose2d_nchw",
             # tag=tag_gen("conv_transpose2d_nchw" + str(stride) + str(dilation) + str(groups)),
@@ -1186,7 +1186,7 @@ def conv_transpose2d_nchw(inputs, weight, bias=None, stride=1, padding=0, output
     return conv_result
 
 
-def depthwise_conv2d_nchw(inputs, weight, bias=None, stride=1, padding=0, dilation=1):
+def depthwise_conv2d_nchw(inputs, weight, bias=None, stride=1, padding=0, dilation=1, out_dtype="float32"):
     """Depthwise convolution 2d NCHW layout
     Args:
     -----------------------------
@@ -1236,7 +1236,7 @@ def depthwise_conv2d_nchw(inputs, weight, bias=None, stride=1, padding=0, dilati
                        lambda b, c, h, w: tvm.te.sum(
             (padded[b, c//factor,
                     h * stride[0] + rh * dilation[0], w * stride[1] + rw * dilation[1]]
-             * weight[c//factor, c % factor, rh, rw]),
+             * weight[c//factor, c % factor, rh, rw]).astype(out_dtype),
             axis=[rh, rw]),
             name="depthwise_conv2d_nchw",
             # tag=tag_gen("depthwise_conv2d_nchw" + str(stride) + str(dilation) + str(factor)),
@@ -1457,7 +1457,7 @@ def conv3d_ncdhw_grouped(inputs, weight, bias=None,
     return output
 
 
-def conv_transpose3d_ncdhw(inputs, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1):
+def conv_transpose3d_ncdhw(inputs, weight, bias=None, stride=1, padding=0, output_padding=0, groups=1, dilation=1, out_dtype="float32"):
     """Convolution transpose 3d NCDHW layout
     Args:
     -----------------------------
@@ -1528,7 +1528,7 @@ def conv_transpose3d_ncdhw(inputs, weight, bias=None, stride=1, padding=0, outpu
         return compute([batch_size, output_channel, out_d, out_h, out_w],
                        lambda b, c, d, h, w: tvm.te.sum(
             (padded[b, c // channel_per_group * in_channel_per_group + rc, d + rd * dilation[0], h + rh * dilation[1], w + rw * dilation[2]] *
-             weight[c // channel_per_group * in_channel_per_group + rc, c % channel_per_group, k_d - rd - 1, k_h - rh - 1, k_w - rw - 1]),
+             weight[c // channel_per_group * in_channel_per_group + rc, c % channel_per_group, k_d - rd - 1, k_h - rh - 1, k_w - rw - 1]).astype(out_dtype),
             axis=[rc, rd, rh, rw]),
             name="conv_transpose3d_ncdhw",
             # tag=tag_gen("conv_transpose3d_ncdhw" + str(groups)),
@@ -1548,7 +1548,7 @@ def conv_transpose3d_ncdhw(inputs, weight, bias=None, stride=1, padding=0, outpu
     return conv_result
 
 
-def conv2d_nhwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
+def conv2d_nhwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, out_dtype="float32"):
     """Convolution 2d NHWC layout
     Args:
     -----------------------------
@@ -1600,7 +1600,7 @@ def conv2d_nhwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, grou
                        lambda b, h, w, c: tvm.te.sum(
             (padded[b, h * stride[0] + rh * dilation[0], w * stride[1] + rw * dilation[1],
                     c // out_channel_per_group * channel_per_group + rc]
-             * weight[c, rc, rh, rw]),
+             * weight[c, rc, rh, rw]).astype(out_dtype),
             axis=[rc, rh, rw]),
             name="conv2d_nhwc",
             # tag=tag_gen("conv2d_nhwc" + str(stride) + str(dilation) + str(groups)),
@@ -1620,7 +1620,7 @@ def conv2d_nhwc(inputs, weight, bias=None, stride=1, padding=0, dilation=1, grou
     return conv_result
 
 
-def gemv(A, vector, transposeA=False):
+def gemv(A, vector, transposeA=False, out_dtype="float32"):
     """Matrix multiplies vector
     Args:
     -----------------------------
@@ -1642,7 +1642,7 @@ def gemv(A, vector, transposeA=False):
 
         def _inner_gemv1(A_shape1, vector_shape0, A, vector, requires_grad=True):
             return compute([A_shape1],
-                           lambda i: tvm.te.sum(A[k, i] * vector[k], axis=k),
+                           lambda i: tvm.te.sum((A[k, i] * vector[k]).astype(out_dtype), axis=k),
                            name="gemv1",
                            # tag=tag_gen("gemv1"),
                            requires_grad=requires_grad)
@@ -1652,14 +1652,14 @@ def gemv(A, vector, transposeA=False):
 
         def _inner_gemv2(A_shape0, vector_shape0, A, vector, requires_grad=True):
             return compute([A_shape0],
-                           lambda i: tvm.te.sum(A[i, k] * vector[k], axis=k),
+                           lambda i: tvm.te.sum((A[i, k] * vector[k]).astype(out_dtype), axis=k),
                            name="gemv2",
                            # tag=tag_gen("gemv2"),
                            requires_grad=requires_grad)
         return GraphOp([A.shape[0]], [vector.shape[0]], [A, vector], _inner_gemv2, name="gemv2")
 
 
-def gemm(A, B, transposeA=False, transposeB=False):
+def gemm(A, B, transposeA=False, transposeB=False, out_dtype="float32"):
     """Matrix multiplies matrix
     Args:
     -----------------------------
@@ -1682,7 +1682,7 @@ def gemm(A, B, transposeA=False, transposeB=False):
 
         def _inner_gemm1(A_shape1, B_shape0, B_shape1, A, B, requires_grad=True):
             return compute([A_shape1, B_shape0],
-                           lambda i, j: tvm.te.sum(A[k, i] * B[j, k], axis=k),
+                           lambda i, j: tvm.te.sum((A[k, i] * B[j, k]).astype(out_dtype), axis=k),
                            name="gemm1",
                            # tag=tag_gen("gemm1"),
                            requires_grad=requires_grad)
@@ -1693,7 +1693,7 @@ def gemm(A, B, transposeA=False, transposeB=False):
 
         def _inner_gemm2(A_shape1, B_shape1, B_shape0, A, B, requires_grad=True):
             return compute([A_shape1, B_shape1],
-                           lambda i, j: tvm.te.sum(A[k, i] * B[k, j], axis=k),
+                           lambda i, j: tvm.te.sum((A[k, i] * B[k, j]).astype(out_dtype), axis=k),
                            name="gemm2",
                            # tag=tag_gen("gemm2"),
                            requires_grad=requires_grad)
@@ -1704,7 +1704,7 @@ def gemm(A, B, transposeA=False, transposeB=False):
 
         def _inner_gemm3(A_shape0, B_shape0, B_shape1, A, B, requires_grad=True):
             return compute([A_shape0, B_shape0],
-                           lambda i, j: tvm.te.sum(A[i, k] * B[j, k], axis=k),
+                           lambda i, j: tvm.te.sum((A[i, k] * B[j, k]).astype(out_dtype), axis=k),
                            name="gemm3",
                            # tag=tag_gen("gemm3"),
                            requires_grad=requires_grad)
@@ -1715,14 +1715,14 @@ def gemm(A, B, transposeA=False, transposeB=False):
 
         def _inner_gemm4(A_shape0, B_shape1, B_shape0, A, B, requires_grad=True):
             return compute([A_shape0, B_shape1],
-                           lambda i, j: tvm.te.sum(A[i, k] * B[k, j], axis=k),
+                           lambda i, j: tvm.te.sum((A[i, k] * B[k, j]).astype(out_dtype), axis=k),
                            name="gemm4",
                            # tag=tag_gen("gemm4"),
                            requires_grad=requires_grad)
         return GraphOp([A.shape[0], B.shape[1]], [B.shape[0]], [A, B], _inner_gemm4, name="gemm4")
 
 
-def batch_gemm(A, B, transposeA=False, transposeB=False):
+def batch_gemm(A, B, transposeA=False, transposeB=False, out_dtype="float32"):
     """Batched matrix multiplies matrix
     Args:
     -----------------------------
@@ -1748,7 +1748,7 @@ def batch_gemm(A, B, transposeA=False, transposeB=False):
         def _inner_batch_gemm1(A_shape0, A_shape2, B_shape1, B_shape2, A, B, requires_grad=True):
             return compute([A_shape0, A_shape2, B_shape1],
                            lambda b, i, j: tvm.te.sum(
-                               A[b, k, i] * B[b, j, k], axis=k),
+                               (A[b, k, i] * B[b, j, k]).astype(out_dtype), axis=k),
                            name="batch_gemm1",
                            # tag=tag_gen("batch_gemm1"),
                            requires_grad=requires_grad)
@@ -1761,7 +1761,7 @@ def batch_gemm(A, B, transposeA=False, transposeB=False):
         def _inner_batch_gemm2(A_shape0, A_shape2, B_shape2, B_shape1, A, B, requires_grad=True):
             return compute([A_shape0, A_shape2, B_shape2],
                            lambda b, i, j: tvm.te.sum(
-                               A[b, k, i] * B[b, k, j], axis=k),
+                               (A[b, k, i] * B[b, k, j]).astype(out_dtype), axis=k),
                            name="batch_gemm2",
                            # tag=tag_gen("batch_gemm2"),
                            requires_grad=requires_grad)
@@ -1774,7 +1774,7 @@ def batch_gemm(A, B, transposeA=False, transposeB=False):
         def _inner_batch_gemm3(A_shape0, A_shape1, B_shape1, B_shape2, A, B, requires_grad=True):
             return compute([A_shape0, A_shape1, B_shape1],
                            lambda b, i, j: tvm.te.sum(
-                               A[b, i, k] * B[b, j, k], axis=k),
+                               (A[b, i, k] * B[b, j, k]).astype(out_dtype), axis=k),
                            name="batch_gemm3",
                            # tag=tag_gen("batch_gemm3"),
                            requires_grad=requires_grad)
@@ -1787,14 +1787,14 @@ def batch_gemm(A, B, transposeA=False, transposeB=False):
         def _inner_batch_gemm4(A_shape0, A_shape1, B_shape2, B_shape1, A, B, requires_grad=True):
             return compute([A_shape0, A_shape1, B_shape2],
                            lambda b, i, j: tvm.te.sum(
-                               A[b, i, k] * B[b, k, j], axis=k),
+                               (A[b, i, k] * B[b, k, j]).astype(out_dtype), axis=k),
                            name="batch_gemm4",
                            # tag=tag_gen("batch_gemm4"),
                            requires_grad=requires_grad)
         return GraphOp([A.shape[0], A.shape[1], B.shape[2]], [B.shape[1]], [A, B], _inner_batch_gemm4, name="batch_gemm4")
 
 
-def linear(inputs, weight, bias=None):
+def linear(inputs, weight, bias=None, out_dtype="float32"):
     """Linear function
     Args:
     -----------------------------
@@ -1819,7 +1819,7 @@ def linear(inputs, weight, bias=None):
     # ..................args[:-4],    args[-4](args[:-3]),   args[-3],      args[-2], args[-1]
     def _inner_linear(*args, requires_grad=True):
         def _inner(*indices):
-            return tvm.te.sum(inputs[(*indices[:-1], k)] * weight[indices[-1], k], axis=k)
+            return tvm.te.sum((inputs[(*indices[:-1], k)] * weight[indices[-1], k]).astype(out_dtype), axis=k)
         return compute(args[:-3],
                        _inner,
                        name="linear",
@@ -1847,7 +1847,7 @@ def linear(inputs, weight, bias=None):
     return linear_result
 
 
-def bilinear(inputs1, inputs2, weight, bias=None):
+def bilinear(inputs1, inputs2, weight, bias=None, out_dtype="float32"):
     """Bilinear function
     Args:
     -----------------------------
@@ -1876,8 +1876,8 @@ def bilinear(inputs1, inputs2, weight, bias=None):
     def _inner_bilinear(*args, requires_grad=True):
         def _inner(*indices):
             return tvm.te.sum(
-                inputs1[(*indices[:-1], k1)] * weight[indices[-1],
-                                                      k1, k2] * inputs2[(*indices[:-1], k2)],
+                (inputs1[(*indices[:-1], k1)] * weight[indices[-1],
+                                                      k1, k2] * inputs2[(*indices[:-1], k2)]).astype(out_dtype),
                 axis=[k1, k2]
             )
         return compute([*inputs1.shape[:-1], weight.shape[0]],
@@ -1908,7 +1908,7 @@ def bilinear(inputs1, inputs2, weight, bias=None):
     return bilinear_result
 
 
-def MTTKRP3d(A, B, C):
+def MTTKRP3d(A, B, C, out_dtype="float32"):
     """Dense MTTKRP 3D
     Args:
     -----------------------------
@@ -1934,7 +1934,7 @@ def MTTKRP3d(A, B, C):
     def _inner_MTTKRP3d(A_shape0, B_shape1, B_shape0, C_shape0, A, B, C, requires_grad=True):
         return compute([A_shape0, B_shape1],
                        lambda i, j: tvm.te.sum(
-                           A[i, k, l] * B[k, j] * C[l, j], axis=[k, l]),
+                           (A[i, k, l] * B[k, j] * C[l, j]).astype(out_dtype), axis=[k, l]),
                        name="MTTKRP3d",
                        # tag=tag_gen("MTTKRP3d"),
                        requires_grad=requires_grad)

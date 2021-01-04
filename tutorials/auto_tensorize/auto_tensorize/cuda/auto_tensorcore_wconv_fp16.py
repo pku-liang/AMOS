@@ -91,7 +91,7 @@ shuffle_v2_cfg = [
 
 
 if __name__ == "__main__":
-    batches = [2**i for i in range(1)]
+    batches = [1024]
     beg = 0
     #num = 15
     num = 10

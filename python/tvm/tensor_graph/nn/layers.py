@@ -56,7 +56,7 @@ class Conv2d(Layer):
     self.weight = GraphTensor(
       (out_channel, in_channel // groups, *kernel_size), dtype=dtype, name="conv2d_weight", requires_grad=True)
     if bias:
-      self.bias = GraphTensor((out_channel,), dtype=dtype, name="conv2d_bias", requires_grad=True)
+      self.bias = GraphTensor((out_channel,), dtype=out_dtype, name="conv2d_bias", requires_grad=True)
     else:
       self.bias = None
 
@@ -100,7 +100,7 @@ class Conv3d(Layer):
     self.weight = GraphTensor(
       (out_channel, in_channel, *kernel_size), dtype=dtype, name="conv3d_weight", requires_grad=True)
     if bias:
-      self.bias = GraphTensor((out_channel,), dtype=dtype, name="conv3d_bias", requires_grad=True)
+      self.bias = GraphTensor((out_channel,), dtype=out_dtype, name="conv3d_bias", requires_grad=True)
     else:
       self.bias = None
 
@@ -150,7 +150,7 @@ class CapsuleConv2d(Layer):
     self.weight = GraphTensor(
       (out_channel, in_channel, *kernel_size, num_caps), dtype=dtype, name="conv2d_weight", requires_grad=True)
     if bias:
-      self.bias = GraphTensor((out_channel, num_caps), dtype=dtype, name="conv2d_bias", requires_grad=True)
+      self.bias = GraphTensor((out_channel, num_caps), dtype=out_dtype, name="conv2d_bias", requires_grad=True)
     else:
       self.bias = None
 
@@ -254,7 +254,7 @@ class Linear(Layer):
       [out_features, in_features], dtype=dtype, name="linear_weight")
     if bias:
       self.bias = GraphTensor(
-        [out_features], dtype=dtype, name="linear_bias", requires_grad=True)
+        [out_features], dtype=out_dtype, name="linear_bias", requires_grad=True)
     else:
       self.bias = None
 

@@ -88,7 +88,7 @@ shuffle_v2_cfg = [
 if __name__ == "__main__":
     assert torch.backends.cudnn.is_available()
     torch.backends.cudnn.enabled = True
-    batches = [2**i for i in range(1)]
+    batches = [1024]
     beg = 0
     num = len(shuffle_v2_cfg)
     print("batch, in_channels, out_channels, groups, type, cost")
