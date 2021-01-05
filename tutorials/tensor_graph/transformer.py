@@ -24,39 +24,6 @@ def register_test(func):
 
 @register_test
 def test1():
-    N = 5
-    T = 512
-    d_model = 10
-    d_ff = 4
-    num_blocks = 2
-    num_heads = 2
-    dtype="float16"
-    out_dtype="float16"
-    target = "cuda"
-
-    model =  tensor_graph.testing.models.Transformer(num_blocks, num_heads, d_ff, d_model, dtype=dtype, out_dtype=out_dtype)
-    model.eval()
-
-    x = tensor_graph.core.GraphTensor([N, T, d_model], dtype=dtype, name="data")
-
-    # get forward graph and tir graph
-    fwd_graph = tensor_graph.core.make_fwd_graph(model, [x])
-    tir_graph = tensor_graph.core.make_tir_graph(fwd_graph, inference=True)
-    multi_graph = tg.make_tir_multi_graph(tir_graph)
-
-    dispatch = tensor_graph.core.AutoScheduleMultiGraphDispatch
-    measure_opt = at.MeasureOptions(
-        target=target, timeout=10, number=200, min_repeat_ms=500)
-    tid = dispatch.add_graph_task(
-        "transformer", multi_graph, measure_opt, scheduler_option="auto_tensorize")
-    dispatch.auto_schedule(tid)
-    sch_tensors = dispatch.get_schedules(tid)
-    cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)
-    print("Whole graph cost is %f ms" % cost)
-
-
-@register_test
-def test2():
     # https://huggingface.co/bert-base-uncased/blob/main/config.json
     bert_base_config = {
         "architectures": [
