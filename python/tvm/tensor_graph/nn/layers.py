@@ -202,6 +202,14 @@ class ReLU(Layer):
     return F.ReLU(inputs)
 
 
+class GELU(Layer):
+  def __init__(self):
+    super(GELU, self).__init__()
+
+  def forward(self, inputs):
+    return F.GELU(inputs)
+
+
 class AvgPool2d(Layer):
   def __init__(self, kernel_size=2, stride=2, padding=0):
     super(AvgPool2d, self).__init__()
