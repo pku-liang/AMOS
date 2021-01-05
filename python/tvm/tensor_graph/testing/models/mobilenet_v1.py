@@ -6,22 +6,22 @@ from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               make_tir_graph
 import math
 
-def conv_bn(in_channel, out_channel, kernel_size, strides=1, padding=0, dilation=1, groups=1, use_bias=False):
+def conv_bn(in_channel, out_channel, kernel_size, strides=1, padding=0, dilation=1, groups=1, use_bias=False, dtype="float32", out_dtype="float32"):
     return Sequential(
-        Conv2d(in_channel, out_channel, kernel_size, stride=strides, padding=padding, dilation=dilation, groups=groups, bias=use_bias),
-        BatchNorm2d(out_channel),
+        Conv2d(in_channel, out_channel, kernel_size, stride=strides, padding=padding, dilation=dilation, groups=groups, bias=use_bias, dtype=dtype, out_dtype=out_dtype),
+        BatchNorm2d(out_channel, dtype=dtype, out_dtype=out_dtype),
         ReLU()
     )
 
 class Block(Layer):
-    def __init__(self, in_channel, out_channel, strides):
+    def __init__(self, in_channel, out_channel, strides, dtype="float32", out_dtype="float32"):
         super(Block, self).__init__()
         self.strides = strides 
         assert strides in [1, 2]
 
         self.block = Sequential(
-            conv_bn(in_channel, in_channel, 3, strides=strides, padding=1, groups=in_channel),
-            conv_bn(in_channel, out_channel, 1, strides=1, padding=0)
+            conv_bn(in_channel, in_channel, 3, strides=strides, padding=1, groups=in_channel, dtype=dtype, out_dtype=out_dtype),
+            conv_bn(in_channel, out_channel, 1, strides=1, padding=0, dtype=dtype, out_dtype=out_dtype)
         )
 
     def forward(self, inputs):
@@ -29,7 +29,7 @@ class Block(Layer):
 
 
 class MobileNetv1(Layer):
-    def __init__(self, n_class=1000, input_size=224, width_mult=1.0):
+    def __init__(self, n_class=1000, input_size=224, width_mult=1.0, dtype="float32", out_dtype="float32"):
         super(MobileNetv1, self).__init__()
         block = Block
         self.last_channel = 1024
@@ -53,12 +53,12 @@ class MobileNetv1(Layer):
 
         self.features = []
         for config in block_setting:
-            self.features.append(block(*config))
+            self.features.append(block(*config, dtype=dtype, out_dtype=out_dtype))
                 
         self.features.append(AvgPool2d(kernel_size=7, stride=7))
         self.features = Sequential(*self.features)
 
-        self.classifier = Linear(self.last_channel, n_class)
+        self.classifier = Linear(self.last_channel, n_class, dtype=dtype, out_dtype=out_dtype)
 
     def forward(self, inputs):
         y = self.features(inputs)

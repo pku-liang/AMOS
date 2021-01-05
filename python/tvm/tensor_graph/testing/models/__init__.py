@@ -4,3 +4,4 @@ from .LLTM import LLTM
 from .MI_LSTM import MI_LSTM
 from .transformer import Transformer
 from .resnet import resnet18
+from .mobilenet_v1 import MobileNetv1
