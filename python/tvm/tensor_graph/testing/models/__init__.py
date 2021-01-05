@@ -3,3 +3,4 @@ from .capsule_tg import CapsuleNetwork
 from .LLTM import LLTM
 from .MI_LSTM import MI_LSTM
 from .transformer import Transformer
+from .resnet import resnet18
