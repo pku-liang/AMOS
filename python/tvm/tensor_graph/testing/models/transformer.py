@@ -1,5 +1,5 @@
 from tvm.tensor_graph.nn.functional import elementwise_add, batch_flatten, dense
-from tvm.tensor_graph.nn.layers import ReLU, Layer
+from tvm.tensor_graph.nn.layers import GELU, Layer
 
 from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
                               GraphTensor, GraphOp, PyTIRGraph, make_fwd_graph, \
@@ -193,7 +193,9 @@ def multihead_attention(queries, keys, values,
                         lambda n, t, d: data[n * h, t, d / h],
                         requires_grad=requires_grad)
     outputs = GraphOp([N, T, d_model], [], [outputs], _split_concat_restore, requires_grad=False) # (N, T_q, d_model)
-            
+
+    outputs = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(outputs)  # (N, T_q, d_model)
+
     # Residual connection
     outputs = elementwise_add(outputs, queries)
             
@@ -258,7 +260,7 @@ def ff(inputs, num_units, dtype="float32", out_dtype="float32"):
     '''
     # Inner layer
     outputs = Linear_(inputs.shape[-1], num_units[0], dtype=dtype, out_dtype=out_dtype)(inputs)
-    outputs = ReLU()(outputs)
+    outputs = GELU()(outputs)
 
     # Outer layer
     outputs = Linear_(num_units[0], num_units[1], dtype=dtype, out_dtype=out_dtype)(outputs)
@@ -306,14 +308,35 @@ class Transformer(Layer):
         return enc
 
 if __name__ == "__main__":
-    N = 5
-    T = 512
-    d_model = 10
-    d_ff = 4
-    num_blocks = 2
-    num_heads = 2
-    dtype="float16"
-    out_dtype="float16"
+    # https://huggingface.co/bert-base-uncased/blob/main/config.json
+    bert_base_config = {
+        "architectures": [
+            "BertForMaskedLM"
+        ],
+        "attention_probs_dropout_prob": 0.1,
+        "hidden_act": "gelu",
+        "hidden_dropout_prob": 0.1,
+        "hidden_size": 768,
+        "initializer_range": 0.02,
+        "intermediate_size": 3072,
+        "layer_norm_eps": 1e-12,
+        "max_position_embeddings": 512,
+        "model_type": "bert",
+        "num_attention_heads": 12,
+        "num_hidden_layers": 12,
+        "pad_token_id": 0,
+        "type_vocab_size": 2,
+        "vocab_size": 30522
+    }
+
+    N = 1  # Batch Size
+    T = bert_base_config['max_position_embeddings']
+    d_model = bert_base_config['hidden_size']
+    d_ff = bert_base_config['intermediate_size']
+    num_blocks = bert_base_config['num_hidden_layers']
+    num_heads = bert_base_config['num_attention_heads']
+    dtype = "float16"
+    out_dtype = "float16"
 
     net = Transformer(num_blocks, num_heads, d_ff, d_model, dtype=dtype, out_dtype=out_dtype)
 

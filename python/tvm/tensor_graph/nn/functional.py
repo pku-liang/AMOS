@@ -2466,6 +2466,26 @@ def ReLU(x):
     return GraphOp(x.shape, [], [x], _inner_ReLU, name="relu")
 
 
+def GELU(x):
+    def _inner_GELU(*args, requires_grad=True):
+        assert len(args) > 1
+        # Here we assume that the input is a NamedDimTensor with tvm_tensor as its attribute!
+        def _c(i): 
+            return tvm.tir.const(i, args[-1].tvm_tensor.dtype)
+            
+        def _gelu(*i):
+            x = args[-1](*i)
+            y = x * _c(0.7978845608) * (_c(1.0) + _c(0.044715) * x * x)
+            y = _c(0.5) * x * (_c(1.0) + tvm.te.tanh(y))
+            return y
+
+        return compute(
+            args[:-1], _gelu,
+            name="gelu",
+            requires_grad=requires_grad)
+    return GraphOp(x.shape, [], [x], _inner_GELU, name="gelu")
+
+
 def batch_flatten(inputs):
     '''
     inputs: [batch, channel, height, width]
