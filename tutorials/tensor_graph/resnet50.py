@@ -28,7 +28,7 @@ def test1():
     dtype = "float16"
     out_dtype = "float16"
     target = "cuda"
-    model = tensor_graph.testing.models.resnet18(num_classes=1000, dtype=dtype, out_dtype=out_dtype)
+    model = tensor_graph.testing.models.resnet50(num_classes=1000, dtype=dtype, out_dtype=out_dtype)
     model.eval()
     
     img_shape = [batch_size, 3, 224, 224]
@@ -43,7 +43,7 @@ def test1():
     measure_opt = at.MeasureOptions(
         target=target, timeout=10, number=200, min_repeat_ms=500)
     tid = dispatch.add_graph_task(
-        "resnet18", multi_graph, measure_opt, scheduler_option="auto_tensorize", trials=1000)
+        "resnet50", multi_graph, measure_opt, scheduler_option="auto_tensorize", trials=1000)
     dispatch.auto_schedule(tid)
     sch_tensors = dispatch.get_schedules(tid)
     cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)
