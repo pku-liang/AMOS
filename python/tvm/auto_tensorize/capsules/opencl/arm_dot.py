@@ -42,7 +42,7 @@ class arm_dot_vlen_local(ComputeCapsule):
         A = tvm.te.placeholder((L,), name="A", dtype="int8")
         B = tvm.te.placeholder((L,), name="B", dtype="int8")
         k = tvm.te.reduce_axis((0, L), name="k")
-        C = tvm.te.compute((1,), lambda _: tvm.te.sum(A[k] * B[k], axis=[k]), name="C")
+        C = tvm.te.compute((1,), lambda _: tvm.te.sum((A[k] * B[k]).astype("int8"), axis=[k]), name="C")
         return [A, B], [C]
 
     def get_intrinsic(self, L, scope="local"):

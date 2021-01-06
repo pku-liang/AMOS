@@ -296,7 +296,8 @@ class TransformApplier(object):
         choices = []
         tmp = []
         for axis in intrin_axis:
-            tmp.append(state.axis_map[axis])
+            if len(state.axis_map[axis]) > 0:
+                tmp.append(state.axis_map[axis])
         tmp = list(zip(*tmp))
         for i, v in enumerate(unfold_choice):
             if v == 1:
