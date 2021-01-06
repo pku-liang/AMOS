@@ -255,7 +255,7 @@ ctx = tvm.gpu()
 if not nvcc.have_tensorcore(ctx.compute_version):
     raise Exception("the gpu has no tensorcore, skipping...")
 
-M, N, L = 512, 32, 512
+# M, N, L = 512, 32, 512
 dtype = "float16"
 layout = "NN"
 if len(sys.argv) >= 4:
@@ -288,7 +288,7 @@ def tune_and_evaluate(M, N, L, dtype, layout):
 
     tuner = autotvm.tuner.XGBTuner(task)
     tuner.tune(
-        n_trial=1000,
+        n_trial=100,
         measure_option=measure_option,
         callbacks=[autotvm.callback.log_to_file("matmul.log")],
     )
@@ -392,13 +392,24 @@ def tune_and_evaluate(M, N, L, dtype, layout):
     tvm.testing.assert_allclose(c_np, c_tvm.asnumpy(), rtol=1e-3)
 
     evaluator = func.time_evaluator(func.entry_name, ctx, number=100)
-    print("Time cost of this operator: %f" % evaluator(a_tvm, b_tvm, c_tvm).mean)
+    cost = evaluator(a_tvm, b_tvm, c_tvm).mean
+    print("Time cost of this operator: %f" % cost)
+    return cost
 
 
 # We do not run the tuning in our webpage server since it takes some time.
 # Uncomment the following line to run it by yourself.
 
-# tune_and_evaluate(M, N, L, dtype, layout)
+gemm_shapes = [
+   (16, 512, 128),
+   (1024, 16, 256),
+   (256, 1024, 256),
+   (512, 256, 16),
+   (1024, 1024, 1024)
+]
+
+for M, N, L in gemm_shapes:
+    tune_and_evaluate(M, N, L, dtype, layout)
 
 ######################################################################
 # Sample Output
