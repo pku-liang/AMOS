@@ -8,6 +8,7 @@ from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
                                   CUDAScheduleApplierMultiReduce
 from .search import CUDAProgramChecker, find_optimized_parameters
 from .target import get_cuda_compute_version
+from .policy import first_fit, best_fit, all_fit
 
 
 
@@ -30,7 +31,8 @@ def auto_tensorize_compute(target_dag, target,
         log_file,
         measure_opt,
         verbose=False,
-        transform_dump=False):
+        transform_dump=False,
+        transform_policy="all_fit"):
     # refactor target
     measure_opt.target = target
     match_results = get_match_results(target_dag, target)
@@ -42,19 +44,20 @@ def auto_tensorize_compute(target_dag, target,
         print("Matched results:", flush=True)
         for m in match_results:
             print(str(m), flush=True)
-    # here is match intrin policy
-    match_result = match_results[0]
+
+    if transform_policy == "all_fit":
+        match_result, record = all_fit(match_results)
+    elif transform_policy == "first_fit":
+        match_result, record = first_fit(match_results)
+    elif transform_policy == "best_fit":
+        match_result, record = best_fit(match_results)
+    else:
+        raise RuntimeError("Unknown transform policy: %s" % transform_policy)
     if verbose:
         print("Selected:", str(match_result), flush=True)
         print("Axis map:", flush=True)
         for k, v in match_result.axis_map.items():
             print(k, ":", v, flush=True)
-
-    gen = TransformGenerator(match_result)
-    record = gen.get(policy="random")
-    # here is transform policy
-    record.unfold_choice = (
-        [1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
     app = TransformApplier(match_result, verbose=transform_dump)
     new_state = app.apply(record)
 
@@ -130,14 +133,16 @@ def auto_tensorize(target_dag, target,
         builder=pebble_local_builder_build,
         runner=pebble_local_runner_run,
         verbose=False,
-        transform_dump=False):
+        transform_dump=False,
+        transform_policy="all_fit"):
     match_result, new_state = auto_tensorize_compute(
         target_dag,
         target,
         log_file,
         measure_opt,
         verbose,
-        transform_dump)
+        transform_dump,
+        transform_policy)
 
     return auto_tensorize_schedule(
         target_dag,

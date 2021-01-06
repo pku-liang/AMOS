@@ -30,7 +30,7 @@ bool RecipeDAGMatcher::_check_elemwise(const ComputeOpNode* op, Array<Array<Prim
     for (size_t i = 0; i < n_axes; ++i) {
       // const IterVarNode* ptr = buf_idx[i].as<IterVarNode>();
       // if (ptr == nullptr) return false;
-      if (!spatial_axes[i].same_as(buf_idx[i])) return false;
+      if (!spatial_axes[i]->var.same_as(buf_idx[i])) return false;
     }
   }
   return true;

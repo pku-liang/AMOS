@@ -8,7 +8,7 @@ from ..recipe_base import (
 from ..recipe_base import InstructionScope
 
 
-@register_recipe("cuda", "wmma_fp16_fp32_bias")
+# @register_recipe("cuda", "wmma_fp16_fp32_bias")
 class WMMAFp16Fp32Bias(WMMABaseRecipe):
     def __init__(self):
         self.capsules = {
