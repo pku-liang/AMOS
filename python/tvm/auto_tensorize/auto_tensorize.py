@@ -6,6 +6,7 @@ from .tensorization_phases import get_match_results, TransformGenerator, Transfo
 from .tensorization_phases import CUDAScheduleGenerator, CUDAScheduleApplier
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
                                   CUDAScheduleApplierMultiReduce
+from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
 from .search import CUDAProgramChecker, find_optimized_parameters
 from .target import get_cuda_compute_version
 from .policy import first_fit, best_fit, all_fit
