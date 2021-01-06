@@ -48,6 +48,8 @@ def first_fit(match_results):
         gen = TransformGenerator(match_result)
         record = gen.get(policy="random")
         for bit_vec in choices:
+            if reduce(lambda x, y: x + y, bit_vec, 0) == 0:
+                continue
             tmp_set = {}
             value_set = {}
             for ind, v in enumerate(bit_vec):
@@ -95,6 +97,8 @@ def default_score_func(*args, **kwargs):
 def best_fit(match_results, score_func=default_score_func):
     def helper2(args):
         match_result, bit_vec = args
+        if reduce(lambda x, y: x + y, bit_vec, 0) == 0:
+            return 1e10
         tmp_set = {}
         value_set = {}
         for ind, v in enumerate(bit_vec):
@@ -117,7 +121,7 @@ def best_fit(match_results, score_func=default_score_func):
             len(list(match_result.axis_map.values())[0]))
         args = [(match_result, choice) for choice in choices]
         score_lst = list(map(helper2, args))
-        best_ind = np.argmax(score_lst)
+        best_ind = np.argmin(score_lst)
         return (match_result, choices[best_ind], score_lst[best_ind])
 
     args = range(len(match_results))
