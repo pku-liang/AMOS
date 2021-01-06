@@ -89,7 +89,7 @@ class CUDA(AcceleratorTarget):
 class Mali(AcceleratorTarget):
     # shared_mem, warp_size, regs_per_threads, max_threads, max_blocks
     _arch_params = {
-        "g76": (0, 8, 255, 1024, 2 ** 16),
+        "g76": (32768, 8, 255, 384, 2 ** 16),
     }
 
     def __init__(self, arch="g76"):

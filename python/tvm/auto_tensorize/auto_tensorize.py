@@ -7,7 +7,7 @@ from .tensorization_phases import CUDAScheduleGenerator, CUDAScheduleApplier
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
                                   CUDAScheduleApplierMultiReduce
 from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
-from .search import CUDAProgramChecker, find_optimized_parameters
+from .search import CUDAProgramChecker, MaliProgramChecker, find_optimized_parameters
 from .target import get_cuda_compute_version
 
 
@@ -98,7 +98,7 @@ def auto_tensorize_schedule(target_dag, target,
         sc_info = schedule_gen.get_schedule_compute_info()
         schedule_app = MaliScheduleApplier(match_result, sc_info)
         # TODO: write a checker for MALI GPU
-        # checker = MALIProgramChecker(arch=get_cuda_compute_version(measure_opt.dev_id))
+        checker = MaliProgramChecker(arch="g76")
     else:
         raise RuntimeError("Do not support target: %s" % target)
 

@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import tvm
+from tvm.tir import IterVar
 from .recipes import construct_dag
 from itertools import permutations, product
 from functools import reduce
@@ -155,3 +156,17 @@ def can_inline(op, dag):
     if len(op.reduce_axis) > 0:
         return False
     return True
+
+
+def is_reduce_axis(iv: IterVar):
+    return int(iv.iter_type) == IterVar.CommReduce
+
+
+def is_heavy_reduce_op(op):
+    re_exts = [int(iv.dom.extent) for iv in getattr(op, "reduce_axis", [])]
+    re_time = reduce(lambda a, b: a * b, re_exts, 1)
+    return re_time >= 64
+
+
+def is_vectorized(iv: IterVar):
+    return int(iv.iter_type) == IterVar.Vectorized
