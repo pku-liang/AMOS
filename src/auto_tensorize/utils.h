@@ -51,6 +51,22 @@ class BufferSizeCollector : public tir::StmtVisitor {
   std::unordered_set<const tir::VarNode*> vars_;
 };
 
+class ThreadExtentCollector : public tir::StmtVisitor {
+public:
+  using tir::StmtVisitor::VisitStmt_;
+  ThreadExtentCollector() {}
+
+  Map<String, IntImm> collect(const tir::Stmt& n) {
+    VisitStmt(n);
+    return record_;
+  }
+
+  void VisitStmt_(const tir::AttrStmtNode* op) final;
+
+private: 
+  Map<String, IntImm> record_;
+};
+
 }  // namespace auto_tensorize
 }  // namespace tvm
 

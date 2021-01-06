@@ -81,9 +81,9 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         super(MaliScheduleGenerator, self).__init__(eps, MaliParams,
                                                     steps=steps,
                                                     log_file=log_file)
-        self.init_recipe(intrin_match_result)
-        nodes = self.init_target_dag(transform_state)
-        self.init_recipe_stage(nodes)
+        self._init_recipe(intrin_match_result)
+        nodes = self._init_target_dag(transform_state)
+        self._init_recipe_stage(nodes)
         # get main op id and output op id
         self.main_op_id = 0
         self.output_op_id = 0
@@ -102,7 +102,7 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         self.init_param_generator()
         self.init_score_table()
 
-    def init_recipe(self, intrin_match_result):
+    def _init_recipe(self, intrin_match_result):
         recipe = intrin_match_result.recipe
         compute_key = intrin_match_result.compute_key
         shape_key = intrin_match_result.shape_key
@@ -110,7 +110,7 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         self.compute_key = compute_key
         self.shape_key = shape_key
 
-    def init_target_dag(self, transform_state):
+    def _init_target_dag(self, transform_state):
         # get main op
         target_main_op = None
         for k, v in transform_state.main_op_map.items():
@@ -129,7 +129,7 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         self.main_op = nodes[self.recipe.main_capsule_name][0].op
         return nodes
 
-    def init_recipe_stage(self, nodes):
+    def _init_recipe_stage(self, nodes):
         ###################################
         # fill the recipe stage info
         # analyze the intrinsic dag
@@ -415,7 +415,7 @@ class MaliScheduleApplier(object):
         self.n_last_op_tiling_parts = schedule_compute_info.kwargs[
             "last_tiling"]
 
-    def _initialize_state(self):
+    def _reset_state(self):
         # self.state = {
         #     "inlined": set(),
         #     "main_op_reduce_axis": [],
@@ -425,7 +425,7 @@ class MaliScheduleApplier(object):
         # }
         self.state = empty_mali_state()
 
-    def _initialize_parameters(self, params):
+    def _reset_parameters(self, params):
         self.params = params
 
     def get_main_op_outermost_last_reduce_axis(self):
@@ -846,11 +846,11 @@ class MaliScheduleApplier(object):
         ]
 
         # initialize parameters
-        self._initialize_parameters(params)
+        self._reset_parameters(params)
         # check if parameters are ready
         self._check_parameter_ready()
         # initialize state
-        self._initialize_state()
+        self._reset_state()
 
         dag = self.target_dag
         for op_id, op in reversed(list(enumerate(dag.op_lst))):

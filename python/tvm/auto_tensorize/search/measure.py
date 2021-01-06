@@ -3,6 +3,7 @@ import os
 import time
 import tempfile
 import shutil
+import traceback
 import numpy as np
 from tvm.contrib import tar, ndk
 from tvm import auto_scheduler
@@ -165,9 +166,27 @@ def evaluate_schedule(sch, args, measure_opt, new_process=False):
         dev_id = measure_opt.dev_id
         number = measure_opt.number
         min_repeat_ms = measure_opt.min_repeat_ms
-        ctx = tvm.context(target, dev_id)
+        remote = None
+        use_rpc = measure_opt.key is not None
+        if use_rpc:
+            key = measure_opt.key
+            host = measure_opt.host
+            port = measure_opt.port
+            priority = measure_opt.priority
+            timeout = measure_opt.timeout
+            remote = auto_scheduler.utils.request_remote(
+                key, host, port, priority, timeout)
+        ctx = (remote if use_rpc else tvm).context(target, dev_id)
         arrays = get_tvm_arrays(args, ctx)
-        func = tvm.build(sch, args, target=target)
+        func = tvm.build(sch, args, target=target,
+                        target_host=measure_opt.target_host if use_rpc else None)
+        if use_rpc:
+            fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
+            os.close(fd)
+            func.export_library(lib, ndk.create_shared)
+            remote.upload(lib)
+            func = remote.load_module(os.path.split(lib)[-1])
+            os.unlink(lib)
         evaluator = func.time_evaluator(
             func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
         ctx.sync()
