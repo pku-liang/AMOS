@@ -37,7 +37,7 @@ def dense_tensorcore(cfg, data, weight, bias=None, out_dtype=None):
     return matmul
 
 
-@autotvm.register_topi_schedule("dense_tensorcore.cuda")
+# @autotvm.register_topi_schedule("dense_tensorcore.cuda")
 def schedule_dense_tensorcore(cfg, outs):
     """Schedule dense operator using Tensorcore"""
     outs = [outs] if isinstance(outs, te.tensor.Tensor) else outs

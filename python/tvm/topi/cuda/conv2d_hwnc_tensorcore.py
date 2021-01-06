@@ -72,7 +72,7 @@ def conv2d_hwnc_tensorcore(data, kernel, strides, padding, dilation, in_dtype, o
     return unpack_HWNCnc_to_hwnc(packed_out, out_dtype)
 
 
-@autotvm.register_topi_compute("conv2d_HWNCnc_tensorcore.cuda")
+# @autotvm.register_topi_compute("conv2d_HWNCnc_tensorcore.cuda")
 def hwnc_tensorcore_cuda(cfg, Input, Filter, stride, padding, dilation, out_dtype="int32"):
     """Compute declaration for tensorcore"""
     assert isinstance(stride, int) or len(stride) == 2
