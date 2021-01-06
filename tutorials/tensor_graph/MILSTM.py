@@ -47,7 +47,7 @@ def test1():
     measure_opt = at.MeasureOptions(
         target=target, timeout=10, number=200, min_repeat_ms=500)
     tid = dispatch.add_graph_task(
-        "MILSTM", multi_graph, measure_opt, scheduler_option="auto_tensorize")
+        "MILSTM", multi_graph, measure_opt, scheduler_option="auto_tensorize", trials=1000)
     dispatch.auto_schedule(tid)
     sch_tensors = dispatch.get_schedules(tid)
     cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)
