@@ -1,4 +1,4 @@
-from tvm.tensor_graph.nn.functional import elementwise_add, batch_flatten, dense
+from tvm.tensor_graph.nn.functional import elementwise_add
 from tvm.tensor_graph.nn.layers import GELU, Layer
 
 from tvm.tensor_graph.core import ForwardGraph, BackwardGraph, compute, \
@@ -153,9 +153,9 @@ def scaled_dot_product_attention(N, Q, K, V,
 
     return outputs
 
-def multihead_attention(queries, keys, values,
+def multihead_attention(ma_l1, ma_l2, ma_l3, ma_l4, queries, keys, values,
                         num_heads=8,
-                        causality=False, dtype="float32", out_dtype="float32"):
+                        causality=False, out_dtype="float32"):
     '''Applies multihead attention. See 3.2.2
     queries: A 3d tensor with shape of [N, T_q, d_model].
     keys: A 3d tensor with shape of [N, T_k, d_model].
@@ -169,32 +169,32 @@ def multihead_attention(queries, keys, values,
     '''
     N, T, d_model = queries.shape
     # Linear projections
-    Q = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(queries) # (N, T_q, d_model)
-    K = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(keys) # (N, T_k, d_model)
-    V = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(values) # (N, T_k, d_model)
+    Q = ma_l1(queries) # (N, T_q, d_model)
+    K = ma_l2(keys) # (N, T_k, d_model)
+    V = ma_l3(values) # (N, T_k, d_model)
     
     # Split and concat
     def _split_concat(h_N, T, d_model_h, data, requires_grad=False):
-        h = tvm.tir.const(num_heads, data.tvm_tensor.dtype)
+        h = tvm.tir.const(num_heads, "int32")
         return compute([h_N, T, d_model_h],
-                        lambda n_h, t, d_h: data[n_h / h, t, d_h * h],
+                        lambda n_h, t, d_h: data[n_h // h, t, d_h * h],
                         requires_grad=requires_grad)
-    Q_ = GraphOp([num_heads * N, T, d_model / num_heads], [], [Q], _split_concat, requires_grad=False) # (h*N, T_q, d_model/h)
-    K_ = GraphOp([num_heads * N, T, d_model / num_heads], [], [K], _split_concat, requires_grad=False) # (h*N, T_k, d_model/h)
-    V_ = GraphOp([num_heads * N, T, d_model / num_heads], [], [V], _split_concat, requires_grad=False) # (h*N, T_k, d_model/h)
+    Q_ = GraphOp([num_heads * N, T, d_model // num_heads], [], [Q], _split_concat, requires_grad=False) # (h*N, T_q, d_model/h)
+    K_ = GraphOp([num_heads * N, T, d_model // num_heads], [], [K], _split_concat, requires_grad=False) # (h*N, T_k, d_model/h)
+    V_ = GraphOp([num_heads * N, T, d_model // num_heads], [], [V], _split_concat, requires_grad=False) # (h*N, T_k, d_model/h)
 
     # Attention
     outputs = scaled_dot_product_attention(N, Q_, K_, V_, causality, out_dtype=out_dtype)
 
     # Restore shape
     def _split_concat_restore(N, T, d_model, data, requires_grad=False):
-        h = tvm.tir.const(num_heads, data.tvm_tensor.dtype)
+        h = tvm.tir.const(num_heads, "int32")
         return compute([N, T, d_model],
-                        lambda n, t, d: data[n * h, t, d / h],
+                        lambda n, t, d: data[n * h, t, d // h],
                         requires_grad=requires_grad)
     outputs = GraphOp([N, T, d_model], [], [outputs], _split_concat_restore, requires_grad=False) # (N, T_q, d_model)
 
-    outputs = Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype)(outputs)  # (N, T_q, d_model)
+    outputs = ma_l4(outputs)  # (N, T_q, d_model)
 
     # Residual connection
     outputs = elementwise_add(outputs, queries)
@@ -250,7 +250,7 @@ def ln(inputs, epsilon=1e-8):
                         requires_grad=requires_grad)
     return GraphOp([N, T, d_model], [], [inputs, mean, var], _inner_ln, name=prefix+"layer_norm")
 
-def ff(inputs, num_units, dtype="float32", out_dtype="float32"):
+def ff(ff_l1, ff_l2, inputs, num_units):
     '''position-wise feed forward net. See 3.3
     
     inputs: A 3d tensor with shape of [N, T, C].
@@ -259,11 +259,11 @@ def ff(inputs, num_units, dtype="float32", out_dtype="float32"):
       A 3d tensor with the same shape and dtype as inputs
     '''
     # Inner layer
-    outputs = Linear_(inputs.shape[-1], num_units[0], dtype=dtype, out_dtype=out_dtype)(inputs)
+    outputs = ff_l1(inputs)
     outputs = GELU()(outputs)
 
     # Outer layer
-    outputs = Linear_(num_units[0], num_units[1], dtype=dtype, out_dtype=out_dtype)(outputs)
+    outputs = ff_l2(outputs)
 
     # Residual connection
     outputs = elementwise_add(outputs, inputs)
@@ -286,6 +286,19 @@ class Transformer(Layer):
         self.d_model = d_model
         self.dtype = dtype
         self.out_dtype = out_dtype
+        self.ma_l1 = []
+        self.ma_l2 = []
+        self.ma_l3 = []
+        self.ma_l4 = []
+        self.ff_l1 = []
+        self.ff_l2 = []
+        for i in range(num_blocks):
+            self.ma_l1.append(Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype))
+            self.ma_l2.append(Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype))
+            self.ma_l3.append(Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype))
+            self.ma_l4.append(Linear_(d_model, d_model, bias=True, dtype=dtype, out_dtype=out_dtype))
+            self.ff_l1.append(Linear_(d_model, self.d_ff, dtype=dtype, out_dtype=out_dtype))
+            self.ff_l2.append(Linear_(self.d_ff, self.d_model, dtype=dtype, out_dtype=out_dtype))
 
     def forward(self, x):
         '''
@@ -298,13 +311,14 @@ class Transformer(Layer):
         ## Blocks
         for i in range(self.num_blocks):
             # self-attention
-            enc = multihead_attention(queries=enc,
+            enc = multihead_attention(self.ma_l1[i], self.ma_l2[i], self.ma_l3[i], self.ma_l4[i],
+                                        queries=enc,
                                         keys=enc,
                                         values=enc,
                                         num_heads=self.num_heads,
-                                        causality=False, dtype=self.dtype, out_dtype=self.out_dtype)
+                                        causality=False, out_dtype=self.out_dtype)
             # feed forward
-            enc = ff(enc, num_units=[self.d_ff, self.d_model], dtype=self.dtype, out_dtype=self.out_dtype)
+            enc = ff(self.ff_l1[i], self.ff_l2[i], enc, num_units=[self.d_ff, self.d_model])
         return enc
 
 if __name__ == "__main__":
@@ -344,3 +358,4 @@ if __name__ == "__main__":
     outputs = net.forward(x)
 
     print(outputs)
+    print(list(net.weights()))
