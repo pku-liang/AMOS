@@ -82,7 +82,8 @@ def auto_tensorize_schedule(target_dag, target,
         trials=200,
         builder=pebble_local_builder_build,
         runner=pebble_local_runner_run,
-        verbose=False):
+        verbose=False,
+        search_batch=16):
     if match_result is None or new_state is None:
         return AutoTensorizeResult(None, None, None, None)
     if str(target) == "cuda":
@@ -112,7 +113,8 @@ def auto_tensorize_schedule(target_dag, target,
             measure_opt, checker, trials,  # policy="random",
             builder=builder,
             runner=runner,
-            verbose=verbose)
+            verbose=verbose,
+            batch_size=search_batch)
 
     entry = schedule_gen.get_best_entry()
     # we store 1/time_cost in file
@@ -135,7 +137,8 @@ def auto_tensorize(target_dag, target,
         runner=pebble_local_runner_run,
         verbose=False,
         transform_dump=False,
-        transform_policy="all_fit"):
+        transform_policy="all_fit",
+        search_batch=16):
     match_result, new_state = auto_tensorize_compute(
         target_dag,
         target,
@@ -155,7 +158,8 @@ def auto_tensorize(target_dag, target,
         trials,
         builder,
         runner,
-        verbose
+        verbose,
+        search_batch
     )
 
 

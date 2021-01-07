@@ -295,9 +295,12 @@ class TransformApplier(object):
         unfold_choice = record.unfold_choice[0]
         choices = []
         tmp = []
+        filtered_intrin_axis = []
         for axis in intrin_axis:
             if len(state.axis_map[axis]) > 0:
                 tmp.append(state.axis_map[axis])
+                filtered_intrin_axis.append(axis)
+        intrin_axis = filtered_intrin_axis
         tmp = list(zip(*tmp))
         for i, v in enumerate(unfold_choice):
             if v == 1:
@@ -372,8 +375,13 @@ class TransformApplier(object):
 
         choices = []
         tmp = []
+        filtered_intrin_axis = []
         for axis in intrin_axis:
-            tmp.append(state.axis_map[axis][-1])
+            # TODO: ues a better way to filter out unrelated axis
+            if int(axis.dom.extent) > 1:
+                tmp.append(state.axis_map[axis][-1])
+                filtered_intrin_axis.append(axis)
+        intrin_axis = filtered_intrin_axis
         choices = list(tmp)
 
         name = ".fold"

@@ -51,6 +51,7 @@ EVALUTE_INPUTS = None
 EVALUTE_SCHEDULE_INPUTS = None
 GLOBAL_BUILD_INPUTS = None
 GLOBAL_RUN_INPUTS = None
+GLOBAL_RPC_BUILD_INPUTS = None
 GLOBAL_RPC_RUN_INPUTS = None
 MAX_FLOAT = 1e10
 
@@ -655,17 +656,17 @@ def pebble_rpc_run_worker(index):
                 args = [
                     ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
                 ]
-                try:
-                    random_fill = remote.get_function("tvm.contrib.random.random_fill")
-                except AttributeError:
-                    raise AttributeError(
-                        "Please make sure USE_RANDOM is ON in the config.cmake "
-                        "on the remote devices"
-                    )
-                for arg in args:
-                    if str(arg.dtype) in ["int4"]:
-                        continue
-                    random_fill(arg)
+                # try:
+                #     random_fill = remote.get_function("tvm.contrib.random.random_fill")
+                # except AttributeError:
+                #     raise AttributeError(
+                #         "Please make sure USE_RANDOM is ON in the config.cmake "
+                #         "on the remote devices"
+                #     )
+                # for arg in args:
+                #     if str(arg.dtype) in ["int4", "int8"]:
+                #         continue
+                #     random_fill(arg)
                 ctx.sync()
 
                 costs = time_f(*args).results
