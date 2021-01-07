@@ -445,7 +445,7 @@ class AutoScheduleGraphDispatch(object):
 
 class AutoScheduleMultiGraphContext(object):
   def __init__(self, name, tir_multi_graph, measure_option,
-      scheduler_option="auto_tensorize", gamma=0.02, trials=100):
+      scheduler_option="auto_tensorize", gamma=0.02, trials=100, policy="equal"):
     self.tir_multi_graph = tir_multi_graph
     self.performance_trace = {}
     self.schedules = {}
@@ -457,7 +457,6 @@ class AutoScheduleMultiGraphContext(object):
     self.X = {}
     self.gamma = gamma
     graphs = tg.get_graphs_from_tir_multi_graph(tir_multi_graph)
-    self.L = len(graphs) * trials
     graphs = OrderedDict(
       sorted([(x.value, y) for x, y in graphs.items()], key=lambda x: x[0]))
     for key, subgraph in graphs.items():
@@ -475,6 +474,9 @@ class AutoScheduleMultiGraphContext(object):
       self.schedules[tid] = (sch, args)
       self.contexts[tid] = ctx
       self.graph_tag_to_tid[subgraph.tag] = tid
+    self.L = len(self.graph_tag_to_tid) * trials
+    self.trials = trials
+    self.policy = policy
 
   def calculate_X(self, tid):
     raw = math.sqrt(self.C[tid] / (self.alpha[tid] + 1e-10))
@@ -487,15 +489,19 @@ class AutoScheduleMultiGraphContext(object):
     sum_X = reduce(lambda x, y: x + y, self.X.values(), 0.0)
 
     for tid, lst in self.performance_trace.items():
-      ret.append(tid)
-      raw = int(max(1, min(self.X[tid] * self.L / sum_X, self.L)))
-      trials.append(raw)
-      diff = 2 * (self.C[tid] / (self.alpha[tid] * raw) + self.beta[tid] - lst[-1])
-      self.alpha[tid] = max(1e-5, self.alpha[tid] + self.gamma * diff * self.C[tid] / (
-        raw * self.alpha[tid] * self.alpha[tid]))
-      self.beta[tid] = max(1e-5, self.beta[tid] - self.gamma * diff)
-      self.C[tid] = lst[-1]
-      self.X[tid] = self.calculate_X(tid)
+      if self.policy == "equal":
+        ret.append(tid)
+        trials.append(self.trials)
+      elif self.policy == "rebalance":
+        ret.append(tid)
+        raw = int(max(1, min(self.X[tid] * self.L / sum_X, self.L)))
+        trials.append(raw)
+        diff = 2 * (self.C[tid] / (self.alpha[tid] * raw) + self.beta[tid] - lst[-1])
+        self.alpha[tid] = max(1e-5, self.alpha[tid] + self.gamma * diff * self.C[tid] / (
+          raw * self.alpha[tid] * self.alpha[tid]))
+        self.beta[tid] = max(1e-5, self.beta[tid] - self.gamma * diff)
+        self.C[tid] = lst[-1]
+        self.X[tid] = self.calculate_X(tid)
 
     return ret, trials
 
@@ -533,13 +539,14 @@ class AutoScheduleMultiGraphDispatch(object):
 
   @classmethod
   def add_graph_task(cls, name, tir_multi_graph, measure_option,
-    scheduler_option="auto_tensorize", trials=100):
+    scheduler_option="auto_tensorize", trials=100, policy="equal"):
     next_id = len(AutoScheduleMultiGraphDispatch.working_set)
     AutoScheduleMultiGraphDispatch.working_set[next_id] = \
       AutoScheduleMultiGraphContext(
         name, tir_multi_graph, measure_option,
         scheduler_option=scheduler_option,
-        trials=trials)
+        trials=trials,
+        policy=policy)
     return next_id
 
   @classmethod
