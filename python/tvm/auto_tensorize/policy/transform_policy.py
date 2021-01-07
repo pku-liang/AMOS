@@ -91,7 +91,7 @@ def default_score_func(*args, **kwargs):
         tiles = (ext + intrin_extent - 1) / intrin_extent
         total_volume *= tiles * intrin_extent
         org_volume *= ext
-    return total_volume - org_volume
+    return (total_volume - org_volume) / (org_volume + 1e-5)
 
 
 def best_fit(match_results, score_func=default_score_func):
