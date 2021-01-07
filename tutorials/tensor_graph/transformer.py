@@ -74,7 +74,7 @@ def test1():
         dispatch.auto_schedule(tid)
         sch_tensors = dispatch.get_schedules(tid)
         if dispatch.ready(tid):
-            cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)
+            cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, True)
             print("Whole graph cost is %f ms" % cost, flush=True)
         else:
             print("not ready yet")
