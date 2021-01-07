@@ -43,12 +43,15 @@ def test1():
     measure_opt = at.MeasureOptions(
         target=target, timeout=10, number=200, min_repeat_ms=500)
     tid = dispatch.add_graph_task(
-        "resnet50", multi_graph, measure_opt, scheduler_option="auto_tensorize", trials=1000)
-    dispatch.auto_schedule(tid)
-    sch_tensors = dispatch.get_schedules(tid)
-    cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)
-    print("Whole graph cost is %f ms" % cost)
-
+        "resnet50", multi_graph, measure_opt, scheduler_option="auto_tensorize", trials=200)
+    for i in range(10):
+        dispatch.auto_schedule(tid)
+        sch_tensors = dispatch.get_schedules(tid)
+        if dispatch.ready(tid):
+            cost = at.evaluate_graph(multi_graph, sch_tensors, target, 0, 10, False)
+            print("Whole graph cost is %f ms" % cost, flush=True)
+        else:
+            print("not ready yet")
 
 
 if __name__ == "__main__":
