@@ -53,10 +53,17 @@ Array<FloatImm> evaluate_graph(
   }
 
   std::unordered_map<IntKey, std::vector<runtime::NDArray>> arrays;
+  std::unordered_map<IntKey, IntKey> graph_keys;
+  std::unordered_map<std::string, IntKey> unique_graphs;
   std::unordered_map<IntKey, runtime::PackedFunc> functions;
 
   for (auto k : order) {
     ASSERT(graph_sch_tensors.count(k));
+    auto subgraph = multi_graph->graphs.at(k);
+    if (unique_graphs.count(subgraph->tag)) {
+      graph_keys[k] = unique_graphs.at(subgraph->tag);
+      continue;
+    }
     ScheduleTensors sch_tensor = graph_sch_tensors.at(k);
     // prepare arrays
     std::vector<runtime::NDArray> array;
@@ -79,9 +86,9 @@ Array<FloatImm> evaluate_graph(
     );
     runtime::PackedFunc func = ret->GetFunction("main");
     functions[k] = func;
+    graph_keys[k] = k;
+    unique_graphs[subgraph->tag] = k;
   }
-
-  std::priority_queue<double> time_queue;
   auto* call_unpack = new CallFunc<tvm::runtime::PackedFunc, tvm::runtime::NDArray>();
   Array<FloatImm> ret;
   // sync device
@@ -89,7 +96,8 @@ Array<FloatImm> evaluate_graph(
   for (int ad = 0; ad <= number; ++ad) {    
     auto beg = std::chrono::steady_clock::now();
     for (auto k : order) {
-      (*call_unpack)(functions[k], arrays[k]);
+      IntKey real_key = graph_keys.at(k);
+      (*call_unpack)(functions[real_key], arrays[real_key]);
     }
     runtime::DeviceAPI::Get(ctx)->StreamSync(ctx, nullptr);
     if (ad == 0) {
