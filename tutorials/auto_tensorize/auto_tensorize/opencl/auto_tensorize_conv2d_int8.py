@@ -63,11 +63,14 @@ def tensorize_tensorcore_s8s8(
 
     trials = 1000
     measure_opt = at.MeasureOptions(
-        target=target, target_host=target_host, timeout=10, number=200, min_repeat_ms=500)
+        target=target, target_host=target_host, timeout=40, number=10,
+        min_repeat_ms=80, build_func="ndk", key="android",
+        host="0.0.0.0", port=9190, cooldown_interval=5)
 
     print("Begin tensorize...")
     result = at.auto_tensorize(
-        target_dag, target, log_file, measure_opt, trials=trials, verbose=True)
+        target_dag, target, log_file, measure_opt, trials=trials, verbose=True,
+        transform_dump=True, runner=at.pebble_rpc_runner_run, search_batch=8)
     if not result.defined():
         print("Can't do tensorize.")
         return
@@ -95,32 +98,15 @@ def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer)
 
 
-yolo_shapes_b1 = [
-    # yolo
-    (1, 3, 448, 448, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
-    (1, 64, 112, 112, 192, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
-    (1, 192, 56, 56, 128, 192, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
-    (1, 128, 56, 56, 256, 128, 3, 3, 1, 1, 1, 1, 1),  # conv4   3
-    (1, 256, 56, 56, 256, 256, 1, 1, 1, 1, 0, 1, 1),  # conv5   4
-    (1, 256, 56, 56, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
-    (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv7   6
-    (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv8   7
-    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv9
-    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv10
-    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv11
-    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv12
-    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv13
-    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv14
-    (1, 512, 28, 28, 512, 512, 1, 1, 1, 1, 0, 1, 1),  # conv15      8
-    (1, 512, 28, 28, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv16     9
-    (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv17    10
-    (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv18     11
-    # # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv19
-    # # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv20
-    (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv21   12
-    (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 2, 1, 1, 1),  # conv22   13
-    (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv23     14
-    # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv24
+small_conv_shapes_b1 = [
+    # resnet-18
+    (1, 32, 112, 112, 32, 32, 3, 3, 1, 1, 1, 1, 1),  # conv1  0
+    (1, 16, 112, 112, 96, 16, 3, 3, 1, 2, 1, 1, 1),  # conv2   1
+    (1, 24, 56, 56, 144, 24, 3, 3, 1, 2, 1, 1, 1),  # conv3   2
+    (1, 32, 28, 28, 192, 32, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
+    (1, 64, 14, 14, 384, 64, 3, 3, 1, 1, 1, 1, 1),  # conv5   4
+    (1, 96, 14, 14, 576, 96, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
+    (1, 160, 7, 7, 960, 160, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
 ]
 
 
@@ -138,7 +124,7 @@ if __name__ == "__main__":
 
     for batch in batches:
         costs = []
-        for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):
+        for i, shape in enumerate(small_conv_shapes_b1[beg:beg+num]):
             (_, C, H, W, K, _, R, S, _, stride,
                 padding, dilation, _) = shape
             N = batch

@@ -17,6 +17,11 @@ class Layer(object):
           yield w
       if isinstance(v, GraphTensor) and v.requires_grad:
         yield v
+      if isinstance(v, list):
+        for elem in v:
+          if isinstance(elem, Layer):
+            for ww in elem.weights():
+              yield ww
 
   def eval(self):
     self.train = False

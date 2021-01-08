@@ -61,7 +61,7 @@ class arm_dot_vlen_local(ComputeCapsule):
                 X.shape,
                 X.dtype,
                 offset_factor=1,
-                data_alignment=4,
+                data_alignment=1,
                 scope=scope,
                 strides=[tvm.te.var(f"{X.name}s")],
             )
@@ -73,7 +73,7 @@ class arm_dot_vlen_local(ComputeCapsule):
                 X.shape,
                 X.dtype,
                 offset_factor=1,
-                data_alignment=4,
+                data_alignment=1,
                 scope=scope,
                 strides=[tvm.te.var(f"{X.name}s")],
             )

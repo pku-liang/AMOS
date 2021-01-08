@@ -5,3 +5,4 @@ from .MI_LSTM import MI_LSTM
 from .transformer import Transformer
 from .resnet import resnet18, resnet50
 from .mobilenet_v1 import MobileNetv1
+from .weightnet import WeightNet

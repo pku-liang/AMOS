@@ -59,7 +59,8 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
     def get_name(self):
         return "arm_dot"
 
-    def get_intrinsic(self, reduction_len, capsule_key="arm_dot"):
+    def get_intrinsic(self, compute_key, shape_key, capsule_key):
+        reduction_len = int(shape_key)
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         return capsule.get_intrinsic(L=reduction_len)
@@ -68,10 +69,10 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
         return ""
 
     def get_all_compute_keys(self):
-        return ["int8"]
+        return ["dummy"]
     
     def get_all_shape_keys(self):
-        return ["4"]
+        return ["4", "8", "16"]
 
     def get_dag_compute_expression_with_inputs(
         self, compute_key, shape_key, capsule_keys, read_graph
@@ -85,8 +86,8 @@ class arm_dot_vlen_local_char4(CompilationRecipe):
         """
         assert len(capsule_keys) > 0
         cache = {
-            "a": tvm.te.placeholder([int(shape_key)], name="A", dtype=compute_key),
-            "b": tvm.te.placeholder([int(shape_key)], name="B", dtype=compute_key),
+            "a": tvm.te.placeholder([int(shape_key)], name="A", dtype="int8"),
+            "b": tvm.te.placeholder([int(shape_key)], name="B", dtype="int8"),
         }
         dag_inputs = []
         dag_outputs = []

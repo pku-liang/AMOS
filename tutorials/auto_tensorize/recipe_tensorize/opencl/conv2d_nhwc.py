@@ -170,7 +170,7 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     s[WW].bind(tx, thread_x)
     # s[WW].vectorize(fi)  # vectorize memory load
 
-    arm_dot = recipe.get_intrinsic(reduction_len=step, capsule_key="arm_dot")
+    arm_dot = recipe.get_intrinsic("dummy", str(step), "arm_dot")
 
     s[BL].tensorize(rci, arm_dot)
 
