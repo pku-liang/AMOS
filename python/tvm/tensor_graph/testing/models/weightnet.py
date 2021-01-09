@@ -14,6 +14,33 @@ def Sigmoid(X):
                 requires_grad=requires_grad)
     return GraphOp(X.shape, [], [X], _inner_sigmoid, name="sigmoid")
 
+# M.Conv2d(self.M*oup, oup*inp*ksize*ksize, 1, 1, 0, groups=self.G*oup, bias=False)
+# ksize, stride, padding = 1, 1, 0
+def grouped_pointwise_conv2d(N, I, O, groups, A, B_reshaped):
+    channel_per_group = I // groups
+    out_channel_per_group = O // groups
+
+    # A [N, I, 1, 1]
+    # B_reshaped [groups, out_channel_per_group, channel_per_group]
+    
+    def _inner_reshapeA(N, groups, channel_per_group, A, requires_grad=False):
+        return compute([N, groups, channel_per_group],
+            lambda n, c_o, c_i: A[n, c_o * channel_per_group + c_i, 0, 0],
+            name="reshapeA",
+            requires_grad=requires_grad)
+    A_reshaped = GraphOp([N, groups, channel_per_group], [], [A], _inner_reshapeA, name="reshapeA")
+
+    rc = tvm.te.reduce_axis([0, channel_per_group], name="rc")
+
+    def _inner_wconv(N, groups, out_channel_per_group, A_reshaped, B_reshaped, requires_grad=False):
+        return compute([N, groups, out_channel_per_group],
+            lambda n, k_o, k_i:
+                tvm.te.sum((A_reshaped[n, k_o, rc] * B_reshaped[k_o, k_i, rc]), axis=[rc, ]),
+            name="WConv")
+    WConv = GraphOp([N, groups, out_channel_per_group], [], [A_reshaped, B_reshaped], _inner_wconv, name="wcv")
+
+    return WConv
+
 class WeightNet(Layer):
     # https://github.com/megvii-model/WeightNet/blob/669b5f4c0c46fd30cd0fedf5e5a63161e9e94bcc/weightnet.py
 
@@ -32,14 +59,19 @@ class WeightNet(Layer):
 
         self.wn_fc1 = Conv2d(inp_gap, self.M*oup, kernel_size=ksize, stride=stride, padding=0, groups=1, bias=True, dtype=dtype, out_dtype=out_dtype)
         self.sigmoid = Sigmoid
-        self.wn_fc2 = Conv2d(self.M*oup, oup*inp*ksize*ksize, kernel_size=1, stride=1, padding=0, groups=self.G*oup, bias=False, dtype=dtype, out_dtype=out_dtype)
+        self.groups = self.G*oup
+        self.out_channel_per_group = oup*inp*ksize*ksize // self.groups
+        self.channel_per_group = self.M*oup // self.groups
+        self.weight_fc2 = GraphTensor([self.groups, self.out_channel_per_group, self.channel_per_group], dtype=dtype, name="weight_fc2")
+        # Conv2d(self.M*oup, oup*inp*ksize*ksize, kernel_size=1, stride=1, padding=0, groups=self.G*oup, bias=False, dtype=dtype, out_dtype=out_dtype)
 
 
     def forward(self, x, x_gap):
         x_w = self.wn_fc1(x_gap)
         x_w = self.sigmoid(x_w)
-        x_w = self.wn_fc2(x_w)
-        # [1, 22478848, 1, 1] -> [50176, 448, 1, 1]
+        # after sigmoid [1, 100352, 1, 1]
+        x_w = grouped_pointwise_conv2d(1, self.M*self.oup, self.oup*self.inp*self.ksize*self.ksize, self.groups, x_w, self.weight_fc2)
+        # [1, 100352, 224] -> [50176, 448, 1, 1]
         x_w = reshape(x_w, [self.oup, self.inp, self.ksize, self.ksize])
         x = conv2d_nchw(x, weight=x_w, stride=self.stride, padding=self.pad)
         return x
