@@ -44,7 +44,7 @@ def grouped_pointwise_conv2d(N, I, O, groups, A, B_reshaped):
 class WeightNet(Layer):
     # https://github.com/megvii-model/WeightNet/blob/669b5f4c0c46fd30cd0fedf5e5a63161e9e94bcc/weightnet.py
 
-    def __init__(self, inp=448, oup=50176, ksize=1, stride=1, dtype="float32", out_dtype="float32"):
+    def __init__(self, inp=24, oup=216, ksize=1, stride=1, dtype="float32", out_dtype="float32"):
         super().__init__()
 
         self.M = 2
@@ -69,9 +69,7 @@ class WeightNet(Layer):
     def forward(self, x, x_gap):
         x_w = self.wn_fc1(x_gap)
         x_w = self.sigmoid(x_w)
-        # after sigmoid [1, 100352, 1, 1]
         x_w = grouped_pointwise_conv2d(1, self.M*self.oup, self.oup*self.inp*self.ksize*self.ksize, self.groups, x_w, self.weight_fc2)
-        # [1, 100352, 224] -> [50176, 448, 1, 1]
         x_w = reshape(x_w, [self.oup, self.inp, self.ksize, self.ksize])
         x = conv2d_nchw(x, weight=x_w, stride=self.stride, padding=self.pad)
         return x
@@ -83,8 +81,8 @@ if __name__ == "__main__":
     model = WeightNet(dtype=dtype, out_dtype=dtype)
     model.eval()
 
-    x = GraphTensor([batch_size, 448, 1, 1], dtype, name="x", requires_grad=False)
-    x_gap = GraphTensor([batch_size, 28, 1, 1], dtype, name="x_gap", requires_grad=False)
+    x = GraphTensor([batch_size, 24, 1, 1], dtype, name="x", requires_grad=False)
+    x_gap = GraphTensor([batch_size, 1, 1, 1], dtype, name="x_gap", requires_grad=False)
     
     out = model(x, x_gap)
     print(out)

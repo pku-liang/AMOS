@@ -32,8 +32,8 @@ def test1():
     model = tensor_graph.testing.models.WeightNet(dtype=dtype, out_dtype=out_dtype)
     model.eval()
 
-    x = tensor_graph.core.GraphTensor([batch_size, 448, 1, 1], dtype=dtype, name="x")
-    x_gap = tensor_graph.core.GraphTensor([batch_size, 28, 1, 1], dtype=dtype, name="x_gap")
+    x = tensor_graph.core.GraphTensor([batch_size, 24, 1, 1], dtype=dtype, name="x")
+    x_gap = tensor_graph.core.GraphTensor([batch_size, 1, 1, 1], dtype=dtype, name="x_gap")
 
     # get forward graph and tir graph
     fwd_graph = tensor_graph.core.make_fwd_graph(model, [x, x_gap])

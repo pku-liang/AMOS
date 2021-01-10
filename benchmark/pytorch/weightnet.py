@@ -6,7 +6,7 @@ import torch.nn.functional as F
 class WeightNet(nn.Module):
     # https://github.com/megvii-model/WeightNet/blob/669b5f4c0c46fd30cd0fedf5e5a63161e9e94bcc/weightnet.py
 
-    def __init__(self, inp=448, oup=50176, ksize=1, stride=1):
+    def __init__(self, inp=24, oup=216, ksize=1, stride=1):
         super().__init__()
 
         self.M = 2
@@ -40,8 +40,8 @@ if __name__ == "__main__":
     model = WeightNet().cuda().half()
     model.eval()
 
-    x = torch.rand([batch_size, 448, 1, 1], dtype=torch.float16).cuda()
-    x_gap = torch.rand([batch_size, 28, 1, 1], dtype=torch.float16).cuda()
+    x = torch.rand([batch_size, 24, 1, 1], dtype=torch.float16).cuda()
+    x_gap = torch.rand([batch_size, 1, 1, 1], dtype=torch.float16).cuda()
 
     # warm up
     out = model(x, x_gap)
