@@ -123,6 +123,56 @@ std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
 };
 
 
+#define RESNET_BATCH_CONV_BATCH 1
+
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int>>
+    batch_conv_resnet50 = { 
+		  // modify from yolo_v1 to satisfy: groupcnt == c, and k is multiple of c
+		  //                w,   h,  c,  n,     k, fw,  fh, pw, ph, ws, hs, groupcnt
+		  std::make_tuple(224, 224, 3*RESNET_BATCH_CONV_BATCH,  1,  64*RESNET_BATCH_CONV_BATCH,  7,   7,  3,  3,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(56, 56, 64*RESNET_BATCH_CONV_BATCH,  1,  256*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(56, 56, 256*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(56, 56, 256*RESNET_BATCH_CONV_BATCH,  1,  128*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(28, 28, 512*RESNET_BATCH_CONV_BATCH,  1,  128*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(28, 28, 128*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(28, 28, 128*RESNET_BATCH_CONV_BATCH,  1,  128*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+
+          std::make_tuple(28, 28, 512*RESNET_BATCH_CONV_BATCH,  1,  1024*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(28, 28, 512*RESNET_BATCH_CONV_BATCH,  1,  256*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(14, 14, 1024*RESNET_BATCH_CONV_BATCH,  1,  256*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(14, 14, 256*RESNET_BATCH_CONV_BATCH,  1,  256*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(14, 14, 256*RESNET_BATCH_CONV_BATCH,  1,  1024*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+
+          std::make_tuple(14, 14, 1024*RESNET_BATCH_CONV_BATCH,  1,  2048*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(14, 14, 1024*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  2,  2,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(7, 7, 2048*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(7, 7, 512*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(7, 7, 512*RESNET_BATCH_CONV_BATCH,  1,  2048*RESNET_BATCH_CONV_BATCH,  1,   1,  0,  0,  1,  1,  RESNET_BATCH_CONV_BATCH),
+};
+
+
+#define VGG16_BATCH_CONV_BATCH 1
+
+std::vector<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int,
+                       unsigned int, unsigned int, unsigned int, unsigned int>>
+    batch_conv_vgg16 = { 
+		  // modify from yolo_v1 to satisfy: groupcnt == c, and k is multiple of c
+		  //                w,   h,  c,  n,     k, fw,  fh, pw, ph, ws, hs, groupcnt
+		  std::make_tuple(224, 224, 64*RESNET_BATCH_CONV_BATCH,  1,  64*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(112, 112, 64*RESNET_BATCH_CONV_BATCH,  1,  128*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(112, 112, 128*RESNET_BATCH_CONV_BATCH,  1,  128*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(56, 56, 128*RESNET_BATCH_CONV_BATCH,  1,  256*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(56, 56, 256*RESNET_BATCH_CONV_BATCH,  1,  256*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(28, 28, 256*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(28, 28, 512*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(14, 14, 512*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+          std::make_tuple(7, 7, 512*RESNET_BATCH_CONV_BATCH,  1,  512*RESNET_BATCH_CONV_BATCH,  3,   3,  1,  1,  1,  1,  RESNET_BATCH_CONV_BATCH),
+};
+
+
 // Vector saves w, h, c, n,
 //              k, filter_w(s), filter_h(r), pad_w,
 //              pad_h, wstride, hstride, groupcnt
