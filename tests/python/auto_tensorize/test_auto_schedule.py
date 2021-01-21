@@ -287,7 +287,7 @@ def native_loacl_build_worker(index):
         # pylint: disable=broad-except
         except Exception:
             error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
-            error_msg = auto_scheduler.measure.make_error_msg()
+            error_msg = auto_scheduler.utils.make_traceback_info()
 
         if error_no == 0:
             dirname = tempfile.mkdtemp()
@@ -303,7 +303,7 @@ def native_loacl_build_worker(index):
             # pylint: disable=broad-except
             except Exception:
                 error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
-                error_msg = auto_scheduler.measure.make_error_msg()
+                error_msg = auto_scheduler.utils.make_traceback_info()
         else:
             filename = ""
 
@@ -419,7 +419,7 @@ def native_local_run_worker():
         except Exception:
             costs = (MAX_FLOAT,)
             error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
-            error_msg = auto_scheduler.measure.make_error_msg()
+            error_msg = auto_scheduler.utils.make_traceback_info()
 
         if error_no == 0:
             try:
@@ -436,7 +436,7 @@ def native_local_run_worker():
             except Exception:
                 costs = (MAX_FLOAT,)
                 error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
-                error_msg = auto_scheduler.measure.make_error_msg()
+                error_msg = auto_scheduler.utils.make_traceback_info()
 
         shutil.rmtree(os.path.dirname(build_res.filename))
         toc = time.time()
@@ -665,7 +665,7 @@ def pebble_local_build_worker(index):
         # pylint: disable=broad-except
         except Exception:
             error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
-            error_msg = auto_scheduler.measure.make_error_msg()
+            error_msg = auto_scheduler.utils.make_traceback_info()
             print(error_msg)
 
         if error_no == 0:
@@ -683,7 +683,7 @@ def pebble_local_build_worker(index):
             # pylint: disable=broad-except
             except Exception:
                 error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
-                error_msg = auto_scheduler.measure.make_error_msg()
+                error_msg = auto_scheduler.utils.make_traceback_info()
         else:
             filename = ""
 
@@ -817,7 +817,7 @@ def pebble_local_run_worker(index):
         except Exception:
             costs = (MAX_FLOAT,)
             error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
-            error_msg = auto_scheduler.measure.make_error_msg()
+            error_msg = auto_scheduler.utils.make_traceback_info()
 
         if error_no == 0:
             try:
@@ -834,7 +834,7 @@ def pebble_local_run_worker(index):
             except Exception:
                 costs = (MAX_FLOAT,)
                 error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
-                error_msg = auto_scheduler.measure.make_error_msg()
+                error_msg = auto_scheduler.utils.make_traceback_info()
 
         shutil.rmtree(os.path.dirname(build_res.filename))
         toc = time.time()
@@ -1075,7 +1075,7 @@ def tg_parallel_build_worker(name):
             err_msgs.append(None)
         except Exception:
             err_nos.append(auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR)
-            err_msgs.append(auto_scheduler.measure.make_error_msg())
+            err_msgs.append(auto_scheduler.utils.make_traceback_info())
         filenames.append("")
     
     if schs:
@@ -1161,7 +1161,7 @@ def tg_parallel_builder_build(
             except Exception as error:
                 if verbose >= 1:
                     print("Build Fatal Error\n",
-                        auto_scheduler.measure.make_error_msg(), flush=True)
+                        auto_scheduler.utils.make_traceback_info(), flush=True)
                 results = [
                     (None, [], 
                      auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST,

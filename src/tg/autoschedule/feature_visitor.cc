@@ -18,17 +18,17 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
     loop_extent = extent->value;
 
   AnnotationType ann = kSerial;
-  switch (op->for_type) {
-    case ForType ::Parallel:
+  switch (op->kind) {
+    case ForKind::kParallel:
       ann = kParallel;
       break;
-    case ForType::Unrolled:
+    case ForKind::kUnrolled:
       ann = kUnrolled;
       break;
-    case ForType::Vectorized:
+    case ForKind::kVectorized:
       ann = kVectorized;
       break;
-    case ForType::Serial:
+    case ForKind::kSerial:
       ann = kSerial;
       break;
   }

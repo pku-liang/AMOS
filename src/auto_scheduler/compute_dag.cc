@@ -727,6 +727,33 @@ ComputeDAG::ComputeDAG(const te::Schedule& sch) {
   data_ = std::move(node);
 }
 
+ComputeDAG::ComputeDAG(const te::Schedule& sch, auto_tensorize::RecipeStage recipe) {
+  auto node = make_object<ComputeDAGNode>();
+
+  // Make sure it is a valid compute definition
+  CheckComputeValidity(sch);
+
+  // Initialize ops. Here we enforce the order of ops and stages are consistent
+  for (auto stage : sch->stages) {
+    node->ops.push_back(stage->op);
+  }
+
+  // Collect input and output tensors
+  Array<te::Tensor> tensors;
+  for (auto stage : sch->stages) {
+    if (stage->op->IsInstance<te::PlaceholderOpNode>() || stage->is_output) {
+      for (auto i = 0; i < stage->op->num_outputs(); ++i) {
+        tensors.push_back(stage->op.output(i));
+      }
+    }
+  }
+  node->tensors = std::move(tensors);
+  node->access_analyzer = AccessAnalyzer(node->tensors);
+  node->flop_ct = FlopEstimator().EstimateFlop(node->ops);
+  node->init_state = State(node->ops, recipe);
+  data_ = std::move(node);
+}
+
 
 ComputeDAG::ComputeDAG(
   Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe) {
@@ -1476,8 +1503,12 @@ TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAG")
     });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGwithRecipe").set_body_typed([](
-  Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe) {
-  return ComputeDAG(tensors, recipe);
+  Optional<Array<te::Tensor>> tensors, Optional<te::Schedule> sch, auto_tensorize::RecipeStage recipe) {
+  if (sch) {
+    return ComputeDAG(sch.value(), recipe);
+  }
+  ICHECK(tensors) << "Both tensors and schedule are null";
+  return ComputeDAG(tensors.value(), recipe);
 });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGApplyStepsFromState")
