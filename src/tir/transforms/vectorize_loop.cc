@@ -45,8 +45,8 @@ inline PrimExpr BroadcastTo(PrimExpr e, int lanes) {
       return Broadcast(op->value, lanes);
     }
   }
-  CHECK_EQ(e.dtype().lanes(), 1) << "Cannot broadcast lane=" << e.dtype().lanes() << " to "
-                                 << lanes;
+  ICHECK_EQ(e.dtype().lanes(), 1) << "Cannot broadcast lane=" << e.dtype().lanes() << " to "
+                                  << lanes;
   return Broadcast(e, lanes);
 }
 
@@ -105,7 +105,7 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
   }
 
   Stmt VisitStmt(const Stmt& stmt) final {
-    CHECK(!need_scalarize_);
+    ICHECK(!need_scalarize_);
     Stmt ret = StmtMutator::VisitStmt(stmt);
     if (need_scalarize_) {
       need_scalarize_ = false;
@@ -319,7 +319,7 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
     // (let x = 1 in x + 1) * (let x = 1 in x + 1)
     auto it = let_binding_.find(op->var);
     if (it != let_binding_.end()) {
-      CHECK(deep_equal_(it->second, value))
+      ICHECK(deep_equal_(it->second, value))
           << "Let cannot bind the same var to two different values";
     }
     if (value.dtype().lanes() != op->value.dtype().lanes()) {
@@ -352,11 +352,11 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
   }
   // For
   Stmt VisitStmt_(const ForNode* op) final {
-    if (op->for_type == ForType::Vectorized) {
+    if (op->kind == ForKind::kVectorized) {
       LOG(WARNING) << "Detect vectorize inside vectorized loop, ignoring...";
     }
-    CHECK(is_zero(op->min));
-    CHECK(!op->extent.dtype().is_vector());
+    ICHECK(is_zero(op->min));
+    ICHECK(!op->extent.dtype().is_vector());
     PrimExpr extent = this->VisitExpr(op->extent);
     if (extent.dtype().is_vector()) {
       return Scalarize(GetRef<Stmt>(op));
@@ -365,12 +365,13 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
     if (extent.same_as(op->extent) && body.same_as(op->body)) {
       return GetRef<Stmt>(op);
     } else {
-      return For(op->loop_var, op->min, extent, op->for_type, op->device_api, body);
+      return For(op->loop_var, op->min, extent, op->kind, body, op->thread_binding,
+                 op->annotations);
     }
   }
   // IfThenElse
   Stmt VisitStmt_(const IfThenElseNode* op) final {
-    CHECK(!op->condition.dtype().is_vector());
+    ICHECK(!op->condition.dtype().is_vector());
     PrimExpr condition = this->VisitExpr(op->condition);
     if (condition.dtype().is_vector()) {
       return Scalarize(GetRef<Stmt>(op));
@@ -390,7 +391,7 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
   // LetStmt
   Stmt VisitStmt_(const LetStmtNode* op) final {
     PrimExpr value = this->VisitExpr(op->value);
-    CHECK(!let_binding_.count(op->var)) << "SSA violation, a single var is binded twice";
+    ICHECK(!let_binding_.count(op->var)) << "SSA violation, a single var is binded twice";
     let_binding_[op->var] = value;
 
     if (value.dtype().lanes() != op->value.dtype().lanes()) {
@@ -436,7 +437,7 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
     Var idx(var_->name_hint + ".s", var_->dtype);
     Map<Var, PrimExpr> values{{var_, idx}};
     stmt = Substitute(stmt, values);
-    return For(idx, 0, var_lanes_, ForType::Serial, DeviceAPI::None, stmt);
+    return For(idx, 0, var_lanes_, ForKind::kSerial, stmt);
   }
   // ProducerStore
   Stmt VisitStmt_(const ProducerStoreNode* op) final {
@@ -525,8 +526,8 @@ class Vectorizer : public StmtMutator, public ExprFunctor<PrimExpr(const PrimExp
 class LoopVectorizer : public StmtMutator {
  public:
   Stmt VisitStmt_(const ForNode* op) final {
-    if (op->for_type == ForType::Vectorized) {
-      CHECK(is_zero(op->min));
+    if (op->kind == ForKind::kVectorized) {
+      ICHECK(is_zero(op->min));
       auto* extent_as_int = op->extent.as<IntImmNode>();
       if (!extent_as_int || extent_as_int->value < 1) {
         LOG(FATAL) << "Failed to vectorize loop with extent " << op->extent;
@@ -545,8 +546,8 @@ class VectorizeSkipper : public StmtMutator {
   Stmt VisitStmt_(const ForNode* op) final {
     Stmt stmt = StmtMutator::VisitStmt_(op);
     op = stmt.as<ForNode>();
-    if (op->for_type == ForType::Vectorized) {
-      return For(op->loop_var, op->min, op->extent, ForType::Serial, op->device_api, op->body);
+    if (op->kind == ForKind::kVectorized) {
+      return For(op->loop_var, op->min, op->extent, ForKind::kSerial, op->body);
     } else {
       return stmt;
     }

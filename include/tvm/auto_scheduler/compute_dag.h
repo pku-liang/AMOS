@@ -180,7 +180,7 @@ class ComputeDAGNode : public Object {
   double flop_ct;
   /*! \brief The initial state without any transform steps. */
   State init_state;
-  /*! \brief The static read-write access analyzer */
+  /*! \brief The static read-write access analyzer. */
   AccessAnalyzer access_analyzer;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
@@ -196,15 +196,38 @@ class ComputeDAGNode : public Object {
 };
 
 /*!
+ * \brief Options for applying layout rewrite.
+ * This is an optimization to rewrite the layout of input tensors according to the schedule we get.
+ */
+enum class LayoutRewriteOption : int {
+  /*! \brief Do not perform layout rewrite. */
+  NoRewrite = 0,
+  /*! \brief Insert layout transformation stages for input placeholders in the compute DAG */
+  InsertTransformStage = 1,
+  /*!
+   * \brief Do not insert layout transformation stages and assume the input placeholders
+   * are pre-transformed.
+   * \note The lowered function with this option does not accept the origial input shapes,
+   * so this option must be used along with `AutoSchedulerLayoutRewrite` pass in Relay.
+   */
+  RewriteForPreTransformed = 2,
+};
+
+/*!
  * \brief Managed reference to ComputeDAGNode.
  * \sa ComputeDAGNode
  */
 class ComputeDAG : public ObjectRef {
  public:
-  /*! \brief The constructor.
+  /*! \brief Construct a DAG from a list of output tensors.
    * \param tensors `te::Tensor`s for a compute declaration.
    */
   TVM_DLL explicit ComputeDAG(Array<te::Tensor> tensors);
+
+  /*! \brief Construct a DAG based on a schedule.
+   * \param sch `te::Schedule`s for a compute declaration.
+   */
+  TVM_DLL explicit ComputeDAG(const te::Schedule& sch);
 
   /*! \brief The constructor.
    * \param tensors `te::Tensor`s for a compute declaration.
@@ -213,12 +236,19 @@ class ComputeDAG : public ObjectRef {
   TVM_DLL explicit ComputeDAG(
     Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe);
 
+  /*! \brief Construct a DAG based on a schedule.
+   * \param sch `te::Schedule`s for a compute declaration.
+   */
+  TVM_DLL explicit ComputeDAG(const te::Schedule& sch, auto_tensorize::RecipeStage recipe);
+
   /*!
    * \brief Rewrite the layout of placeholder specified by attr `layout_free_placeholders`
    * according to the loop nest derived with `transform_steps`.
    * \param transform_steps Transform steps of a state.
+   * \param layout_rewrite Different options in layout rewrite.
+   * \return The updated ComputeDAG after layout rewrite.
    */
-  void RewriteLayout(const Array<Step>& transform_steps);
+  ComputeDAG RewriteLayout(Array<Step>* transform_steps, LayoutRewriteOption layout_rewrite) const;
 
   /*!
    * \brief Apply the history transform steps to get a TVM schedule.
@@ -228,14 +258,14 @@ class ComputeDAG : public ObjectRef {
    * \param stage_to_axes The map that stores all axes for one stage.
    * Pass a valid pointer if this information needs to be used outside this function.
    * \param layout_rewrite Rewrite the layout of placeholders specified by
-   * attr `layout_free_placeholders`
+   * attr `layout_free_placeholders`.
    * \return A `te.schedule` and the an Array of `te.Tensor` to be used in `tvm.lower`
    * or `tvm.build`.
    */
-  std::pair<te::Schedule, Array<te::Tensor>> ApplySteps(const Array<Step>& transform_steps,
-                                                        Array<te::Stage>* stages = nullptr,
-                                                        StageToAxesMap* stage_to_axes = nullptr,
-                                                        bool layout_rewrite = false) const;
+  std::pair<te::Schedule, Array<te::Tensor>> ApplySteps(
+      const Array<Step>& transform_steps, Array<te::Stage>* stages = nullptr,
+      StageToAxesMap* stage_to_axes = nullptr,
+      LayoutRewriteOption layout_rewrite = LayoutRewriteOption::NoRewrite) const;
 
   /*!
    * \brief Print transform steps as equivalent python schedule API.
@@ -285,6 +315,14 @@ class ComputeDAG : public ObjectRef {
   TVM_DEFINE_OBJECT_REF_METHODS(ComputeDAG, ObjectRef, ComputeDAGNode);
   TVM_DEFINE_OBJECT_REF_COW_METHOD(ComputeDAGNode);
 };
+
+/*!
+ *  \brief Get the orginal shape from a rewritten layout string.
+ *  \param rewritten_layout The layout after auto-scheduler's layout rewrite.
+ *  \param axis_names Specifiy the names of axes.
+ *  \return shape The original shape.
+ */
+Array<PrimExpr> GetShapeFromRewrittenLayout(String rewritten_layout, Array<String> axis_names);
 
 }  // namespace auto_scheduler
 }  // namespace tvm

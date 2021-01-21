@@ -36,6 +36,7 @@ from __future__ import absolute_import, print_function
 
 import tvm
 from tvm import te
+import tvm.testing
 import numpy as np
 
 ######################################################################
@@ -160,9 +161,9 @@ def gemv_impl():
         return 0;
       }
     """
-    from tvm.contrib import util, clang
+    from tvm.contrib import utils, clang
 
-    temp = util.tempdir()
+    temp = utils.tempdir()
     ll_path = temp.relpath("temp.ll")
     # Create LLVM ir from c source code
     ll_code = clang.create_llvm(cc_code, output=ll_path)
@@ -182,7 +183,7 @@ print(tvm.lower(s, [A, B, C], simple_mode=True))
 #
 func = tvm.build(s, [A, B, C], target="llvm", name="gemv")
 
-from tvm.topi.util import get_const_tuple
+from tvm.topi.utils import get_const_tuple
 
 dtype = A.dtype
 ctx = tvm.context("cpu", 0)
@@ -228,9 +229,9 @@ def gemv_impl():
         return 0;
       }
     """
-    from tvm.contrib import util, clang
+    from tvm.contrib import utils, clang
 
-    temp = util.tempdir()
+    temp = utils.tempdir()
     ll_path = temp.relpath("temp.ll")
     # Create LLVM ir from c source code
     ll_code = clang.create_llvm(cc_code, output=ll_path)

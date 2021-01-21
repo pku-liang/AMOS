@@ -16,12 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#pragma once
 
-#include <dmlc/logging.h>
+#ifndef TVM_RUNTIME_VULKAN_VULKAN_COMMON_H_
+#define TVM_RUNTIME_VULKAN_VULKAN_COMMON_H_
+
 #include <tvm/runtime/c_runtime_api.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/runtime/packed_func.h>
+#include <tvm/support/logging.h>
 #include <vulkan/vulkan.h>
 
 #include <memory>
@@ -80,10 +82,10 @@ inline const char* VKGetErrorString(VkResult error) {
  * \brief Protected Vulkan call
  * \param func Expression to call.
  */
-#define VULKAN_CHECK_ERROR(__e)                                     \
-  {                                                                 \
-    CHECK(__e == VK_SUCCESS) << "Vulan Error, code=" << __e << ": " \
-                             << vulkan::VKGetErrorString(__e);      \
+#define VULKAN_CHECK_ERROR(__e)                                      \
+  {                                                                  \
+    ICHECK(__e == VK_SUCCESS) << "Vulan Error, code=" << __e << ": " \
+                              << vulkan::VKGetErrorString(__e);      \
   }
 
 #define VULKAN_CALL(func)    \
@@ -143,3 +145,4 @@ struct VulkanContext {
 }  // namespace vulkan
 }  // namespace runtime
 }  // namespace tvm
+#endif  // TVM_RUNTIME_VULKAN_VULKAN_COMMON_H_

@@ -22,6 +22,10 @@ Tuning High Performance Convolution on NVIDIA GPUs
 This is an advanced tutorial for writing high performance tunable template for
 NVIDIA GPU. By running auto-tuner on this template, we can outperform the
 vendor provided library CuDNN in many cases.
+
+Note that this tutorial will not run on Windows or recent versions of macOS. To
+get it to run, you will need to wrap the body of this tutorial in a :code:`if
+__name__ == "__main__":` block.
 """
 
 ######################################################################
@@ -32,7 +36,7 @@ vendor provided library CuDNN in many cases.
 #
 # .. code-block:: bash
 #
-#   pip3 install --user psutil xgboost tornado
+#   pip3 install --user psutil xgboost tornado cloudpickle
 #
 # To make TVM run faster in tuning, it is recommended to use cython
 # as FFI of tvm. In the root directory of tvm, execute
@@ -49,9 +53,9 @@ import sys
 import numpy as np
 
 import tvm
-from tvm import te
-from tvm import topi
+from tvm import te, topi, testing
 from tvm.topi.testing import conv2d_nchw_python
+import tvm.testing
 
 from tvm import autotvm
 

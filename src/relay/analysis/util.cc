@@ -31,7 +31,7 @@
 #include <tvm/relay/op_attr_types.h>
 #include <tvm/relay/pattern_functor.h>
 
-#include "../transforms/pass_util.h"
+#include "../transforms/pass_utils.h"
 
 namespace tvm {
 namespace relay {
@@ -71,7 +71,7 @@ class TypeVarTVisitor : public TypeVisitor {
   InsertionSet<TypeVar>* bound_type_vars_;
 };
 
-class TypeVarEVisitor : private ExprVisitor {
+class TypeVarEVisitor : private MixedModeVisitor {
  public:
   explicit TypeVarEVisitor(const IRModule& mod) : mod_(mod) {}
 
@@ -131,6 +131,8 @@ class TypeVarEVisitor : private ExprVisitor {
     return CollectAll();
   }
 
+  using MixedModeVisitor::VisitExpr_;
+
   void VisitExpr_(const FunctionNode* f) final {
     for (const auto& tp : f->type_params) {
       type_vars_.Insert(tp);
@@ -159,7 +161,7 @@ class TypeVarEVisitor : private ExprVisitor {
   const IRModule& mod_;
 };
 
-class VarVisitor : protected ExprVisitor, protected PatternVisitor {
+class VarVisitor : protected MixedModeVisitor, protected PatternVisitor {
  public:
   Array<Var> Free(const Expr& expr) {
     this->VisitExpr(expr);
@@ -203,6 +205,8 @@ class VarVisitor : protected ExprVisitor, protected PatternVisitor {
     bound_vars_.Insert(v);
     vars_.Insert(v);
   }
+
+  using MixedModeVisitor::VisitExpr_;
 
   void VisitExpr_(const VarNode* var) final { vars_.Insert(GetRef<Var>(var)); }
 
@@ -354,9 +358,9 @@ std::unordered_map<const Object*, size_t> GetExprRefCount(const Expr& body) {
 
 template <typename T>
 bool IsNDArrayAllGreaterEqual(const runtime::NDArray& tensor, T value) {
-  CHECK_EQ(tensor->ctx.device_type, kDLCPU);
-  CHECK(tensor->strides == nullptr);
-  CHECK_EQ(tensor->byte_offset, 0);
+  ICHECK_EQ(tensor->ctx.device_type, kDLCPU);
+  ICHECK(tensor->strides == nullptr);
+  ICHECK_EQ(tensor->byte_offset, 0);
   const T* data = static_cast<const T*>(tensor->data);
   int64_t num_elems = 1;
   for (int i = 0; i < tensor->ndim; ++i) {
@@ -442,10 +446,10 @@ Expr TypeSubst(const Expr& expr, const tvm::Map<TypeVar, Type>& subst_map) {
    private:
     const tvm::Map<TypeVar, Type>& subst_map_;
   };
-  CHECK(WellFormed(expr));
+  ICHECK(WellFormed(expr));
   auto ret = TypeSubstMutator(subst_map).VisitExpr(expr);
-  CHECK_EQ(FreeVars(expr).size(), FreeVars(ret).size());
-  CHECK(WellFormed(ret));
+  ICHECK_EQ(FreeVars(expr).size(), FreeVars(ret).size());
+  ICHECK(WellFormed(ret));
   return ret;
 }
 
@@ -469,24 +473,27 @@ bool IsDynamic(const Type& ty) {
 
 TVM_REGISTER_GLOBAL("relay.ir.IsDynamic").set_body_typed(IsDynamic);
 
-bool IsDataDependant(const CallNode* call) {
-  static auto tshape_data_dependant = Op::GetAttrMap<TShapeDataDependant>("TShapeDataDependant");
+bool IsDataDependent(const CallNode* call) {
+  static auto tshape_data_dependent = Op::GetAttrMap<TShapeDataDependent>("TShapeDataDependent");
   Op op = Downcast<Op>(call->op);
 
-  if (!tshape_data_dependant.count(op)) {
+  if (!tshape_data_dependent.count(op)) {
     return false;
   }
 
   if (op->name == "strided_slice") {
     if (const auto* attrs = call->attrs.as<StridedSliceAttrs>()) {
       if (attrs->begin && attrs->end && attrs->strides) {
-        // not data dependant if begin, end and strides exist
+        // not data dependent if begin, end and strides exist
         return false;
       }
     }
   }
 
-  return tshape_data_dependant[op];
+  for (auto req : tshape_data_dependent[op]) {
+    if (req->value != 0) return true;
+  }
+  return false;
 }
 }  // namespace relay
 }  // namespace tvm

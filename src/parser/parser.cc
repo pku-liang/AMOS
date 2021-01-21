@@ -21,7 +21,6 @@
  * \file parser.cc
  * \brief A parser for TVM IR.
  */
-#include <tvm/ir/diagnostic.h>
 #include <tvm/ir/module.h>
 #include <tvm/node/reflection.h>
 #include <tvm/parser/parser.h>
@@ -31,6 +30,7 @@
 #include <tvm/relay/transform.h>
 #include <tvm/runtime/object.h>
 #include <tvm/runtime/registry.h>
+#include <tvm/support/logging.h>
 
 #include <fstream>
 
@@ -371,7 +371,7 @@ class Parser {
    * \return The Nth token.
    */
   Token Lookahead(int n) {
-    CHECK_GE(n, 1) << "lookahead is only valid when n >= 1";
+    ICHECK_GE(n, 1) << "lookahead is only valid when n >= 1";
 
     // We intend to skip n - 1 tokens, then return the nth.
     auto old_pos = pos;
@@ -605,30 +605,43 @@ class Parser {
     return ast;
   }
 
+  struct MetaRef {
+    std::string type_key;
+    uint64_t node_index;
+    Span span;
+    MetaRef(std::string type_key, uint64_t node_index, Span span)
+        : type_key(type_key), node_index(node_index), span(span) {}
+  };
+
+  MetaRef MetaRefFromToken(const Token& tok) {
+    Call ref = Downcast<Call>(tok->data);
+    auto attrs = ref->attrs.as<MetaRefAttrs>();
+    auto type_key = attrs->node_type_key;
+    auto index = attrs->node_index;
+    return MetaRef(type_key, index, ref->span);
+  }
+
   /*! \brief Parse a meta reference of the form `meta[type_key][node_index]`.
    * For example `meta[relay.Constant][0]` references the first constant, `meta[relay.Constant][1]`
    * the second, and so on.
    */
   ObjectRef ParseMetaRef() {
-    auto meta_ref = Match(TokenType::kMetaReference);
-    Call ref = Downcast<Call>(meta_ref->data);
-    auto attrs = ref->attrs.as<MetaRefAttrs>();
-    auto type_key = attrs->node_type_key;
-    auto index = attrs->node_index;
-    auto it = this->meta_table.find(type_key);
+    auto meta_ref_tok = Match(TokenType::kMetaReference);
+    auto meta_ref = MetaRefFromToken(meta_ref_tok);
+    auto it = this->meta_table.find(meta_ref.type_key);
     if (it != this->meta_table.end()) {
       auto nodes = (*it).second;
-      if (index < nodes.size()) {
-        return nodes[index];
+      if (meta_ref.node_index < nodes.size()) {
+        return nodes[meta_ref.node_index];
       } else {
-        this->diag_ctx.Emit(Diagnostic::Error(meta_ref->span)
-                            << "the node index `" << index << "` is out of bounds for `" << type_key
-                            << "`");
+        this->diag_ctx.Emit(Diagnostic::Error(meta_ref.span)
+                            << "the node index `" << meta_ref.node_index
+                            << "` is out of bounds for `" << meta_ref.type_key << "`");
         return ObjectRef();
       }
     } else {
-      this->diag_ctx.Emit(Diagnostic::Error(meta_ref->span)
-                          << "no entry in the meta table for `" << type_key << "`");
+      this->diag_ctx.Emit(Diagnostic::Error(meta_ref.span)
+                          << "no entry in the meta table for `" << meta_ref.type_key << "`");
       return ObjectRef();
     }
   }
@@ -822,7 +835,7 @@ class Parser {
               ctor = tvm::Constructor(ctor_name, arg_types, type_global);
             }
 
-            CHECK(ctor.defined());
+            ICHECK(ctor.defined());
 
             try {
               this->ctors.Add(ctor_name, ctor);
@@ -922,10 +935,7 @@ class Parser {
             exprs.push_back(ParseMatch(is_total));
             break;
           }
-          case TokenType::kIf: {
-            exprs.push_back(ParseIf());
-            break;
-          }
+
           // %x ...
           case TokenType::kGraph:
             if (Lookahead(2)->token_type == TokenType::kEqual) {
@@ -944,7 +954,7 @@ class Parser {
         }
       }
 
-      CHECK_GE(exprs.size(), 1);
+      ICHECK_GE(exprs.size(), 1);
 
       if (exprs.size() == 1) {
         // ICHECK(exprs[0].defined() && exprs[0]->span.defined())
@@ -1258,7 +1268,7 @@ class Parser {
         auto op = opt_op[0];
 
         Expr right = WithSpan<Expr>([this] { return ParseCallExpr(); });
-        CHECK(right->span.defined());
+        ICHECK(right->span.defined());
 
         // If the operator stack is empty
         // we parse an operator and expression
@@ -1285,7 +1295,7 @@ class Parser {
           exprs.pop_back();
           Expr left = exprs.back();
           exprs.pop_back();
-          CHECK(new_op.op.defined()) << "a call op must be set " << new_op.op;
+          ICHECK(new_op.op.defined()) << "a call op must be set " << new_op.op;
           exprs.push_back(
               relay::Call(new_op.op, {left, right}, Attrs(), {}, left->span.Merge(right->span)));
         }
@@ -1301,7 +1311,7 @@ class Parser {
         exprs.pop_back();
         Expr left = exprs.back();
         exprs.pop_back();
-        CHECK(new_op.op.defined()) << "a call op must be set " << new_op.op;
+        ICHECK(new_op.op.defined()) << "a call op must be set " << new_op.op;
         exprs.push_back(
             relay::Call(new_op.op, {left, right}, Attrs(), {}, left->span.Merge(right->span)));
       }
@@ -1344,6 +1354,10 @@ class Parser {
             Match(TokenType::kIdentifier);
             return ObjectRef();
           }
+          if (id == "None") {
+            Match(TokenType::kIdentifier);
+            return Optional<ObjectRef>();
+          }
         }
       }
       default:
@@ -1369,10 +1383,10 @@ class Parser {
   }
 
   Expr ParseCallArgs(Expr op) {
-    CHECK(op.defined()) << "the operator must be defined";
+    ICHECK(op.defined()) << "the operator must be defined";
 
     DLOG(INFO) << "Parser::ParseCallArgs";
-    Map<String, ObjectRef> raw_attrs;
+    Attrs attrs;
     std::string op_key;
     bool is_op = false;
 
@@ -1388,21 +1402,40 @@ class Parser {
           [&] {
             auto is_ident = Lookahead(1)->token_type == TokenType::kIdentifier;
             auto next_is_equal = Lookahead(2)->token_type == TokenType::kEqual;
+            auto is_pretty_attrs = is_ident && next_is_equal;
+            auto is_meta_next = Lookahead(1)->token_type == TokenType::kMetaReference;
+            // TODO(@jroesch): might not handle trailing comma
+            auto last_meta = Lookahead(2)->token_type == TokenType::kCloseParen;
+            auto is_meta_attrs = is_meta_next && last_meta;
 
-            if (is_op && is_ident && next_is_equal) {
-              raw_attrs = ParseAttrs();
+            if (is_op && (is_pretty_attrs || is_meta_attrs)) {
+              if (is_meta_attrs) {
+                auto meta_ref = ParseMetaRef();
+                if (meta_ref.as<BaseAttrsNode>()) {
+                  attrs = Downcast<Attrs>(meta_ref);
+                } else {
+                  // Not awesome parsing code here.
+                  this->pos--;
+                  return false;
+                }
+              } else {
+                auto raw_attrs = ParseAttrs();
+                auto attr_obj = tvm::ReflectionVTable::Global()->CreateObject(op_key, raw_attrs);
+                ICHECK(attr_obj.defined());
+                attrs = Downcast<Attrs>(attr_obj);
+              }
               return true;
             }
 
             return false;
           });
 
-      Attrs attrs;
-
-      if (is_op && op_key.size()) {
-        auto attr_obj = tvm::ReflectionVTable::Global()->CreateObject(op_key, raw_attrs);
-        CHECK(attr_obj.defined());
-        attrs = Downcast<Attrs>(attr_obj);
+      if (!attrs.defined()) {
+        if (is_op && op_key.size()) {
+          auto attr_obj = tvm::ReflectionVTable::Global()->CreateObject(op_key, {});
+          ICHECK(attr_obj.defined());
+          attrs = Downcast<Attrs>(attr_obj);
+        }
       }
 
       // TODO(@jroesch): in a secondary pass adjust spans.
@@ -1500,7 +1533,7 @@ class Parser {
             auto spanned_idents = ParseHierarchicalName();
             auto idents = spanned_idents.data;
             auto span = spanned_idents.span;
-            CHECK_NE(idents.size(), 0);
+            ICHECK_NE(idents.size(), 0);
             std::stringstream op_name;
             int i = 0;
             int periods = idents.size() - 1;
@@ -1525,6 +1558,10 @@ class Parser {
           Consume(TokenType::kFn);
           Expr e = ParseFunctionDef();
           ICHECK(e->span.defined()) << "function spans must be defined.\n" << e;
+          return e;
+        }
+        case TokenType::kIf: {
+          Expr e = ParseIf();
           return e;
         }
         case TokenType::kRef: {

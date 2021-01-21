@@ -44,7 +44,7 @@ class PrefetchInjector : public StmtMutator {
     op = ret.as<AttrStmtNode>();
     if (op && op->attr_key == attr::prefetch_scope) {
       Buffer buffer = Downcast<Buffer>(op->node);
-      CHECK_NE(loop_nest_.size(), 0U);
+      ICHECK_NE(loop_nest_.size(), 0U);
       Region domain = DomainTouched(op->body, buffer, true, false);
       Region region;
 
@@ -71,11 +71,11 @@ class PrefetchInjector : public StmtMutator {
   Stmt VisitStmt_(const ForNode* op) final {
     auto& var = op->loop_var;
     loop_nest_.push_back(var);
-    if (op->for_type == ForType::Vectorized) {
+    if (op->kind == ForKind::kVectorized) {
       vectorized_[var.get()] = IntSet::Interval(op->min, (op->min + op->extent) - 1);
     }
     Stmt ret = StmtMutator::VisitStmt_(op);
-    if (op->for_type == ForType::Vectorized) {
+    if (op->kind == ForKind::kVectorized) {
       vectorized_.erase(var.get());
     }
     loop_nest_.pop_back();

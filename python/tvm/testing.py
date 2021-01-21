@@ -56,6 +56,8 @@ function in this module. Then targets using this node should be added to the
 """
 import logging
 import os
+import sys
+import time
 import pytest
 import numpy as np
 import tvm
@@ -74,6 +76,9 @@ def assert_allclose(actual, desired, rtol=1e-7, atol=1e-7):
     compares the `abs(actual-desired)` with `atol+rtol*abs(desired)`.  Since we
     often allow `desired` to be close to zero, we generally want non-zero `atol`.
     """
+    actual = np.asanyarray(actual)
+    desired = np.asanyarray(desired)
+    np.testing.assert_allclose(actual.shape, desired.shape)
     np.testing.assert_allclose(actual, desired, rtol=rtol, atol=atol, verbose=True)
 
 
@@ -617,6 +622,40 @@ def requires_llvm(*args):
     return _compose(args, _requires_llvm)
 
 
+def requires_micro(*args):
+    """Mark a test as requiring microTVM to run.
+
+    Parameters
+    ----------
+    f : function
+        Function to mark
+    """
+    _requires_micro = [
+        pytest.mark.skipif(
+            tvm.support.libinfo().get("USE_MICRO", "OFF") != "ON",
+            reason="MicroTVM support not enabled. Set USE_MICRO=ON in config.cmake to enable.",
+        )
+    ]
+    return _compose(args, _requires_micro)
+
+
+def requires_rpc(*args):
+    """Mark a test as requiring rpc to run.
+
+    Parameters
+    ----------
+    f : function
+        Function to mark
+    """
+    _requires_rpc = [
+        pytest.mark.skipif(
+            tvm.support.libinfo().get("USE_RPC", "OFF") != "ON",
+            reason="RPC support not enabled. Set USE_RPC=ON in config.cmake to enable.",
+        )
+    ]
+    return _compose(args, _requires_rpc)
+
+
 def _target_to_requirement(target):
     # mapping from target to decorator
     if target.startswith("cuda"):
@@ -678,6 +717,32 @@ def parametrize_targets(*args):
         targets = [t for t, _ in enabled_targets()]
         return wrap(targets)(args[0])
     return wrap(args)
+
+
+def identity_after(x, sleep):
+    """Testing function to return identity after sleep
+
+    Parameters
+    ----------
+    x : int
+        The input value.
+
+    sleep : float
+        The amount of time to sleep
+
+    Returns
+    -------
+    x : object
+        The original value
+    """
+    if sleep:
+        time.sleep(sleep)
+    return x
+
+
+def terminate_self():
+    """Testing function to terminate the process."""
+    sys.exit(-1)
 
 
 tvm._ffi._init_api("testing", __name__)

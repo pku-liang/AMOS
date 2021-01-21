@@ -22,13 +22,13 @@ from tvm import te
 from tvm import topi
 import tvm.testing
 import tvm.topi.testing
-from tvm.topi import util
+from tvm.topi import utils
 
 
 def test_util():
     x = tvm.tir.const(100, "int32")
-    assert util.get_const_int(x) == 100
-    assert util.get_const_tuple((x, x)) == (100, 100)
+    assert utils.get_const_int(x) == 100
+    assert utils.get_const_tuple((x, x)) == (100, 100)
 
 
 @tvm.testing.uses_gpu
@@ -199,7 +199,7 @@ def test_cast():
 
 def test_fastmath():
     def test_apply(func, name, f_numpy, low, high, step, dtype="float32"):
-        a_np = np.arange(low, high, step).astype(dtype)
+        a_np = np.arange(low, high, step).astype(dtype).reshape((1, -1))
         b_np = f_numpy(a_np)
         A = te.placeholder(a_np.shape, dtype=dtype, name="A")
         B = func(A)
@@ -224,6 +224,14 @@ def test_fastmath():
     test_apply(topi.fast_exp, "fast_exp", np.exp, low=-88, high=88, step=0.01)
     test_apply(topi.fast_erf, "fast_erf", scipy.special.erf, low=-10, high=10, step=0.01)
     test_apply(topi.fast_tanh, "fast_tanh", np.tanh, low=-10, high=10, step=0.01)
+    test_apply(
+        topi.nn.fast_softmax,
+        "fast_softmax",
+        tvm.topi.testing.softmax_python,
+        low=-10,
+        high=10,
+        step=0.01,
+    )
 
 
 if __name__ == "__main__":

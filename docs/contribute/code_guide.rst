@@ -36,12 +36,12 @@ C++ Code Styles
 
 We use `clang-format` to enforce the code style. Because different version
 of clang-format might change by its version, it is recommended to use the same
-version of the clang-format as the master.
+version of the clang-format as the main one.
 You can also use the following command via docker.
 
 .. code:: bash
 
-    docker/bash.sh tvmai/ci-lint clang-format-10 [path-to-file]
+    docker/bash.sh tlcpack/ci-lint clang-format-10 [path-to-file]
 
 
 clang-format is also not perfect, when necessary, you can use disble clang-format on certain code regions.

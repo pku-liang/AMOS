@@ -61,7 +61,7 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
     std::vector<Output> outs;
     for (auto field : node->fields) {
       auto res = VisitExpr(field);
-      CHECK_EQ(res.size(), 1U) << "Do not support tuple nest";
+      ICHECK_EQ(res.size(), 1U) << "Do not support tuple nest";
       outs.push_back(res[0]);
     }
     return outs;
@@ -69,7 +69,7 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
 
   std::vector<Output> VisitExpr_(const TupleGetItemNode* op) final {
     auto res = VisitExpr(op->tuple);
-    CHECK_GT(res.size(), static_cast<size_t>(op->index));
+    ICHECK_GT(res.size(), static_cast<size_t>(op->index));
 
     // Only keep the item we want for the child node.
     // FIXME(@comaniac): The other items should still be requried for the primary outputs.
@@ -84,7 +84,7 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
     // Get const: static_cast<float*>(gcc_0_consts[0]->data)
     output.name = CreateDataReference(ext_func_id_, const_idx_);
     const auto* type_node = cn->checked_type().as<TensorTypeNode>();
-    CHECK(type_node);
+    ICHECK(type_node);
     const auto& dtype = GetDtypeString(type_node);
 
     // Generate the global variable for needed ndarrays
@@ -94,7 +94,7 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
       ext_func_body_.insert(ext_func_body_.begin(), checker);
     }
 
-    CHECK(dtype == "float" || dtype == "int") << "Only float and int are supported for now.";
+    ICHECK(dtype == "float" || dtype == "int") << "Only float and int are supported for now.";
     output.dtype = dtype;
 
     std::string const_var_name = CreateConstVar(ext_func_id_, const_idx_);
@@ -130,7 +130,7 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
     }
 
     const auto* type_node = call->checked_type().as<TensorTypeNode>();
-    CHECK(type_node);
+    ICHECK(type_node);
     const auto& dtype = GetDtypeString(type_node);
     macro_stream << ", " << dtype;
 
@@ -157,8 +157,7 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
     for (size_t i = 0; i < out_shape.size(); ++i) {
       out_size *= out_shape[i];
     }
-    buf_stream << dtype << "* " << out << " = (" << dtype << "*)std::malloc(4 * " << out_size
-               << ");";
+    buf_stream << dtype << "* " << out << " = (" << dtype << "*)malloc(4 * " << out_size << ");";
     buf_decl_.push_back(buf_stream.str());
 
     decl_stream << ", " << out << ");";
@@ -215,40 +214,47 @@ class CodegenC : public MemoizedExprTranslator<std::vector<Output>>, public Code
 
 class CSourceCodegen : public CSourceModuleCodegenBase {
  public:
-  std::pair<std::string, Array<String>> GenCFunc(const Function& func) {
-    CHECK(func.defined()) << "Input error: expect a Relay function.";
-
-    // Record the external symbol for runtime lookup.
-    auto sid = GetExtSymbol(func);
-
-    CodegenC builder(sid);
+  std::tuple<Array<String>, String, String> GenCFunc(const Function& func) {
+    ICHECK(func.defined()) << "Input error: expect a Relay function.";
+    CodegenC builder(GetExtSymbol(func));
     auto out = builder.VisitExpr(func->body);
-    code_stream_ << builder.JIT(out);
-
-    return {sid, builder.const_vars_};
+    return std::make_tuple(builder.const_vars_, builder.ext_func_id_, builder.JIT(out));
   }
 
   runtime::Module CreateCSourceModule(const ObjectRef& ref) override {
+    ICHECK(ref->IsInstance<FunctionNode>());
+    auto res = GenCFunc(Downcast<Function>(ref));
+    Array<String> variables = std::get<0>(res);
+    String func_name = std::get<1>(res);
+
     // Create headers
-    code_stream_ << "#include <cstring>\n";
-    code_stream_ << "#include <vector>\n";
+    code_stream_ << "#include <stdio.h>\n";
+    code_stream_ << "#include <stdlib.h>\n";
+    code_stream_ << "#include <string.h>\n";
     code_stream_ << "#include <tvm/runtime/c_runtime_api.h>\n";
-    code_stream_ << "#include <tvm/runtime/container.h>\n";
-    code_stream_ << "#include <tvm/runtime/packed_func.h>\n";
-    code_stream_ << "#include <dlpack/dlpack.h>\n";
-    code_stream_ << "using namespace tvm::runtime;\n";
+    code_stream_ << "#include <tvm/runtime/c_backend_api.h>\n";
+    if (!variables.empty()) {
+      // This segment would be generated in C++ because of the usage
+      // of tvm::runtime::Array. This is not ideal, but this to demonstrate
+      // constant copying process used packed imports in other external
+      // codegen. Moreover, in uTVM we dont expect this part to be generated.
+      code_stream_ << "#ifdef __cplusplus\n";
+      code_stream_ << "#include <tvm/runtime/ndarray.h>\n";
+      code_stream_ << "#include <tvm/runtime/packed_func.h>\n";
+      code_stream_ << "#endif\n";
+    }
 
     // Append some common macro for operator definition.
     const char* operator_macro = R"op_macro(
     #define CSOURCE_BINARY_OP_1D(p_ID_, p_OP_, p_DIM1_, p_DTYPE)       \
-      extern "C" void p_ID_(p_DTYPE* a, p_DTYPE* b, p_DTYPE* out) {    \
+      void p_ID_(p_DTYPE* a, p_DTYPE* b, p_DTYPE* out) {    \
         for (int64_t i = 0; i < p_DIM1_; ++i) {                        \
           out[i] = a[i] p_OP_ b[i];                                    \
         }                                                              \
       }
 
     #define CSOURCE_BINARY_OP_2D(p_ID_, p_OP_, p_DIM1_, p_DIM2_, p_DTYPE)  \
-      extern "C" void p_ID_(p_DTYPE* a, p_DTYPE* b, p_DTYPE* out) {        \
+      void p_ID_(p_DTYPE* a, p_DTYPE* b, p_DTYPE* out) {        \
         for (int64_t i = 0; i < p_DIM1_; ++i) {                            \
           for (int64_t j = 0; j < p_DIM2_; ++j) {                          \
             int64_t k = i * p_DIM2_ + j;                                   \
@@ -259,18 +265,13 @@ class CSourceCodegen : public CSourceModuleCodegenBase {
     )op_macro";
 
     code_stream_ << operator_macro << "\n\n";
-
-    CHECK(ref->IsInstance<FunctionNode>());
-    auto res = GenCFunc(Downcast<Function>(ref));
+    code_stream_ << std::get<2>(res);
     std::string code = code_stream_.str();
-
-    String sym = std::get<0>(res);
-    Array<String> variables = std::get<1>(res);
 
     // Create a CSource module
     const auto* pf = runtime::Registry::Get("runtime.CSourceModuleCreate");
-    CHECK(pf != nullptr) << "Cannot find csource module to create the external runtime module";
-    return (*pf)(code, "c", sym, variables);
+    ICHECK(pf != nullptr) << "Cannot find csource module to create the external runtime module";
+    return (*pf)(code, "c", Array<String>{func_name}, variables);
   }
 
  private:

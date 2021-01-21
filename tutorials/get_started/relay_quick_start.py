@@ -31,7 +31,7 @@ Notice that you need to build TVM with cuda and llvm enabled.
 # ----------------------------------------------
 # The image below shows hardware backend currently supported by TVM:
 #
-# .. image:: https://github.com/dmlc/web-data/raw/master/tvm/tutorial/tvm_support_list.png
+# .. image:: https://github.com/dmlc/web-data/raw/main/tvm/tutorial/tvm_support_list.png
 #      :align: center
 #
 # In this tutorial, we'll choose cuda and llvm as target backends.
@@ -44,6 +44,7 @@ from tvm.relay import testing
 import tvm
 from tvm import te
 from tvm.contrib import graph_runtime
+import tvm.testing
 
 ######################################################################
 # Define Neural Network in Relay
@@ -129,9 +130,9 @@ print(out.flatten()[0:10])
 ####################################################
 
 # save the graph, lib and params into separate files
-from tvm.contrib import util
+from tvm.contrib import utils
 
-temp = util.tempdir()
+temp = utils.tempdir()
 path_lib = temp.relpath("deploy_lib.tar")
 lib.export_library(path_lib)
 print(temp.listdir())

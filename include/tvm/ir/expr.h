@@ -45,10 +45,16 @@ using tvm::runtime::String;
  */
 class BaseExprNode : public Object {
  public:
+  /*!
+   * \brief Span that points to the original source code.
+   *        Reserved debug information.
+   */
+  mutable Span span;
+
   static constexpr const char* _type_key = "BaseExpr";
   static constexpr const bool _type_has_method_sequal_reduce = true;
   static constexpr const bool _type_has_method_shash_reduce = true;
-  static constexpr const uint32_t _type_child_slots = 58;
+  static constexpr const uint32_t _type_child_slots = 62;
   TVM_DECLARE_BASE_OBJECT_INFO(BaseExprNode, Object);
 };
 
@@ -92,7 +98,7 @@ class PrimExprNode : public BaseExprNode {
   DataType dtype;
 
   static constexpr const char* _type_key = "PrimExpr";
-  static constexpr const uint32_t _type_child_slots = 34;
+  static constexpr const uint32_t _type_child_slots = 38;
   TVM_DECLARE_BASE_OBJECT_INFO(PrimExprNode, BaseExprNode);
 };
 
@@ -135,11 +141,6 @@ class PrimExpr : public BaseExpr {
  */
 class RelayExprNode : public BaseExprNode {
  public:
-  /*!
-   * \brief Span that points to the original source code.
-   *        Reserved debug information.
-   */
-  mutable Span span;
   /*!
    * \brief Stores the result of type inference(type checking).
    *
@@ -237,6 +238,7 @@ class IntImmNode : public PrimExprNode {
   void VisitAttrs(AttrVisitor* v) {
     v->Visit("dtype", &dtype);
     v->Visit("value", &value);
+    v->Visit("span", &span);
   }
 
   bool SEqualReduce(const IntImmNode* other, SEqualReducer equal) const {
@@ -263,8 +265,9 @@ class IntImm : public PrimExpr {
    * \brief Constructor.
    * \param dtype The data type of the value.
    * \param value The internal value.
+   * \param span The location of this object in the source code.
    */
-  TVM_DLL IntImm(DataType dtype, int64_t value);
+  TVM_DLL IntImm(DataType dtype, int64_t value, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(IntImm, PrimExpr, IntImmNode);
 };
@@ -281,6 +284,7 @@ class FloatImmNode : public PrimExprNode {
   void VisitAttrs(AttrVisitor* v) {
     v->Visit("dtype", &dtype);
     v->Visit("value", &value);
+    v->Visit("span", &span);
   }
 
   bool SEqualReduce(const FloatImmNode* other, SEqualReducer equal) const {
@@ -307,8 +311,9 @@ class FloatImm : public PrimExpr {
    * \brief Constructor.
    * \param dtype The data type of the value.
    * \param value The internal value.
+   * \param span The location in the source code.
    */
-  TVM_DLL FloatImm(DataType dtype, double value);
+  TVM_DLL FloatImm(DataType dtype, double value, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(FloatImm, PrimExpr, FloatImmNode);
 };
@@ -321,7 +326,7 @@ class FloatImm : public PrimExpr {
  */
 class Bool : public IntImm {
  public:
-  explicit Bool(bool value) : IntImm(DataType::Bool(), value) {}
+  explicit Bool(bool value, Span span = Span()) : IntImm(DataType::Bool(), value, span) {}
   Bool operator!() const { return Bool((*this)->value == 0); }
   operator bool() const { return (*this)->value != 0; }
 
@@ -358,7 +363,7 @@ class Integer : public IntImm {
   /*!
    * \brief Construct integer from int value.
    */
-  Integer(int value) : IntImm(DataType::Int(32), value) {}  // NOLINT(*)
+  Integer(int value, Span span = Span()) : IntImm(DataType::Int(32), value, span) {}  // NOLINT(*)
   /*!
    * \brief Construct integer from int imm.
    * \param other The other value.
@@ -386,7 +391,7 @@ class Integer : public IntImm {
    * \brief convert to int64_t
    */
   operator int64_t() const {
-    CHECK(data_ != nullptr) << " Trying to reference a null Integer";
+    ICHECK(data_ != nullptr) << " Trying to reference a null Integer";
     return (*this)->value;
   }
   // comparators
@@ -412,13 +417,17 @@ class RangeNode : public Object {
   PrimExpr min;
   /*! \brief the extend of range */
   PrimExpr extent;
+  /*! \brief the location of this range in the source */
+  mutable Span span;
   /*! \brief constructor */
   RangeNode() {}
-  RangeNode(PrimExpr min, PrimExpr extent) : min(min), extent(extent) {}
+  RangeNode(PrimExpr min, PrimExpr extent, Span span = Span())
+      : min(min), extent(extent), span(span) {}
 
   void VisitAttrs(AttrVisitor* v) {
     v->Visit("min", &min);
     v->Visit("extent", &extent);
+    v->Visit("span", &span);
   }
 
   bool SEqualReduce(const RangeNode* other, SEqualReducer equal) const {
@@ -443,8 +452,9 @@ class Range : public ObjectRef {
    * \brief constructor by begin and end
    * \param begin The begin of the range.
    * \param end The end of the range.
+   * \param span The location of the Range in the source.
    */
-  TVM_DLL Range(PrimExpr begin, PrimExpr end);
+  TVM_DLL Range(PrimExpr begin, PrimExpr end, Span span = Span());
   /*!
    * \brief construct a new range with min and extent
    *  The corresponding constructor is removed,
@@ -453,17 +463,18 @@ class Range : public ObjectRef {
    *
    * \param min The minimum range.
    * \param extent The extent of the range.
+   * \param span The location of the Range in the source.
    */
-  static Range FromMinExtent(PrimExpr min, PrimExpr extent);
+  static Range FromMinExtent(PrimExpr min, PrimExpr extent, Span span = Span());
   // declare range.
   TVM_DEFINE_OBJECT_REF_METHODS(Range, ObjectRef, RangeNode);
 };
 
 // implementataions
 inline const Type& RelayExprNode::checked_type() const {
-  CHECK(checked_type_.defined()) << "internal error: the type checker has "
-                                 << "not populated the checked_type "
-                                 << "field for " << GetRef<RelayExpr>(this);
+  ICHECK(checked_type_.defined()) << "internal error: the type checker has "
+                                  << "not populated the checked_type "
+                                  << "field for " << GetRef<RelayExpr>(this);
   return this->checked_type_;
 }
 
@@ -471,11 +482,11 @@ template <typename TTypeNode>
 inline const TTypeNode* RelayExprNode::type_as() const {
   static_assert(std::is_base_of<TypeNode, TTypeNode>::value,
                 "TType must be a special case of type");
-  CHECK(checked_type_.defined())
+  ICHECK(checked_type_.defined())
       << "Type inference for this Expr has not completed. Try to call infer_type pass.";
   const TTypeNode* node = checked_type_.as<TTypeNode>();
-  CHECK(node != nullptr) << "Expected type to be " << TTypeNode::_type_key << ", but get "
-                         << checked_type_->GetTypeKey();
+  ICHECK(node != nullptr) << "Expected type to be " << TTypeNode::_type_key << ", but get "
+                          << checked_type_->GetTypeKey();
   return node;
 }
 
@@ -522,7 +533,7 @@ struct PackedFuncValueConverter<tvm::Bool> {
     }
     if (val.type_code() == kTVMArgInt) {
       int v = val.operator int();
-      CHECK(v == 0 || v == 1) << "ValueError: boolean value can only be 0 or 1, but get " << v;
+      ICHECK(v == 0 || v == 1) << "ValueError: boolean value can only be 0 or 1, but get " << v;
       return Bool(static_cast<bool>(v));
     }
     return val.AsObjectRef<tvm::Bool>();

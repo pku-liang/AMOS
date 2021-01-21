@@ -20,9 +20,11 @@ from tvm import autotvm
 from tvm import topi
 import tvm.topi.testing
 import numpy as np
-from tvm.topi.util import get_const_tuple
-from tvm.topi.nn.util import get_pad_tuple
+from tvm.topi.utils import get_const_tuple
+from tvm.topi.nn.utils import get_pad_tuple
 from tvm.contrib.pickle_memoize import memoize
+from tvm.topi.nn.depthwise_conv2d import _get_workload
+from tvm.topi.x86.depthwise_conv2d import _fallback_schedule
 
 import tvm.testing
 
@@ -56,6 +58,55 @@ _depthwise_conv2d_nhwc_implement = {
 }
 
 
+def compile_depthwise_NHWC_int8_arm(
+    batch,
+    in_channel,
+    in_size,
+    kernel,
+    depth_multiplier,
+    stride,
+    padding,
+    add_bias=False,
+    dilation=1,
+):
+    pad_top, pad_left, pad_bottom, pad_right = get_pad_tuple(padding, (kernel, kernel))
+    padding_sum = pad_top + pad_left + pad_bottom + pad_right
+
+    in_height = in_width = in_size
+    A = te.placeholder((batch, in_height, in_width, in_channel), name="A", dtype="int16")
+    W = te.placeholder((kernel, kernel, in_channel, depth_multiplier), name="W", dtype="int16")
+    bias = te.placeholder((in_channel * depth_multiplier,), name="bias", dtype="int32")
+    dtype = "int32"
+
+    device = "llvm -device=arm_cpu -mtriple=aarch64-linux-gnu"
+    compute = topi.arm_cpu.compute_depthwise_conv2d_nhwc
+    schedule = topi.arm_cpu.schedule_depthwise_conv2d_nhwc
+
+    if not tvm.testing.device_enabled(device):
+        print("Skip because %s is not enabled" % device)
+        return
+
+    print("Compiling on arm AArch64 target: %s" % device)
+    with tvm.target.Target(device):
+        assert topi.arm_cpu.arm_utils.is_aarch64_arm(), "AArch64 target not recognized"
+
+        C = compute(A, W, (stride, stride), padding, (dilation, dilation), dtype)
+        if add_bias:
+            C += bias
+            ins_outs = [A, W, bias, C]
+        else:
+            ins_outs = [A, W, C]
+
+        s = schedule([C])
+
+        func = tvm.build(
+            s,
+            ins_outs,
+            device,
+            name="depthwise_conv2d",
+        )
+
+
 def depthwise_conv2d_with_workload_nchw(
     batch, in_channel, in_height, channel_multiplier, filter_height, stride, padding, dilation=1
 ):
@@ -67,8 +118,8 @@ def depthwise_conv2d_with_workload_nchw(
     if dilation == 1:
         # here we transform the padding argument from 'str' to  'tuple' ,
         # because we need this to match the "workload" tuple to the records in TopHub
-        pad_h, pad_w, _, _ = get_pad_tuple(padding, (filter_height, filter_width))
-        padding_args = (pad_h, pad_w)
+        padt, padl, padb, padr = get_pad_tuple(padding, (filter_height, filter_width))
+        padding_args = (padt, padl, padb, padr)
     else:
         padding_args = padding
 
@@ -155,6 +206,23 @@ def depthwise_conv2d_with_workload_nchw(
                 scale_shift_scipy,
                 relu_scipy,
             ) = get_ref_data()
+
+            def verify_workload_padding():
+                _, _, out_height, out_width = get_const_tuple(depthwise_conv2d_scipy.shape)
+                wkl = _get_workload(
+                    Input, Filter, (stride_h, stride_w), padding_args, dilation, dtype
+                )
+
+                # check if tile_ow candidates are the factors of the right output weight.
+                with tvm.target.Target(device):
+                    cfg = autotvm.get_config()
+                    _fallback_schedule(cfg, wkl)
+                    ow_tile = np.prod(cfg["tile_ow"].size)
+
+                    tvm.testing.assert_allclose(ow_tile, out_width)
+
+            if "llvm" in device:
+                verify_workload_padding()
 
             input_tvm = tvm.nd.array(input_np, ctx)
             filter_tvm = tvm.nd.array(filter_np, ctx)
@@ -478,6 +546,7 @@ def test_depthwise_conv2d():
     depthwise_conv2d_with_workload_nhwc(4, 256, 64, 2, 5, 2, "SAME")
     depthwise_conv2d_with_workload_nhwc(1, 728, 32, 1, 3, 1, "VALID")
     depthwise_conv2d_with_workload_nhwc(4, 256, 64, 2, 5, 2, "VALID")
+
     # dilation = 2
     # disabled because it uses too large shared memory on cuda
     # depthwise_conv2d_with_workload_nhwc(1, 728, 64, 1, 3, 1, "SAME", dilation=2)
@@ -486,6 +555,10 @@ def test_depthwise_conv2d():
     depthwise_conv2d_with_workload_NCHWc(1, 728, 32, 1, 3, 1, "SAME", dilation=2)
     depthwise_conv2d_with_workload_NCHWc(1, 728, 32, 1, 3, 1, "SAME")
     depthwise_conv2d_with_workload_NCHWc(1, 728, 32, 1, 3, 1, "VALID")
+
+    # Test compilation on arm devices
+    compile_depthwise_NHWC_int8_arm(1, 728, 32, 1, 3, 1, "SAME")
+    compile_depthwise_NHWC_int8_arm(1, 728, 32, 1, 1, 1, "SAME", True)
 
 
 if __name__ == "__main__":

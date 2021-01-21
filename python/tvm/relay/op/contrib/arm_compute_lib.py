@@ -17,12 +17,16 @@
 # pylint: disable=invalid-name, unused-argument
 """Arm Compute Library supported operators."""
 import tvm
+
+from tvm._ffi import register_func
 from tvm.relay.expr import const
 from tvm.relay import transform
 from tvm.relay.build_module import bind_params_by_name
+from tvm.relay.testing.temp_op_attr import TempOpAttr
 
 from ...dataflow_pattern import wildcard, is_op, is_constant, is_expr
 from .register import register_pattern_table
+from ..strategy.generic import is_depthwise_conv2d
 
 
 def is_arm_compute_runtime_enabled():
@@ -61,12 +65,67 @@ def partition_for_arm_compute_lib(mod, params=None):
         [
             transform.InferType(),
             transform.MergeComposite(arm_compute_lib_pattern_table()),
-            transform.AnnotateTarget("arm_compute_lib"),
+            transform.AnnotateTarget("arm_compute_lib", False),
             transform.PartitionGraph(),
         ]
     )
 
     return seq(mod)
+
+
+@register_func("relay.ext.arm_compute_lib.optimize")
+def preprocess_module(mod):
+    """
+    Pre-process a module containing functions ready for ACL codegen. For now we enforce OHWI
+    kernel layout and fold the transforms away.
+
+    Parameters
+    ----------
+    mod : Module
+        The module to run passes on.
+
+    Returns
+    -------
+    preprocessed_mod : The processed module.
+    """
+
+    def convert_layout_conv2d(conv2d_function):
+        def convert_conv(attrs, inputs, tinfos, desired_layouts):
+            new_attrs = dict(attrs)
+            data_info = tinfos[0]
+            weight_info = tinfos[1]
+            desired_data_layout, desired_kernel_layout = map(str, desired_layouts)
+            new_attrs["data_layout"] = desired_data_layout
+            new_attrs["kernel_layout"] = desired_kernel_layout
+
+            if is_depthwise_conv2d(
+                data_info.shape,
+                attrs["data_layout"],
+                weight_info.shape,
+                attrs["kernel_layout"],
+                attrs["groups"],
+            ):
+                dkl = desired_kernel_layout
+                new_attrs["kernel_layout"] = dkl[3] + dkl[1:3] + dkl[0]
+            return conv2d_function(*inputs, **new_attrs)
+
+        return convert_conv
+
+    with TempOpAttr(
+        "nn.conv2d", "FTVMConvertOpLayout", convert_layout_conv2d(tvm.relay.nn.conv2d)
+    ), TempOpAttr(
+        "qnn.conv2d", "FTVMConvertOpLayout", convert_layout_conv2d(tvm.relay.qnn.op.conv2d)
+    ):
+        seq = tvm.transform.Sequential(
+            [
+                transform.ConvertLayout(
+                    {"nn.conv2d": ["NHWC", "OHWI"], "qnn.conv2d": ["NHWC", "OHWI"]}
+                ),
+                transform.FoldConstant(),
+            ]
+        )
+        preprocessed_mod = seq(mod)
+    return preprocessed_mod
 
 
 @register_pattern_table("arm_compute_lib")
@@ -167,7 +226,7 @@ def arm_compute_lib_pattern_table():
         call = extract
         while call.op.name != "nn.conv2d":
             call = call.args[0]
-        return conv2d(call.attrs, call.args)
+        return conv2d(call)
 
     def check_qnn_conv(extract):
         """Check qnn conv pattern is supported by ACL."""
@@ -176,14 +235,14 @@ def arm_compute_lib_pattern_table():
         call = extract
         while call.op.name != "qnn.conv2d":
             call = call.args[0]
-        return qnn_conv2d(call.attrs, call.args)
+        return qnn_conv2d(call)
 
     def check_dense(extract):
         """Check conv pattern is supported by ACL."""
         call = extract
         while call.op.name != "nn.dense":
             call = call.args[0]
-        return dense(call.attrs, call.args)
+        return dense(call)
 
     def check_qnn_dense(extract):
         """Check qnn conv pattern is supported by ACL."""
@@ -192,7 +251,7 @@ def arm_compute_lib_pattern_table():
         call = extract
         while call.op.name != "qnn.dense":
             call = call.args[0]
-        return qnn_dense(call.attrs, call.args)
+        return qnn_dense(call)
 
     def check_avg_pool2d(extract):
         """Check average pool2d pattern is supported by ACL."""
@@ -201,12 +260,12 @@ def arm_compute_lib_pattern_table():
         pool = extract.args[0]
         if pool.args[0].attrs.dtype != "int32":
             return False
-        return avg_pool2d(pool.attrs, pool.args, from_quantized_composite=True)
+        return avg_pool2d(pool, from_quantized_composite=True)
 
     def check_l2_pool2d(extract):
         """Check l2 pool2d pattern is supported by ACL."""
         pool = extract.args[0]
-        return avg_pool2d(pool.attrs, pool.args)
+        return avg_pool2d(pool)
 
     return [
         ("arm_compute_lib.conv2d", conv_pattern(), check_conv),
@@ -221,7 +280,7 @@ def arm_compute_lib_pattern_table():
 
 def _register_external_op_helper(op_name, supported=True):
     @tvm.ir.register_op_attr(op_name, "target.arm_compute_lib")
-    def _func_wrapper(attrs, args):
+    def _func_wrapper(expr):
         return supported
 
     return _func_wrapper
@@ -231,10 +290,9 @@ _register_external_op_helper("reshape")
 
 
 @tvm.ir.register_op_attr("nn.conv2d", "target.arm_compute_lib")
-def conv2d(attrs, args):
+def conv2d(expr):
     """Check if the external ACL codegen for conv2d should be used."""
-    if attrs.groups != 1:
-        return False
+    attrs, args = expr.attrs, expr.args
     if attrs.data_layout != "NHWC":
         return False
     if attrs.out_dtype != "float32" and attrs.out_dtype != "":
@@ -245,13 +303,25 @@ def conv2d(attrs, args):
     kernel_typ = args[1].checked_type
     if len(kernel_typ.shape) != 4 or kernel_typ.dtype != "float32":
         return False
+    is_depthwise = is_depthwise_conv2d(
+        data_typ.shape,
+        attrs["data_layout"],
+        kernel_typ.shape,
+        attrs["kernel_layout"],
+        attrs["groups"],
+    )
+    if is_depthwise:
+        return depthwise_conv2d(attrs, args)
+    # ACL doesn't support grouped convolution
+    if attrs.groups != 1 and not is_depthwise:
+        return False
     return True
 
 
-def qnn_conv2d(attrs, args):
+def qnn_conv2d(expr):
     """Check if the external ACL codegen for qnn.conv2d should be used."""
-    if attrs.groups != 1:
-        return False
+    attrs, args = expr.attrs, expr.args
+
     if attrs.data_layout != "NHWC":
         return False
     if attrs.out_dtype != "int32" and attrs.out_dtype != "":
@@ -262,12 +332,47 @@ def qnn_conv2d(attrs, args):
     kernel_typ = args[1].checked_type
     if len(kernel_typ.shape) != 4 or kernel_typ.dtype != "uint8":
         return False
+    is_depthwise = is_depthwise_conv2d(
+        data_typ.shape,
+        attrs["data_layout"],
+        kernel_typ.shape,
+        attrs["kernel_layout"],
+        attrs["groups"],
+    )
+    if is_depthwise:
+        return depthwise_conv2d(attrs, args)
+    # ACL doesn't support grouped convolution
+    if attrs.groups != 1 and not is_depthwise:
+        return False
+    return True
+
+
+def depthwise_conv2d(attrs, args):
+    """Check if the external ACL codegen for depthwise convolution should be used.
+
+    Note
+    ----
+    Relay does not have a depthwise conv2d operator whilst ACL does. We simply
+    separate the checks for depthwise for clarity.
+    """
+    kernel_typ = args[1].checked_type
+    # Only supports 3x3, 5x5 depthwise
+    if (
+        kernel_typ.shape[0] not in [3, 5]
+        or kernel_typ.shape[1] not in [3, 5]
+        or kernel_typ.shape[0] != kernel_typ.shape[1]
+    ):
+        return False
+    # Stride must be (1, 1) or (2, 2)
+    if (attrs.strides[0], attrs.strides[1]) not in [(1, 1), (2, 2)]:
+        return False
     return True
 
 
 @tvm.ir.register_op_attr("nn.dense", "target.arm_compute_lib")
-def dense(attrs, args):
+def dense(expr):
     """Check if the external ACL codegen for dense should be used."""
+    attrs, args = expr.attrs, expr.args
     data_typ = args[0].checked_type
     if data_typ.dtype != "float32":
         return False
@@ -279,8 +384,9 @@ def dense(attrs, args):
     return True
 
 
-def qnn_dense(attrs, args):
+def qnn_dense(expr):
     """Check if the external ACL codegen for qnn.dense should be used."""
+    attrs, args = expr.attrs, expr.args
     data_typ = args[0].checked_type
     if data_typ.dtype != "uint8":
         return False
@@ -293,8 +399,9 @@ def qnn_dense(attrs, args):
 
 
 @tvm.ir.register_op_attr("nn.max_pool2d", "target.arm_compute_lib")
-def max_pool2d(attrs, args):
+def max_pool2d(expr):
     """Check if the external ACL codegen for maxpool2d should be used."""
+    attrs, args = expr.attrs, expr.args
     if attrs.layout != "NHWC":
         return False
     typ = args[0].checked_type
@@ -304,9 +411,11 @@ def max_pool2d(attrs, args):
 
 
 @tvm.ir.register_op_attr("nn.avg_pool2d", "target.arm_compute_lib")
-def avg_pool2d(attrs, args, from_quantized_composite=False):
+def avg_pool2d(expr, from_quantized_composite=False):
     """Check if the external ACL codegen for avgpool2d should be used."""
+    attrs, args = expr.attrs, expr.args
     typ = args[0].checked_type
+
     if from_quantized_composite:
         if typ.dtype != "int32":
             return False
@@ -315,12 +424,14 @@ def avg_pool2d(attrs, args, from_quantized_composite=False):
             return False
     if attrs.layout != "NHWC":
         return False
+
     return True
 
 
 @tvm.ir.register_op_attr("nn.global_max_pool2d", "target.arm_compute_lib")
-def global_max_pool2d(attrs, args):
+def global_max_pool2d(expr):
     """Check if the external ACL codegen for gloval_maxpool2d should be used."""
+    attrs, args = expr.attrs, expr.args
     typ = args[0].checked_type
     if typ.dtype not in ["float32", "uint8"]:
         return False
@@ -330,8 +441,9 @@ def global_max_pool2d(attrs, args):
 
 
 @tvm.ir.register_op_attr("nn.global_avg_pool2d", "target.arm_compute_lib")
-def global_avg_pool2d(attrs, args):
+def global_avg_pool2d(expr):
     """Check if the external ACL codegen for global_avgpool2d should be used."""
+    attrs, args = expr.attrs, expr.args
     typ = args[0].checked_type
     if typ.dtype not in ["float32"]:
         return False
@@ -341,8 +453,31 @@ def global_avg_pool2d(attrs, args):
 
 
 @tvm.ir.register_op_attr("maximum", "target.arm_compute_lib")
-def maximum(attrs, args):
+def maximum(expr):
     """Check if the external ACL codegen for maximum should be used."""
+    args = expr.args
     type_a = args[0].checked_type
     type_b = args[0].checked_type
     return (type_a.dtype == "float32") and (type_b.dtype == "float32")
+
+
+@tvm.ir.register_op_attr("add", "target.arm_compute_lib")
+def add(expr):
+    """Check if the external ACL codegen for add should be used."""
+    args = expr.args
+    for typ in [args[0].checked_type, args[1].checked_type]:
+        if typ.dtype != "float32":
+            return False
+
+    return True
+
+
+@tvm.ir.register_op_attr("qnn.add", "target.arm_compute_lib")
+def qnn_add(expr):
+    """Check if the external ACL codegen for add should be used."""
+    args = expr.args
+    for typ in [args[0].checked_type, args[1].checked_type]:
+        if typ.dtype != "uint8":
+            return False
+
+    return True

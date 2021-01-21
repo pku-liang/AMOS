@@ -76,6 +76,20 @@ def test_add_sub_bound():
     assert bd.min_value == bd.NEG_INF
     assert bd.max_value == 1
 
+    ## constants with negative or positive max(int64) occassionally show up
+    ## in models, this is to ensure we can handle those cases
+    analyzer.update(x, tvm.arith.ConstIntBound(bd.NEG_INF, bd.NEG_INF), override=True)
+    analyzer.update(y, tvm.arith.ConstIntBound(bd.NEG_INF, bd.POS_INF), override=True)
+    bd = analyzer.const_int_bound(x + y)
+    assert bd.min_value == bd.NEG_INF
+    assert bd.max_value == bd.POS_INF
+
+    analyzer.update(x, tvm.arith.ConstIntBound(bd.POS_INF, bd.POS_INF), override=True)
+    analyzer.update(y, tvm.arith.ConstIntBound(bd.NEG_INF, bd.POS_INF), override=True)
+    bd = analyzer.const_int_bound(x + y)
+    assert bd.min_value == bd.NEG_INF
+    assert bd.max_value == bd.POS_INF
+
 
 def test_mul_bound():
     analyzer = tvm.arith.Analyzer()
@@ -303,6 +317,17 @@ def test_let_bound():
     assert bd.max_value == 2
 
 
+def test_floormod_negative_divisor():
+    analyzer = tvm.arith.Analyzer()
+    flm, fld = tvm.te.floormod, tvm.te.floordiv
+    a, b = te.var("a"), te.var("b")
+    analyzer.update(a, tvm.arith.ConstIntBound(0, 6))
+    analyzer.update(b, tvm.arith.ConstIntBound(-5, 7))
+    bd = analyzer.const_int_bound(flm(a, b))
+    assert bd.min_value == -4
+    assert bd.max_value == 6
+
+
 if __name__ == "__main__":
     test_let_bound()
     test_dtype_bound()
@@ -318,3 +343,4 @@ if __name__ == "__main__":
     test_shift_and_bound()
     test_mix_index_bound()
     test_size_var_bound()
+    test_floormod_negative_divisor()

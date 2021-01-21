@@ -42,6 +42,10 @@ namespace tir {
 /*! \brief Collection of builtin intrinsics as ops */
 namespace builtin {
 /*!
+ * \brief Return value.
+ */
+TVM_DLL const Op& ret();
+/*!
  * \brief Reinterpret the value using the target type.
  */
 TVM_DLL const Op& reinterpret();
@@ -558,6 +562,11 @@ TVM_DLL const Op& vectorcombine();
  *  }
  */
 TVM_DLL const Op& capsule_compile();
+
+ /*!
+  * \brief atomic add instruction, corresponding e.g. to atomicAdd in CUDA
+  */
+TVM_DLL const Op& atomic_add();
 
 /*! \brief The kind of structure field info used in intrinsic */
 enum TVMStructFieldKind : int {

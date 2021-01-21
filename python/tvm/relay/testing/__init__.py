@@ -22,9 +22,9 @@ import numpy as np
 
 import tvm
 from tvm import te
-import tvm.relay as relay
-import tvm.relay.op as op
-from tvm.relay import Prelude
+from tvm import relay
+from tvm.relay import op
+from tvm.relay.prelude import Prelude
 from tvm.testing import enabled_targets
 
 from . import mlp
@@ -64,11 +64,23 @@ def run_infer_type(expr):
 
 
 def _np_randn_from_type(t, scale=1, mean=0):
-    return (mean + (scale * np.random.randn(*(int(d) for d in t.shape)))).astype(t.dtype)
+    res = mean + (scale * np.random.randn(*(int(d) for d in t.shape)))
+    # if t.shape == (), then randn returns a scalar so we need to wrap for dtype conversion
+    if np.isscalar(res):
+        res = np.array(res)
+    return res.astype(t.dtype)
 
 
 def check_grad(
-    func, inputs=None, test_inputs=None, eps=1e-6, atol=1e-5, rtol=1e-3, scale=None, mean=0
+    func,
+    inputs=None,
+    test_inputs=None,
+    eps=1e-6,
+    atol=1e-5,
+    rtol=1e-3,
+    scale=None,
+    mean=0,
+    mode="higher_order",
 ):
     """Perform numerical gradient checking given a relay function.
 
@@ -108,7 +120,7 @@ def check_grad(
     """
 
     fwd_func = run_infer_type(func)
-    bwd_func = run_infer_type(gradient(fwd_func))
+    bwd_func = run_infer_type(gradient(fwd_func, mode=mode))
 
     if scale is None:
         scale = 10 * eps
@@ -138,6 +150,8 @@ def check_grad(
                         tmp.append(grad)
                         break
             grads = tmp
+
+        assert len(grads) > 0, "You must test at least one gradient."
 
         # Get numeric gradients for each dimension of each param, using two-sided approximation.
         approx_grads = []

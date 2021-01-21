@@ -15,7 +15,7 @@
     specific language governing permissions and limitations
     under the License.
 
-Relay Arm :sup:`®` Compute Library Integration
+Relay Arm:sup:`®` Compute Library Integration
 ==============================================
 **Author**: `Luke Hutton <https://github.com/lhutton1>`_
 
@@ -36,7 +36,7 @@ determine the architecture by looking online.
 
 We recommend two different ways to build and install ACL:
 
-* Use the script located at `docker/install/ubuntu_install_arm_compute_library.sh`. You can use this
+* Use the script located at `docker/install/ubuntu_install_arm_compute_lib.sh`. You can use this
   script for building ACL from source natively or for cross-compiling the library on an x86 machine.
   You may need to change the architecture of the device you wish to compile for by altering the
   `target_arch` variable. Binaries will be built from source and installed to the location denoted by
@@ -195,12 +195,14 @@ Operator support
 |                      |   Simple: nn.conv2d                                                     |
 |                      |   Composite: nn.pad?, nn.conv2d, nn.bias_add?, nn.relu?                 |
 |                      |                                                                         |
-|                      | (only groups = 1 supported)                                             |
+|                      | Normal and depth-wise (when kernel is 3x3 or 5x5 and strides are 1x1    |
+|                      | or 2x2) convolution supported. Grouped convolution is not supported.    |
 +----------------------+-------------------------------------------------------------------------+
 | qnn.conv2d           | uint8:                                                                  |
 |                      |   Composite: nn.pad?, nn.conv2d, nn.bias_add?, nn.relu?, qnn.requantize |
 |                      |                                                                         |
-|                      | (only groups = 1 supported)                                             |
+|                      | Normal and depth-wise (when kernel is 3x3 or 5x5 and strides are 1x1    |
+|                      | or 2x2) convolution supported. Grouped convolution is not supported.    |
 +----------------------+-------------------------------------------------------------------------+
 | nn.dense             | fp32:                                                                   |
 |                      |   Simple: nn.dense                                                      |
@@ -233,6 +235,10 @@ Operator support
 | reshape              | fp32, uint8                                                             |
 +----------------------+-------------------------------------------------------------------------+
 | maximum              | fp32                                                                    |
++----------------------+-------------------------------------------------------------------------+
+| add                  | fp32                                                                    |
++----------------------+-------------------------------------------------------------------------+
+| qnn.add              | uint8                                                                   |
 +----------------------+-------------------------------------------------------------------------+
 
 .. note::

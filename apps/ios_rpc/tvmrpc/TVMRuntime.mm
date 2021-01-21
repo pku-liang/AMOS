@@ -25,7 +25,7 @@
 #include "../../../src/runtime/c_runtime_api.cc"
 #include "../../../src/runtime/cpu_device_api.cc"
 #include "../../../src/runtime/dso_library.cc"
-#include "../../../src/runtime/file_util.cc"
+#include "../../../src/runtime/file_utils.cc"
 #include "../../../src/runtime/library_module.cc"
 #include "../../../src/runtime/metadata_module.cc"
 #include "../../../src/runtime/module.cc"
@@ -118,7 +118,7 @@ void LaunchSyncServer() {
   std::ifstream fs(name, std::ios::in);
   std::string url, key;
   int port;
-  CHECK(fs >> url >> port >> key) << "Invalid RPC config file " << name;
+  ICHECK(fs >> url >> port >> key) << "Invalid RPC config file " << name;
   RPCConnect(url, port, "server:" + key, TVMArgs(nullptr, nullptr, 0))->ServerLoop();
 }
 

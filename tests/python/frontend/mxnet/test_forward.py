@@ -638,6 +638,12 @@ def test_forward_l2_normalize():
     mx_sym = mx.sym.L2Normalization(data, mode="channel")
     verify_mxnet_frontend_impl(mx_sym, (2, 3, 4, 5), (2, 3, 4, 5))
 
+    mx_sym = mx.sym.L2Normalization(data, mode="instance")
+    verify_mxnet_frontend_impl(mx_sym, (2, 3, 4, 5), (2, 3, 4, 5))
+
+    mx_sym = mx.sym.L2Normalization(data, mode="spatial")
+    verify_mxnet_frontend_impl(mx_sym, (2, 3, 4, 5), (2, 3, 4, 5))
+
 
 @tvm.testing.uses_gpu
 def test_forward_logistic_regression_output():
@@ -748,6 +754,24 @@ def test_forward_broadcast_to():
             for kind in ["graph", "debug"]:
                 intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
                 op_res = intrp.evaluate()(x_np)
+                tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.asnumpy())
+
+    verify((1, 2, 3), (3, 2, 3))
+    verify((4, 1, 32, 32), (4, 8, 32, 32))
+
+
+@tvm.testing.uses_gpu
+def test_forward_broadcast_like():
+    def verify(input_shape, like_shape):
+        x_np = np.random.uniform(size=input_shape).astype("float32")
+        y_np = np.random.uniform(size=like_shape).astype("float32")
+        ref_res = mx.nd.broadcast_like(mx.nd.array(x_np), mx.nd.array(y_np))
+        mx_sym = mx.sym.broadcast_like(mx.sym.var("x"), mx.sym.var("y"))
+        mod, _ = relay.frontend.from_mxnet(mx_sym, {"x": input_shape, "y": like_shape})
+        for target, ctx in tvm.testing.enabled_targets():
+            for kind in ["graph", "debug"]:
+                intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
+                op_res = intrp.evaluate()(x_np, y_np)
                 tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.asnumpy())
 
     verify((1, 2, 3), (3, 2, 3))
@@ -1914,7 +1938,10 @@ def test_forward_softmax():
 @pytest.mark.skipif(not hasattr(mx.sym.np, "pad"), reason="mx.sym.np.pad hasn't been publish yet")
 @pytest.mark.parametrize(
     "data_shape, pad_width",
-    [((1, 1, 3, 5), (0, 0, 0, 0, 1, 2, 3, 4)), ((1, 1, 3, 5, 7), (0, 0, 0, 0, 1, 2, 3, 4, 5, 6))],
+    [
+        ((1, 1, 3, 5), ((0, 0), (0, 0), (1, 2), (3, 4))),
+        ((1, 1, 3, 5, 7), ((0, 0), (0, 0), (1, 2), (3, 4), (5, 6))),
+    ],
 )
 @pytest.mark.parametrize("mode", ["constant", "edge", "reflect"])
 @pytest.mark.parametrize("dtype", ["float64", "float32", "int64", "int32"])
@@ -1925,19 +1952,17 @@ def test_forward_npi_pad(data_shape, pad_width, mode, dtype, constant_value, tar
     data_np = np.random.uniform(size=data_shape).astype(dtype)
     data = mx.sym.var("data")
     if mode == "constant":
-        ref_res = mx.ndarray.pad(
-            mx.nd.array(data_np), mode=mode, pad_width=pad_width, constant_value=constant_value
-        )
+        ref_res = np.pad(data_np, mode=mode, pad_width=pad_width, constant_values=constant_value)
         mx_sym = mx.sym.np.pad(
             data.as_np_ndarray(), mode=mode, pad_width=pad_width, constant_values=constant_value
         )
     else:
-        ref_res = mx.ndarray.pad(mx.nd.array(data_np), mode=mode, pad_width=pad_width)
+        ref_res = np.pad(data_np, mode=mode, pad_width=pad_width)
         mx_sym = mx.sym.np.pad(data.as_np_ndarray(), mode=mode, pad_width=pad_width)
     mod, _ = relay.frontend.from_mxnet(mx_sym, {"data": data_shape}, dtype=dtype)
     intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
     op_res = intrp.evaluate()(data_np)
-    tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.asnumpy(), rtol=1e-5)
+    tvm.testing.assert_allclose(op_res.asnumpy(), ref_res, rtol=1e-5)
 
 
 @pytest.mark.skipif(
@@ -1987,6 +2012,34 @@ def test_forward_npi_concatenate(data_shape1, data_shape2, axis, dtype, target, 
     tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.asnumpy(), rtol=1e-5)
 
 
+@pytest.mark.parametrize(
+    "data_shape1, data_shape2, axis",
+    [
+        ((3,), (3,), 0),
+        ((3,), (3,), -1),
+        ((1, 3, 2), (1, 3, 2), 2),
+        ((1, 3, 3), (1, 3, 3), 1),
+        ((1, 3), (1, 3), 0),
+    ],
+)
+@pytest.mark.parametrize("dtype", ["float64", "float32", "int64", "int32"])
+@tvm.testing.parametrize_targets
+@pytest.mark.parametrize("kind", ["graph", "vm", "debug"])
+def test_forward_npi_stack(data_shape1, data_shape2, axis, dtype, target, ctx, kind):
+    data_np1 = np.random.uniform(size=data_shape1).astype(dtype)
+    data_np2 = np.random.uniform(size=data_shape2).astype(dtype)
+    data1 = mx.sym.var("data1")
+    data2 = mx.sym.var("data2")
+    ref_res = mx.np.stack([mx.np.array(data_np1), mx.np.array(data_np2)], axis=axis)
+    mx_sym = mx.sym.np.stack([data1.as_np_ndarray(), data2.as_np_ndarray()], axis=axis)
+    mod, _ = relay.frontend.from_mxnet(
+        mx_sym, shape={"data1": data_shape1, "data2": data_shape2}, dtype=dtype
+    )
+    intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
+    op_res = intrp.evaluate()(data_np1, data_np2)
+    tvm.testing.assert_allclose(op_res.asnumpy(), ref_res.asnumpy(), rtol=1e-5)
+
+
 @pytest.mark.parametrize("data_shape", [(2, 2, 2), (2, 7, 2), (2, 2, 2, 1, 2, 3, 1), (1, 8)])
 @pytest.mark.parametrize("dtype", ["float64", "float32", "int64", "int32", "bool"])
 @tvm.testing.parametrize_targets
@@ -2011,8 +2064,12 @@ def test_forward_np_copy(data_shape, dtype, target, ctx, kind):
         ((2, 3, 8), (-2, -2, 2, -1), False),
         ((8, 3, 3, 3, 4, 4), (-6, 2, -1, -4), False),
         ((8, 3, 3, 3, 4, 4), (-5, -4), False),
+        ((1, 8, 3, 3, 3, 4, 4), (-3, -5, -4), False),
+        ((8, 1, 3, 4), (-2, -3, -1), False),
         ((8, 3, 3, 3, 3, 8), (-4, -5), True),
         ((8, 3, 2, 4, 8), (-4, -1, 2, -6), True),
+        ((3, 2, 4, 8, 1, 1), (-4, -1, 2, -6, -5, -3), True),
+        ((2, 4, 1, 8), (-4, -3, -1, 2, -6), True),
     ],
 )
 def test_forward_npx_reshape(data_shape, out_shape, dtype, target, reverse, ctx, kind):
@@ -2033,8 +2090,14 @@ def test_forward_npx_reshape(data_shape, out_shape, dtype, target, reverse, ctx,
 @tvm.testing.parametrize_targets
 @pytest.mark.parametrize("kind", ["graph", "vm", "debug"])
 def test_forward_npi_binary(data_shape, dtype, target, ctx, kind):
-    ref_ops = [mx.np.power, mx.np.multiply, mx.np.add, mx.np.less]
-    mx_ops = [mx.sym.np.power, mx.sym.np.multiply, mx.sym.np.add, mx.sym.np.less]
+    ref_ops = [mx.np.power, mx.np.multiply, mx.np.add, mx.np.subtract, mx.np.less]
+    mx_ops = [
+        mx.sym.np.power,
+        mx.sym.np.multiply,
+        mx.sym.np.add,
+        mx.sym.np.subtract,
+        mx.sym.np.less,
+    ]
     for i in range(len(ref_ops)):
         ref_op = ref_ops[i]
         mx_op = mx_ops[i]
@@ -2063,8 +2126,14 @@ def test_forward_npi_binary(data_shape, dtype, target, ctx, kind):
 @pytest.mark.parametrize("scalar", [1.0, 2.0, 3.0, 4.0])
 @pytest.mark.parametrize("kind", ["graph", "vm", "debug"])
 def test_forward_npi_binary_scalar(data_shape, dtype, scalar, target, ctx, kind):
-    ref_ops = [mx.np.power, mx.np.multiply, mx.np.add, mx.np.true_divide]
-    mx_ops = [mx.sym.np.power, mx.sym.np.multiply, mx.sym.np.add, mx.sym.np.true_divide]
+    ref_ops = [mx.np.power, mx.np.multiply, mx.np.add, mx.np.subtract, mx.np.true_divide]
+    mx_ops = [
+        mx.sym.np.power,
+        mx.sym.np.multiply,
+        mx.sym.np.add,
+        mx.sym.np.subtract,
+        mx.sym.np.true_divide,
+    ]
     for i in range(len(ref_ops)):
         ref_op = ref_ops[i]
         mx_op = mx_ops[i]
@@ -2099,16 +2168,21 @@ def test_forward_npi_tanh(data_shape, dtype, target, ctx, kind):
 
 
 @pytest.mark.skipif(not hasattr(mx.np, "where"), reason="mx.np.where hasn't been publish yet")
-@pytest.mark.parametrize("data_shape", [(2, 2, 2), (2, 7, 2), (1, 8), (2, 2), (1, 3)])
+@pytest.mark.parametrize(
+    "data_shape,cond_shape",
+    [[(2, 2, 2), (2, 2, 2)], [(2, 7, 2), (7, 2)], [(2, 2), (1, 2)], [(1, 3), (3, 3)]],
+)
 @pytest.mark.parametrize("data_dtype", ["float64", "float32", "int64", "int32", "bool"])
 @pytest.mark.parametrize("cond_dtype", ["float64", "float32", "int64", "int32", "bool"])
 @pytest.mark.parametrize("scalar", [1.0, 2.0])
 @tvm.testing.parametrize_targets
 @pytest.mark.parametrize("kind", ["graph", "vm", "debug"])
-def test_forward_npi_where_rscalar(data_shape, cond_dtype, data_dtype, scalar, target, ctx, kind):
+def test_forward_npi_where_rscalar(
+    data_shape, cond_shape, data_dtype, cond_dtype, scalar, target, ctx, kind
+):
     if data_dtype == "bool":
         scalar = scalar == 0.0
-    cond_np = np.random.uniform(size=data_shape).astype(cond_dtype)
+    cond_np = np.random.uniform(size=cond_shape).astype(cond_dtype)
     data_np = np.random.uniform(size=data_shape).astype(data_dtype)
     cond = mx.sym.var("condition")
     data = mx.sym.var("x")
@@ -2118,7 +2192,7 @@ def test_forward_npi_where_rscalar(data_shape, cond_dtype, data_dtype, scalar, t
     dtypeDic["condition"] = cond_dtype
     dtypeDic["x"] = data_dtype
     mod, _ = relay.frontend.from_mxnet(
-        mx_sym, shape={"condition": data_shape, "x": data_shape}, dtype=dtypeDic
+        mx_sym, shape={"condition": cond_shape, "x": data_shape}, dtype=dtypeDic
     )
     intrp = relay.create_executor(kind, mod=mod, ctx=ctx, target=target)
     op_res = intrp.evaluate()(cond_np, data_np)

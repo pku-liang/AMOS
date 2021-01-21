@@ -46,7 +46,7 @@
 #endif
 
 #if TVM_MINRPC_ENABLE_LOGGING
-#include <dmlc/logging.h>
+#include <tvm/support/logging.h>
 #endif
 
 namespace tvm {
@@ -156,6 +156,7 @@ class MinRPCServer {
       } else if (rv_tcode == kTVMBytes) {
         ret_tcode[1] = kTVMBytes;
         this->ReturnPackedSeq(ret_value, ret_tcode, 2);
+        TVMByteArrayFree(reinterpret_cast<TVMByteArray*>(ret_value[1].v_handle));  // NOLINT(*)
       } else if (rv_tcode == kTVMPackedFuncHandle || rv_tcode == kTVMModuleHandle) {
         ret_tcode[1] = kTVMOpaqueHandle;
         this->ReturnPackedSeq(ret_value, ret_tcode, 2);

@@ -43,8 +43,8 @@ namespace topi {
 using namespace tvm::te;
 
 /*! \brief The operation to use for CommReduce */
-using FReduce =
-    std::function<PrimExpr(PrimExpr source, const Array<IterVar>& axis, Array<PrimExpr> init)>;
+using FReduce = std::function<PrimExpr(PrimExpr source, const Array<IterVar>& axis,
+                                       Array<PrimExpr> init, Span span)>;
 
 /*! \brief The operation to use for CommReduceIdx */
 using FCommReduce = std::function<Array<PrimExpr>(Array<PrimExpr> exprs, const Array<IterVar>& axis,
@@ -75,8 +75,8 @@ inline std::vector<int> GetRealAxis(int ndim, const Array<Integer>& axis) {
       if (val < 0) {
         val += ndim;
       }
-      CHECK_LE(val, ndim) << " exceeds the maximum dimension " << ndim;
-      CHECK_GE(val, 0);
+      ICHECK_LE(val, ndim) << " exceeds the maximum dimension " << ndim;
+      ICHECK_GE(val, 0);
       real_axis.push_back(static_cast<int>(val));
     }
     std::sort(real_axis.begin(), real_axis.end());
@@ -132,12 +132,13 @@ inline Array<PrimExpr> MakeReduceTargetShape(const std::vector<int>& real_axis, 
  * \param reduce_axes The real axes along which the reduction is performed.
  * \param squeeze_axes The real axes to squeeze. Unsqueezed, reduced axes will
  *                     have shape 1 in the output tensor.
+ * \param span The location of this reducer in the source.
  *
  * \return The result tensor.
  */
 inline Tensor DoCommReduce(const Tensor& data, FReduce func, const Array<PrimExpr>& target_shape,
                            const std::vector<int>& reduce_axes,
-                           const std::vector<int>& squeeze_axes) {
+                           const std::vector<int>& squeeze_axes, Span span = Span()) {
   auto r_axes = MakeReduceAxes(reduce_axes, data);
   auto compute = [&](const Array<Var>& indices) {
     Array<PrimExpr> eval_range;
@@ -159,7 +160,7 @@ inline Tensor DoCommReduce(const Tensor& data, FReduce func, const Array<PrimExp
       arg_counter++;
     }
 
-    return func(data(eval_range), r_axes, {});
+    return func(data(eval_range), r_axes, {}, span);
   };
 
   return tvm::te::compute(target_shape, compute, data->op->name + "_red", kCommReduce);
@@ -181,7 +182,7 @@ inline Tensor DoCommReduce(const Tensor& data, FReduce func, const Array<PrimExp
 inline Tensor CommReduce(const Tensor& data, const Array<Integer>& axis, FReduce func,
                          bool keepdims, bool atleast1d) {
   auto ndim = data->shape.size();
-  CHECK_NE(ndim, 0) << "Cannot reduce a 0 dim Tensor";
+  ICHECK_NE(ndim, 0) << "Cannot reduce a 0 dim Tensor";
   auto real_axis = GetRealAxis(static_cast<int>(ndim), axis);
   auto target_shape = MakeReduceTargetShape(real_axis, data, keepdims, atleast1d);
   return DoCommReduce(data, func, target_shape, real_axis,
@@ -204,7 +205,7 @@ inline Tensor CommReduce(const Tensor& data, const Array<Integer>& axis, FReduce
 inline Tensor CommReduceIdx(const Tensor& data, const Array<Integer>& axis, FCommReduce func,
                             bool keepdims, bool atleast1d) {
   auto ndim = data->shape.size();
-  CHECK_NE(ndim, 0) << "Cannot reduce a 0 dim Tensor";
+  ICHECK_NE(ndim, 0) << "Cannot reduce a 0 dim Tensor";
   auto real_axis = GetRealAxis(static_cast<int>(ndim), axis);
   auto reduce_axes = MakeReduceAxes(real_axis, data);
   auto target_shape = MakeReduceTargetShape(real_axis, data, keepdims, atleast1d);
@@ -292,18 +293,21 @@ inline FCommReduce MakeCommReducer(FCombine fcombine, FIdentity fidentity,
 }
 
 /*! \brief Wrap tvm::min to ensure we get the correct overload */
-inline PrimExpr MinOp(PrimExpr source, Array<IterVar> axis, Array<PrimExpr> init = {}) {
-  return tvm::min(source, axis, init);
+inline PrimExpr MinOp(PrimExpr source, Array<IterVar> axis, Array<PrimExpr> init = {},
+                      Span span = Span()) {
+  return tvm::min(source, axis, init, span);
 }
 
 /*! \brief Wrap tvm::max to ensure we get the correct overload */
-inline PrimExpr MaxOp(PrimExpr source, Array<IterVar> axis, Array<PrimExpr> init = {}) {
-  return tvm::max(source, axis, init);  // NOLINT(*)
+inline PrimExpr MaxOp(PrimExpr source, Array<IterVar> axis, Array<PrimExpr> init = {},
+                      Span span = Span()) {
+  return tvm::max(source, axis, init, span);  // NOLINT(*)
 }
 
 /*! \brief Wrap tvm::prod to ensure we get the correct overload */
-inline PrimExpr ProdOp(PrimExpr source, Array<IterVar> axis, Array<PrimExpr> init = {}) {
-  return tvm::prod(source, axis, init);  // NOLINT(*)
+inline PrimExpr ProdOp(PrimExpr source, Array<IterVar> axis, Array<PrimExpr> init = {},
+                       Span span = Span()) {
+  return tvm::prod(source, axis, init, span);  // NOLINT(*)
 }
 
 /*!
@@ -325,7 +329,7 @@ inline Tensor sum(const Tensor& data, const Array<Integer>& axis, bool keepdims 
 }
 
 inline Tensor collapse_sum(const Tensor& data, Array<PrimExpr> target_shape) {
-  CHECK_GE(data->shape.size(), target_shape.size());
+  ICHECK_GE(data->shape.size(), target_shape.size());
   auto ishape = detail::GetConstIntValues(data->shape, "ishape");
   auto oshape = detail::GetConstIntValues(target_shape, "oshape");
 

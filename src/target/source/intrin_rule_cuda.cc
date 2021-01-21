@@ -102,7 +102,7 @@ struct CUDAWarpIntrinsic {
     } else if (orig_op.same_as(builtin::tvm_warp_shuffle_up())) {
       return Op::Get("tir.cuda.__shfl_up_sync");
     } else {
-      CHECK(orig_op.same_as(builtin::tvm_warp_shuffle_down()));
+      ICHECK(orig_op.same_as(builtin::tvm_warp_shuffle_down()));
       return Op::Get("tir.cuda.__shfl_down_sync");
     }
   }
@@ -117,8 +117,8 @@ template <typename T>
 static void DispatchCUDAShuffle(const TVMArgs& args, TVMRetValue* rv) {
   PrimExpr e = args[0];
   const CallNode* call = e.as<CallNode>();
-  CHECK(call != nullptr);
-  CHECK_EQ(call->args.size(), 5);  // mask, value, warp_id, width, warp_size
+  ICHECK(call != nullptr);
+  ICHECK_EQ(call->args.size(), 5);  // mask, value, warp_id, width, warp_size
   Array<PrimExpr> cuda_args{{call->args[0], call->args[1], call->args[2], call->args[3]}};
 
   *rv = Call(call->dtype, T()(call->dtype, Downcast<Op>(call->op)), cuda_args);
@@ -186,18 +186,30 @@ TVM_REGISTER_GLOBAL("tvm.intrin.rule.cuda.fmod").set_body(DispatchPureExtern<CUD
 // TODO(tvm-team): consider make CUDA its own subfolder and create a file for low-level builtins.
 TVM_REGISTER_OP("tir.cuda.__shfl_sync")
     .set_num_inputs(4)
+    .add_argument("mask", "Expr", "The thread mask.")
+    .add_argument("var", "Expr", "The variable to sync.")
+    .add_argument("lane", "Expr", "The source thread id.")
+    .add_argument("width", "Expr", "The warp thread width, must be a power of 2.")
     .set_attr<TGlobalSymbol>("TGlobalSymbol", "__shfl_sync")
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<bool>("cuda.need_warp_shuffle", true);
 
 TVM_REGISTER_OP("tir.cuda.__shfl_up_sync")
     .set_num_inputs(4)
+    .add_argument("mask", "Expr", "The thread mask.")
+    .add_argument("var", "Expr", "The variable to sync.")
+    .add_argument("delta", "Expr", "The source lane id offset to be added.")
+    .add_argument("width", "Expr", "The warp thread width, must be a power of 2.")
     .set_attr<TGlobalSymbol>("TGlobalSymbol", "__shfl_up_sync")
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<bool>("cuda.need_warp_shuffle", true);
 
 TVM_REGISTER_OP("tir.cuda.__shfl_down_sync")
     .set_num_inputs(4)
+    .add_argument("mask", "Expr", "The thread mask.")
+    .add_argument("var", "Expr", "The variable to sync.")
+    .add_argument("delta", "Expr", "The source lane id offset to be subtracted.")
+    .add_argument("width", "Expr", "The warp thread width, must be a power of 2.")
     .set_attr<TGlobalSymbol>("TGlobalSymbol", "__shfl_down_sync")
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque))
     .set_attr<bool>("cuda.need_warp_shuffle", true);

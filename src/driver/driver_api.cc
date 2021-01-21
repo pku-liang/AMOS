@@ -69,7 +69,8 @@ Target DefaultTargetHost(Target target) {
 
 tir::Buffer BufferWithOffsetAlignment(Array<PrimExpr> shape, DataType dtype, std::string name,
                                       int data_alignment, int offset_factor, bool compact) {
-  auto data = tir::Var(name, PointerType(PrimType(dtype)));
+  DataType storage_dtype = (dtype == DataType::Bool() ? DataType::Int(8) : dtype);
+  auto data = tir::Var(name, PointerType(PrimType(storage_dtype)));
   bool has_any = false;
   if (!compact) {
     for (const auto& it : shape) {
@@ -218,7 +219,7 @@ std::pair<IRModule, IRModule> SplitDevHostFuncs(IRModule mod_mixed, const Target
       tir::transform::CombineContextCall(),
   };
   auto opt_host = transform::Sequential(host_pass_list);
-  CHECK(mod_mixed.defined()) << "This module must be defined";
+  ICHECK(mod_mixed.defined()) << "This module must be defined";
   auto mhost = opt_host(mod_mixed);
 
   // device pipeline
@@ -247,9 +248,9 @@ std::pair<IRModule, IRModule> SplitDevHostFuncs(IRModule mod_mixed, const Target
   }
 
   if (target->kind->device_type == kDLCPU && target_host == target) {
-    CHECK(mdevice->functions.empty()) << "No device code should be generated when target "
-                                      << "and host_target are both llvm target."
-                                      << "\n";
+    ICHECK(mdevice->functions.empty()) << "No device code should be generated when target "
+                                       << "and host_target are both llvm target."
+                                       << "\n";
   }
 
   return {mhost, mdevice};
@@ -276,7 +277,7 @@ runtime::Module build(const Map<Target, IRModule>& inputs, const Target& target_
 
   IRModule mhost_all = IRModule(Map<GlobalVar, BaseFunc>());
 
-  CHECK(mhost_all.defined()) << "The host module must be defined";
+  ICHECK(mhost_all.defined()) << "The host module must be defined";
 
   for (const auto& it : inputs) {
     if (it.second.defined()) {
@@ -284,9 +285,9 @@ runtime::Module build(const Map<Target, IRModule>& inputs, const Target& target_
       auto& mhost = pair.first;
       auto& mdevice = pair.second;
 
-      CHECK(mhost.defined()) << "The split host module must be defined";
+      ICHECK(mhost.defined()) << "The split host module must be defined";
 
-      CHECK(mhost_all.defined()) << "The host module must be defined";
+      ICHECK(mhost_all.defined()) << "The host module must be defined";
 
       mhost_all->Update(mhost);
 

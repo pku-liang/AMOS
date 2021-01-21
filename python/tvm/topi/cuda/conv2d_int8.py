@@ -25,8 +25,8 @@ from .injective import schedule_injective_from_existing
 from .tensor_intrin import dp4a
 from ..nn.pad import pad
 from ..nn.conv2d import unpack_NCHWc_to_nchw
-from ..nn.util import get_pad_tuple
-from ..util import get_const_tuple, traverse_inline
+from ..nn.utils import get_pad_tuple
+from ..utils import get_const_tuple, traverse_inline
 
 
 def conv2d_nchw_int8(data, kernel, strides, padding, dilation, out_dtype="int32"):
@@ -142,9 +142,10 @@ def conv2d_NCHWc_int8(cfg, data, kernel, stride, padding, dilation, layout, out_
     pad_data = pad(packed_data, pad_before, pad_after, name="pad_data")
 
     # compute the output shape
-    out_height = (in_height - (kernel_h - 1) * dilation_h - 1 + pad_top + pad_down) // stride_h + 1
-    out_width = (in_width - (kernel_w - 1) * dilation_w - 1 + pad_left + pad_right) // stride_w + 1
-
+    dilated_kernel_h = (kernel_h - 1) * dilation_h + 1
+    dilated_kernel_w = (kernel_w - 1) * dilation_w + 1
+    out_height = (in_height - dilated_kernel_h + pad_top + pad_down) // stride_h + 1
+    out_width = (in_width - dilated_kernel_w + pad_left + pad_right) // stride_w + 1
     oshape = (batch, oc_chunk, out_height, out_width, oc_block)
 
     icc = te.reduce_axis((0, ic_chunk), name="ic_chunk")

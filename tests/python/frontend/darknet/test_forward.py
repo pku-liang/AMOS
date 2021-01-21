@@ -33,7 +33,7 @@ from tvm.relay.testing.darknet import __darknetffi__
 from tvm.relay.frontend.darknet import ACTIVATION
 from tvm import relay
 
-REPO_URL = "https://github.com/dmlc/web-data/blob/master/darknet/"
+REPO_URL = "https://github.com/dmlc/web-data/blob/main/darknet/"
 DARKNET_LIB = "libdarknet2.0.so"
 DARKNETLIB_URL = REPO_URL + "lib/" + DARKNET_LIB + "?raw=true"
 LIB = __darknetffi__.dlopen(download_testdata(DARKNETLIB_URL, DARKNET_LIB, module="darknet"))
@@ -43,6 +43,17 @@ DARKNET_TEST_IMAGE_URL = REPO_URL + "data/" + DARKNET_TEST_IMAGE_NAME + "?raw=tr
 DARKNET_TEST_IMAGE_PATH = download_testdata(
     DARKNET_TEST_IMAGE_URL, DARKNET_TEST_IMAGE_NAME, module="data"
 )
+
+
+def astext(program, unify_free_vars=False):
+    """check that program is parsable in text format"""
+    text = program.astext()
+    if isinstance(program, relay.Expr):
+        roundtrip_program = tvm.parser.parse_expr(text)
+    else:
+        roundtrip_program = tvm.parser.fromtext(text)
+
+    tvm.ir.assert_structural_equal(roundtrip_program, program, map_free_vars=True)
 
 
 def _read_memory_buffer(shape, data, dtype="float32"):
@@ -59,6 +70,10 @@ def _get_tvm_output(net, data, build_dtype="float32", states=None):
     """Compute TVM output"""
     dtype = "float32"
     mod, params = relay.frontend.from_darknet(net, data.shape, dtype)
+    # verify that from_darknet creates a valid, parsable relay program
+    mod = relay.transform.InferType()(mod)
+    astext(mod)
+
     target = "llvm"
     shape_dict = {"data": data.shape}
     lib = relay.build(mod, target, params=params)

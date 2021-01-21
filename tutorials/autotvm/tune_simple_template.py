@@ -15,8 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 """
-Writing tunable template and Using auto-tuner
-=============================================
+Writing Tunable Templates and Using the Auto-tuner
+==================================================
 **Author**: `Lianmin Zheng <https://github.com/merrymercy>`_
 
 This is an introduction tutorial to the auto-tuning module in TVM.
@@ -26,6 +26,10 @@ The first step is defining a search space.
 The second step is running a search algorithm to explore through this space.
 In this tutorial, you can learn how to perform these two steps in TVM.
 The whole workflow is illustrated by a matrix multiplication example.
+
+Note that this tutorial will not run on Windows or recent versions of macOS. To
+get it to run, you will need to wrap the body of this tutorial in a :code:`if
+__name__ == "__main__":` block.
 """
 
 ######################################################################
@@ -37,7 +41,7 @@ The whole workflow is illustrated by a matrix multiplication example.
 #
 # .. code-block:: bash
 #
-#   pip3 install --user psutil xgboost
+#   pip3 install --user psutil xgboost cloudpickle
 #
 # To make TVM run faster in tuning, it is recommended to use cython
 # as FFI of TVM. In the root directory of TVM, execute
@@ -56,6 +60,7 @@ import sys
 import numpy as np
 import tvm
 from tvm import te
+import tvm.testing
 
 # the module is called `autotvm`
 from tvm import autotvm

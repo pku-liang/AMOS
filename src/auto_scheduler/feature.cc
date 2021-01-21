@@ -41,6 +41,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "search_policy/utils.h"
 #include "utils.h"
 
 namespace tvm {
@@ -298,7 +299,7 @@ class MathOpCounter : public StmtExprVisitor {
 
   void VisitExpr_(const CallNode* op) final {
     auto* pop = op->op.as<OpNode>();
-    CHECK(pop != nullptr);
+    ICHECK(pop != nullptr);
     auto effect_kind = op_call_effect_[GetRef<Op>(pop)];
     bool is_pure =
         effect_kind == CallEffectKind::kPure || effect_kind == CallEffectKind::kExprAnnotation;
@@ -617,7 +618,7 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
       is_gpu_ = true;
 
       // make a fake for node for blockIdx.x or threadIdx.x
-      Stmt fake_for_node = For(var, 0, extent, ForType::Parallel, DeviceAPI::None, node->body);
+      Stmt fake_for_node = For(var, 0, extent, ForKind::kParallel, node->body);
 
       outer_loop_prod_ *= extent;
       for_loop_stack_.push_back(fake_for_node.as<ForNode>());
@@ -641,11 +642,11 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
   void VisitStmt_(const ForNode* node) final {
     int64_t loop_extent = GetLoopExtent(node);
 
-    if (node->for_type == ForType::Vectorized) {
+    if (node->kind == ForKind::kVectorized) {
       vec_for_stack_.push_back(node);
-    } else if (node->for_type == ForType::Unrolled) {
+    } else if (node->kind == ForKind::kUnrolled) {
       unroll_for_stack_.push_back(node);
-    } else if (node->for_type == ForType::Parallel) {
+    } else if (node->kind == ForKind::kParallel) {
       parallel_for_stack_.push_back(node);
     }
 
@@ -655,11 +656,11 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
     for_loop_stack_.pop_back();
     outer_loop_prod_ /= loop_extent;
 
-    if (node->for_type == ForType::Vectorized) {
+    if (node->kind == ForKind::kVectorized) {
       vec_for_stack_.pop_back();
-    } else if (node->for_type == ForType::Unrolled) {
+    } else if (node->kind == ForKind::kUnrolled) {
       unroll_for_stack_.pop_back();
-    } else if (node->for_type == ForType::Parallel) {
+    } else if (node->kind == ForKind::kParallel) {
       parallel_for_stack_.pop_back();
     }
   }
@@ -669,7 +670,7 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
     math_op_counter(node->value);
     std::vector<float> mem_bytes_list;
     std::vector<float> compute_ops_list;
-    int cur_compute_ops;
+    double cur_compute_ops;
 
     // Group 1: Computation related features
     ExtractComputationFeature(node, math_op_counter);
@@ -768,7 +769,7 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
 
   // Extract buffer access related features (group 2)
   void ExtractBufferAccessFeature(const BufferStoreNode* node, const MathOpCounter& math_op_counter,
-                                  int* cur_compute_ops, std::vector<float>* compute_ops_list,
+                                  double* cur_compute_ops, std::vector<float>* compute_ops_list,
                                   std::vector<float>* mem_bytes_list) {
     FeatureSet& fea = buffer_features[node->buffer];
 
@@ -871,7 +872,9 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
         stride = (i == static_cast<int>(for_loop_stack_.size()) - 1 ? stride : 0);
 
         float n_continuous = ele_bytes;
-        for (int i = static_cast<int>(tmp_region.size()) - 1; i >= 0; i--) {
+        for (int i = std::min(static_cast<int>(tmp_region.size()) - 1,
+                              static_cast<int>(int_shape.size()) - 1);
+             i >= 0; i--) {
           if (tmp_region[i] == int_shape[i]) {
             n_continuous *= tmp_region[i];
             break;
@@ -918,7 +921,7 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
   }
 
   // Extract arithmetic intensity related feature (group 3)
-  void ExtractArithmeticIntensityFeature(const BufferStoreNode* node, int cur_compute_ops,
+  void ExtractArithmeticIntensityFeature(const BufferStoreNode* node, double cur_compute_ops,
                                          const std::vector<float>& compute_ops_list,
                                          const std::vector<float>& mem_bytes_list) {
     FeatureSet& fea = buffer_features[node->buffer];
@@ -935,7 +938,7 @@ class PerStoreFeatureExtractor : public StmtExprVisitor {
         while (compute_ops_list[pt] < cur_compute_ops - 1e-4) {
           pt++;
         }
-        CHECK_LT(pt, compute_ops_list.size());
+        ICHECK_LT(pt, compute_ops_list.size());
 
         float value;
         if (pt == 0) {
@@ -1265,7 +1268,7 @@ void GetPerStoreFeaturesWorkerFunc(const SearchTask& task, const State& state, i
   Array<te::Tensor> tensors;
 
   std::tie(sch, tensors) = task->compute_dag.ApplySteps(state->transform_steps);
-  sch = sch.normalize();
+  sch = sch.normalize_for_feature_extraction();
   auto bounds = te::InferBound(sch);
 
   try {
@@ -1294,7 +1297,7 @@ void GetPerStoreFeaturesWorkerFunc(const SearchTask& task, const State& state, i
     }
     auto mod = IRModule(Map<GlobalVar, BaseFunc>({{global_var, f}}));
 
-    if (task->target->kind->device_type == kDLGPU) {
+    if (IsGPUTask(task)) {
       auto pass_list = Array<tvm::transform::Pass>();
       // Phase 0
       pass_list.push_back(tir::transform::InjectPrefetch());
@@ -1308,7 +1311,7 @@ void GetPerStoreFeaturesWorkerFunc(const SearchTask& task, const State& state, i
       pass_list.push_back(tir::transform::Simplify());
       tvm::Map<String, tvm::PrimExpr> gpu_params{
           {"max_shared_memory_per_block", task->hardware_params->max_shared_memory_per_block},
-          {"max_local_memory_per_block", task->hardware_params->max_registers_per_block},
+          {"max_local_memory_per_block", task->hardware_params->max_local_memory_per_block},
           {"max_threads_per_block", task->hardware_params->max_threads_per_block},
           {"max_vector_bytes", task->hardware_params->vector_unit_bytes},
           {"max_vthread", task->hardware_params->max_vthread_extent},
@@ -1321,7 +1324,7 @@ void GetPerStoreFeaturesWorkerFunc(const SearchTask& task, const State& state, i
         tir::transform::Sequential(Array<tvm::transform::Pass>{tir::transform::Simplify()});
     mod = optimize(std::move(mod));
     const auto& it = mod->functions.find(global_var);
-    CHECK(it != mod->functions.end());
+    ICHECK(it != mod->functions.end());
     const auto& prim_func = (*it).second.as<PrimFuncNode>();
     GetPerStoreFeature(prim_func->body, task->hardware_params->cache_line_bytes, max_n_bufs,
                        feature);
@@ -1343,11 +1346,6 @@ void GetPerStoreFeaturesFromStates(const Array<State>& states, const SearchTask&
                           GetPerStoreFeaturesWorkerFunc(task, states[i], max_n_bufs,
                                                         &(*features)[i], &error_ct);
                         });
-
-  if (error_ct > 0) {
-    std::cerr << "Encountered " << error_ct
-              << " errors during feature extraction, which are safely ignored." << std::endl;
-  }
 }
 
 void GetPerStoreFeaturesFromStates(const Array<State>& states, const std::vector<SearchTask>& tasks,
@@ -1363,11 +1361,6 @@ void GetPerStoreFeaturesFromStates(const Array<State>& states, const std::vector
                           GetPerStoreFeaturesWorkerFunc(tasks[i], states[i], max_n_bufs,
                                                         &(*features)[i], &error_ct);
                         });
-
-  if (error_ct > 0) {
-    std::cerr << "Encountered " << error_ct
-              << " errors during feature extraction. which are safely ignored." << std::endl;
-  }
 }
 
 void GetPerStoreFeaturesFromFile(const std::string& filename, int max_lines, int max_n_bufs,
@@ -1387,7 +1380,7 @@ void GetPerStoreFeaturesFromFile(const std::string& filename, int max_lines, int
 
   const auto* workload_key_to_tensors =
       tvm::runtime::Registry::Get("auto_scheduler.workload_key_to_tensors");
-  CHECK(workload_key_to_tensors != nullptr);
+  ICHECK(workload_key_to_tensors != nullptr);
 
   // read from file
   RecordReader reader(filename);
@@ -1405,7 +1398,8 @@ void GetPerStoreFeaturesFromFile(const std::string& filename, int max_lines, int
       // rebuild task
       Array<te::Tensor> tensors = (*workload_key_to_tensors)(workload_key);
       task = SearchTask(ComputeDAG(tensors), workload_key, cur_inp->task->target,
-                        cur_inp->task->target_host, cur_inp->task->hardware_params);
+                        cur_inp->task->target_host, cur_inp->task->hardware_params,
+                        cur_inp->task->layout_rewrite_option);
       task_id = task_cache.size();
 
       // compute min cost for each task
@@ -1452,7 +1446,7 @@ void GetPerStoreFeaturesFromMeasurePairs(const Array<MeasureInput>& inputs,
 
   const auto* workload_key_to_tensors =
       tvm::runtime::Registry::Get("auto_scheduler.workload_key_to_tensors");
-  CHECK(workload_key_to_tensors != nullptr);
+  ICHECK(workload_key_to_tensors != nullptr);
 
   tasks.reserve(inputs.size());
   normalized_throughputs->reserve(inputs.size());
@@ -1468,11 +1462,18 @@ void GetPerStoreFeaturesFromMeasurePairs(const Array<MeasureInput>& inputs,
     if (find_res == task_cache.end()) {
       if (inputs[i]->task->compute_dag.defined()) {  // the measure input is complete
         task = inputs[i]->task;
-      } else {  // the measure input is incomplete
-        // rebuild task for incomplete measure pairs read from file
-        Array<te::Tensor> tensors = (*workload_key_to_tensors)(workload_key);
-        task = SearchTask(ComputeDAG(tensors), workload_key, inputs[i]->task->target,
-                          inputs[i]->task->target_host, inputs[i]->task->hardware_params);
+      } else {
+        // The measure input is incomplete, rebuild task for incomplete measure pairs read from file
+        try {
+          Array<te::Tensor> tensors = (*workload_key_to_tensors)(workload_key);
+          task = SearchTask(ComputeDAG(tensors), workload_key, inputs[i]->task->target,
+                            inputs[i]->task->target_host, inputs[i]->task->hardware_params,
+                            inputs[i]->task->layout_rewrite_option);
+        } catch (std::exception& e) {
+          // Cannot build ComputeDAG from workload key, the task may have not been registered in
+          // this search round
+          continue;
+        }
       }
       task_id = task_cache.size();
 
@@ -1517,7 +1518,7 @@ void GetPerStoreFeaturesFromMeasurePairs(const Array<MeasureInput>& inputs,
  *   ... // until i == n - 1
  *
  *   float throughputs[sizes[n]];  // The normalized throughputs for n records
- *   int   task_ids[size[n+1];   // The task ids for n records
+ *   int   task_ids[size[n+1]];   // The task ids for n records
  *
  * }
  * To implement this format, we also store int as float, so we can store all numbers
@@ -1546,7 +1547,7 @@ TVMByteArray SerializeFeatures(std::vector<std::vector<float>>&& features,
   size_vector.push_back(static_cast<int>(task_ids.size()));
   total_bytes += sizeof(int) * task_ids.size();
 
-  CHECK_EQ(size_vector.size(), size_vector_size);
+  ICHECK_EQ(size_vector.size(), size_vector_size);
 
   // allocate memory
   out_data->reserve(total_bytes);
@@ -1572,7 +1573,7 @@ TVMByteArray SerializeFeatures(std::vector<std::vector<float>>&& features,
   memmove(ptr, reinterpret_cast<char*>(task_ids.data()), task_ids.size() * sizeof(int));
   ptr += task_ids.size() * sizeof(int);
 
-  CHECK_EQ(ptr - out_data->data(), total_bytes);
+  ICHECK_EQ(ptr - out_data->data(), total_bytes);
 
   return TVMByteArray{out_data->data(), total_bytes};
 }

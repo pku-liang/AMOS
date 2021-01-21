@@ -64,14 +64,20 @@ void GraphRuntime::Run() {
  * processor.
  * \param ctxs The context of the host and devices where graph nodes will be
  * executed on.
+ * \param lookup_linked_param_func Linked parameter lookup function.
  */
 void GraphRuntime::Init(const std::string& graph_json, tvm::runtime::Module module,
-                        const std::vector<TVMContext>& ctxs) {
+                        const std::vector<TVMContext>& ctxs, PackedFunc lookup_linked_param_func) {
   std::istringstream is(graph_json);
   dmlc::JSONReader reader(&is);
   this->Load(&reader);
   module_ = module;
   ctxs_ = ctxs;
+  lookup_linked_param_ = lookup_linked_param_func;
+  if (lookup_linked_param_ == nullptr) {
+    lookup_linked_param_ = PackedFunc(
+        [this](TVMArgs args, TVMRetValue* rv) { this->DefaultLookupLinkedParam(args, rv); });
+  }
   this->SetupStorage();
   this->SetupOpExecs();
   for (size_t i = 0; i < input_nodes_.size(); i++) {
@@ -90,7 +96,6 @@ int GraphRuntime::GetInputIndex(const std::string& name) {
   if (it != input_map_.end()) {
     return it->second;
   }
-  LOG(WARNING) << "Warning: cannot find \"" << name << "\" among input";
   return -1;
 }
 /*!
@@ -99,7 +104,7 @@ int GraphRuntime::GetInputIndex(const std::string& name) {
  * \param data_in The input data.
  */
 void GraphRuntime::SetInput(int index, DLTensor* data_in) {
-  CHECK_LT(static_cast<size_t>(index), input_nodes_.size());
+  ICHECK_LT(static_cast<size_t>(index), input_nodes_.size());
   uint32_t eid = this->entry_id(input_nodes_[index], 0);
   data_entry_[eid].CopyFrom(data_in);
 }
@@ -109,18 +114,18 @@ void GraphRuntime::SetInput(int index, DLTensor* data_in) {
  * \param data_ref The input data that is referred.
  */
 void GraphRuntime::SetInputZeroCopy(int index, DLTensor* data_ref) {
-  CHECK_LT(static_cast<size_t>(index), input_nodes_.size());
+  ICHECK_LT(static_cast<size_t>(index), input_nodes_.size());
   uint32_t eid = this->entry_id(input_nodes_[index], 0);
   const DLTensor* old_t = data_entry_[eid].operator->();
 
   // check the consistency of input
-  CHECK_EQ(data_alignment_[eid], details::GetDataAlignment(*data_ref));
-  CHECK_EQ(reinterpret_cast<size_t>(data_ref->data) % kAllocAlignment, 0);
-  CHECK_EQ(old_t->ndim, static_cast<size_t>(data_ref->ndim));
-  CHECK_EQ(old_t->ctx.device_type, data_ref->ctx.device_type);
-  CHECK_EQ(old_t->ctx.device_id, data_ref->ctx.device_id);
+  ICHECK_EQ(data_alignment_[eid], details::GetDataAlignment(*data_ref));
+  ICHECK_EQ(reinterpret_cast<size_t>(data_ref->data) % kAllocAlignment, 0);
+  ICHECK_EQ(old_t->ndim, static_cast<size_t>(data_ref->ndim));
+  ICHECK_EQ(old_t->ctx.device_type, data_ref->ctx.device_type);
+  ICHECK_EQ(old_t->ctx.device_id, data_ref->ctx.device_id);
   for (auto i = 0; i < data_ref->ndim; ++i) {
-    CHECK_EQ(old_t->shape[i], data_ref->shape[i]);
+    ICHECK_EQ(old_t->shape[i], data_ref->shape[i]);
   }
 
   // Update the data pointer for each argument of each op
@@ -147,7 +152,7 @@ int GraphRuntime::NumInputs() const { return input_nodes_.size(); }
  * \return NDArray corresponding to given input node index.
  */
 NDArray GraphRuntime::GetInput(int index) const {
-  CHECK_LT(static_cast<size_t>(index), input_nodes_.size());
+  ICHECK_LT(static_cast<size_t>(index), input_nodes_.size());
   uint32_t eid = this->entry_id(input_nodes_[index], 0);
   return data_entry_[eid];
 }
@@ -158,7 +163,7 @@ NDArray GraphRuntime::GetInput(int index) const {
  * \return NDArray corresponding to given output node index.
  */
 NDArray GraphRuntime::GetOutput(int index) const {
-  CHECK_LT(static_cast<size_t>(index), outputs_.size());
+  ICHECK_LT(static_cast<size_t>(index), outputs_.size());
   uint32_t eid = this->entry_id(outputs_[index]);
   return data_entry_[eid];
 }
@@ -168,14 +173,14 @@ NDArray GraphRuntime::GetOutput(int index) const {
  * \param data_out the output data.
  */
 void GraphRuntime::CopyOutputTo(int index, DLTensor* data_out) {
-  CHECK_LT(static_cast<size_t>(index), outputs_.size());
+  ICHECK_LT(static_cast<size_t>(index), outputs_.size());
   uint32_t eid = this->entry_id(outputs_[index]);
 
   // Check the shapes to avoid receiving in different dimension but same size.
   const NDArray& data = data_entry_[eid];
-  CHECK_EQ(data->ndim, data_out->ndim);
+  ICHECK_EQ(data->ndim, data_out->ndim);
   for (int32_t j = 0; j < data->ndim; ++j) {
-    CHECK_EQ(data->shape[j], data_out->shape[j]);
+    ICHECK_EQ(data->shape[j], data_out->shape[j]);
   }
 
   data_entry_[eid].CopyTo(data_out);
@@ -192,16 +197,16 @@ void GraphRuntime::LoadParams(const std::string& param_blob) {
 
 void GraphRuntime::LoadParams(dmlc::Stream* strm) {
   uint64_t header, reserved;
-  CHECK(strm->Read(&header)) << "Invalid parameters file format";
-  CHECK(header == kTVMNDArrayListMagic) << "Invalid parameters file format";
-  CHECK(strm->Read(&reserved)) << "Invalid parameters file format";
+  ICHECK(strm->Read(&header)) << "Invalid parameters file format";
+  ICHECK(header == kTVMNDArrayListMagic) << "Invalid parameters file format";
+  ICHECK(strm->Read(&reserved)) << "Invalid parameters file format";
 
   std::vector<std::string> names;
-  CHECK(strm->Read(&names)) << "Invalid parameters file format";
+  ICHECK(strm->Read(&names)) << "Invalid parameters file format";
   uint64_t sz;
   strm->Read(&sz);
   size_t size = static_cast<size_t>(sz);
-  CHECK(size == names.size()) << "Invalid parameters file format";
+  ICHECK(size == names.size()) << "Invalid parameters file format";
   for (size_t i = 0; i < size; ++i) {
     int in_idx = GetInputIndex(names[i]);
     if (in_idx < 0) {
@@ -210,7 +215,7 @@ void GraphRuntime::LoadParams(dmlc::Stream* strm) {
       continue;
     }
     uint32_t eid = this->entry_id(input_nodes_[in_idx], 0);
-    CHECK_LT(eid, data_entry_.size());
+    ICHECK_LT(eid, data_entry_.size());
 
     // The data_entry is allocated on device, NDArray.load always load the array into CPU.
     NDArray temp;
@@ -221,27 +226,64 @@ void GraphRuntime::LoadParams(dmlc::Stream* strm) {
 
 void GraphRuntime::ShareParams(const GraphRuntime& other, dmlc::Stream* strm) {
   uint64_t header, reserved;
-  CHECK(strm->Read(&header)) << "Invalid parameters file format";
-  CHECK(header == kTVMNDArrayListMagic) << "Invalid parameters file format";
-  CHECK(strm->Read(&reserved)) << "Invalid parameters file format";
+  ICHECK(strm->Read(&header)) << "Invalid parameters file format";
+  ICHECK(header == kTVMNDArrayListMagic) << "Invalid parameters file format";
+  ICHECK(strm->Read(&reserved)) << "Invalid parameters file format";
   std::vector<std::string> names;
-  CHECK(strm->Read(&names)) << "Invalid parameters file format";
+  ICHECK(strm->Read(&names)) << "Invalid parameters file format";
   uint64_t sz;
   strm->Read(&sz);
   size_t size = static_cast<size_t>(sz);
-  CHECK(size == names.size()) << "Invalid parameters file format";
+  ICHECK(size == names.size()) << "Invalid parameters file format";
   for (size_t i = 0; i < size; ++i) {
     int in_idx = GetInputIndex(names[i]);
     if (in_idx < 0) continue;
     uint32_t eid = this->entry_id(input_nodes_[in_idx], 0);
-    CHECK_LT(eid, data_entry_.size());
-    CHECK_EQ(data_entry_[eid].use_count(), 1);
+    ICHECK_LT(eid, data_entry_.size());
+    ICHECK_EQ(data_entry_[eid].use_count(), 1);
     data_entry_[eid] = other.GetInput(GetInputIndex(names[i]));
-    CHECK_GT(data_entry_[eid].use_count(), 1);
+    ICHECK_GT(data_entry_[eid].use_count(), 1);
     const DLTensor* tmp = data_entry_[eid].operator->();
     data_alignment_[eid] = details::GetDataAlignment(*tmp);
   }
   this->SetupOpExecs();
+}
+
+void GraphRuntime::LinkedNDArrayDeleter(Object* container) {
+  // container is the NDArray::Container which needs to get deleted.
+  // The data member points to global const memory, so it does not need deleting.
+  delete static_cast<NDArray::Container*>(container);
+}
+
+void GraphRuntime::DefaultLookupLinkedParam(TVMArgs args, TVMRetValue* rv) {
+  Module mod = args[0];
+  int64_t storage_id = args[1];
+  DLTensor* template_tensor = args[2];
+  TVMContext ctx = args[3];
+  // Get pre-linked parameter lookup function, if it was generated. When pf == nullptr, no linked
+  // params are present.
+  if (!module_lookup_linked_param_valid_) {
+    module_lookup_linked_param_ =
+        mod.GetFunction(::tvm::runtime::symbol::tvm_lookup_linked_param, true);
+  }
+  if (module_lookup_linked_param_ == nullptr) {
+    *rv = nullptr;
+    return;
+  }
+
+  TVMRetValue opaque_handle = module_lookup_linked_param_(storage_id);
+  if (opaque_handle.type_code() == kTVMNullptr) {
+    *rv = nullptr;
+    return;
+  }
+
+  std::vector<int64_t> shape_vec{template_tensor->shape,
+                                 template_tensor->shape + template_tensor->ndim};
+
+  std::unique_ptr<NDArray::Container> container{new NDArray::Container(
+      static_cast<void*>(opaque_handle), shape_vec, template_tensor->dtype, ctx)};
+  container->SetDeleter(GraphRuntime::LinkedNDArrayDeleter);
+  *rv = NDArray(GetObjectPtr<Object>(container.release()));
 }
 
 void GraphRuntime::SetupStorage() {
@@ -265,34 +307,50 @@ void GraphRuntime::SetupStorage() {
     for (int64_t sz : attrs_.shape[i]) {
       size *= static_cast<size_t>(sz);
     }
-    CHECK_GE(storage_id, 0) << "Do not support runtime shape op";
+    ICHECK_GE(storage_id, 0) << "Do not support runtime shape op";
     DLDataType t = vtype[i];
     size_t bits = t.bits * t.lanes;
-    CHECK(bits % 8U == 0U || bits == 1U);
+    ICHECK(bits % 8U == 0U || bits == 1U || bits == 4U);
     size_t bytes = ((bits + 7U) / 8U) * size;
 
     uint32_t sid = static_cast<uint32_t>(storage_id);
     if (sid >= pool_entry.size()) {
       pool_entry.resize(sid + 1, {0, -1});
     } else {
-      CHECK(pool_entry[sid].device_type == -1 || pool_entry[sid].device_type == device_type)
+      ICHECK(pool_entry[sid].device_type == -1 || pool_entry[sid].device_type == device_type)
           << "The same pool entry cannot be assigned to multiple devices";
     }
+    TVMRetValue lookup_rv;
+    {
+      std::vector<int64_t> shape_vec{attrs_.shape[i].begin(), attrs_.shape[i].end()};
+      DLTensor template_tensor{nullptr,  TVMContext{kDLCPU, 0}, static_cast<int>(shape_vec.size()),
+                               vtype[i], shape_vec.data(),      nullptr,
+                               0};
+      lookup_rv = lookup_linked_param_(module_, sid, &template_tensor, ctxs_[0]);
+    }
+    if (lookup_rv.type_code() != kTVMNullptr) {
+      pool_entry[sid].linked_param = lookup_rv;
+    }
+    pool_entry[sid].param_data_entry = i;
     pool_entry[sid].size = std::max(pool_entry[sid].size, bytes);
     pool_entry[sid].device_type = device_type;
   }
 
   // Allocate the space.
   for (const auto& pit : pool_entry) {
-    std::vector<int64_t> shape;
     // This for loop is very fast since there are usually only a couple of
     // devices available on the same hardware.
     const auto& cit = std::find_if(ctxs_.begin(), ctxs_.end(), [&pit](const TVMContext& c) {
       return pit.device_type == static_cast<int>(c.device_type);
     });
     TVMContext ctx = cit == ctxs_.end() ? ctxs_[0] : *cit;
-    shape.push_back(static_cast<int64_t>(pit.size + 3) / 4);
-    storage_pool_.push_back(NDArray::Empty(shape, DLDataType{kDLFloat, 32, 1}, ctx));
+    if (pit.linked_param.defined()) {
+      storage_pool_.push_back(pit.linked_param);
+    } else {
+      std::vector<int64_t> shape;
+      shape.push_back(static_cast<int64_t>(pit.size + 3) / 4);
+      storage_pool_.push_back(NDArray::Empty(shape, DLDataType{kDLFloat, 32, 1}, ctx));
+    }
   }
 
   // Assign the pooled entries. A unified memory pool is used to simplifiy
@@ -302,8 +360,9 @@ void GraphRuntime::SetupStorage() {
   data_alignment_.resize(num_node_entries());
   for (size_t i = 0; i < data_entry_.size(); ++i) {
     int storage_id = attrs_.storage_id[i];
-    CHECK_LT(static_cast<size_t>(storage_id), storage_pool_.size());
+    ICHECK_LT(static_cast<size_t>(storage_id), storage_pool_.size());
     data_entry_[i] = storage_pool_[storage_id].CreateView(attrs_.shape[i], vtype[i]);
+
     const DLTensor* tmp = data_entry_[i].operator->();
     data_alignment_[i] = details::GetDataAlignment(*tmp);
   }
@@ -331,7 +390,7 @@ void GraphRuntime::SetupOpExecs() {
       uint32_t eid = this->entry_id(nid, index);
       args.push_back(*(data_entry_[eid].operator->()));
     }
-    CHECK(inode.op_type == "tvm_op") << "Can only take tvm_op as op";
+    ICHECK(inode.op_type == "tvm_op") << "Can only take tvm_op as op";
 
     std::shared_ptr<OpArgs> op_args = nullptr;
     std::tie(op_execs_[nid], op_args) = CreateTVMOp(inode.param, args, inode.inputs.size());
@@ -384,7 +443,7 @@ std::pair<std::function<void()>, std::shared_ptr<GraphRuntime::OpArgs> > GraphRu
   // Get compiled function from the module that contains both host and device
   // code.
   tvm::runtime::PackedFunc pf = module_.GetFunction(param.func_name, true);
-  CHECK(pf != nullptr) << "no such function in module: " << param.func_name;
+  ICHECK(pf != nullptr) << "no such function in module: " << param.func_name;
 
   auto fexec = [arg_ptr, pf]() {
     TVMRetValue rv;
@@ -451,7 +510,7 @@ PackedFunc GraphRuntime::GetFunction(const std::string& name,
   } else if (name == "share_params") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
       const auto& module = args[0].operator Module();
-      CHECK_EQ(module.operator->()->type_key(), "GraphRuntime");
+      ICHECK_EQ(module.operator->()->type_key(), "GraphRuntime");
       const auto& param_blob = args[1].operator std::string();
       dmlc::MemoryStringStream strm(const_cast<std::string*>(&param_blob));
       this->ShareParams(dynamic_cast<const GraphRuntime&>(*module.operator->()), &strm);
@@ -462,18 +521,19 @@ PackedFunc GraphRuntime::GetFunction(const std::string& name,
 }
 
 Module GraphRuntimeCreate(const std::string& sym_json, const tvm::runtime::Module& m,
-                          const std::vector<TVMContext>& ctxs) {
+                          const std::vector<TVMContext>& ctxs,
+                          const PackedFunc lookup_linked_param_func) {
   auto exec = make_object<GraphRuntime>();
-  exec->Init(sym_json, m, ctxs);
+  exec->Init(sym_json, m, ctxs, lookup_linked_param_func);
   return Module(exec);
 }
 
 // Get all context for the host and other runtime devices.
-std::vector<TVMContext> GetAllContext(const TVMArgs& args) {
+std::vector<TVMContext> GetAllContext(const TVMArgs& args, int ctx_start_arg) {
   // Reserve the first item as the fallback device.
   std::vector<TVMContext> ret;
   TVMContext ctx;
-  for (int i = 2; i < args.num_args; i += 2) {
+  for (int i = ctx_start_arg; i < args.num_args; i += 2) {
     int dev_type = args[i];
     ctx.device_type = static_cast<DLDeviceType>(dev_type);
     ctx.device_id = args[i + 1];
@@ -488,11 +548,17 @@ std::vector<TVMContext> GetAllContext(const TVMArgs& args) {
 // be passed in. The third one is the number of devices.
 // Eventually, we will only probably pass TVMContext for all the languages.
 TVM_REGISTER_GLOBAL("tvm.graph_runtime.create").set_body([](TVMArgs args, TVMRetValue* rv) {
-  CHECK_GE(args.num_args, 4) << "The expected number of arguments for graph_runtime.create is "
-                                "at least 4, but it has "
-                             << args.num_args;
-  const auto& contexts = GetAllContext(args);
-  *rv = GraphRuntimeCreate(args[0], args[1], contexts);
+  ICHECK_GE(args.num_args, 4) << "The expected number of arguments for graph_runtime.create is "
+                                 "at least 4, but it has "
+                              << args.num_args;
+  PackedFunc lookup_linked_param_func;
+  int ctx_start_arg = 2;
+  if (args[2].type_code() == kTVMPackedFuncHandle) {
+    lookup_linked_param_func = args[2];
+    ctx_start_arg++;
+  }
+  const auto& contexts = GetAllContext(args, ctx_start_arg);
+  *rv = GraphRuntimeCreate(args[0], args[1], contexts, lookup_linked_param_func);
 });
 }  // namespace runtime
 }  // namespace tvm

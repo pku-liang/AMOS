@@ -21,9 +21,9 @@ import numpy as np
 import tvm
 from tvm import te
 from tvm import autotvm
-from ..util import get_const_tuple, traverse_inline, simplify
+from ..utils import get_const_tuple, traverse_inline, simplify
 from ..nn.pad import pad
-from ..nn.util import get_pad_tuple
+from ..nn.utils import get_pad_tuple
 from .tensor_intrin import intrin_wmma_load_matrix_A
 from .tensor_intrin import intrin_wmma_load_matrix_W
 from .tensor_intrin import intrin_wmma_store_matrix
@@ -72,6 +72,7 @@ def nhwc_tensorcore_cuda(cfg, Input, Filter, stride, padding, dilation, out_dtyp
     ry = te.reduce_axis((0, kernel_h), name="ry")
     rx = te.reduce_axis((0, kernel_w), name="rx")
     # convert data type of input feature maps and weights
+    # TODO: add checking here, datatype casting may cause precision loss
     TransPaddedInput = te.compute(
         PaddedInput.shape, lambda n, h, w, c: PaddedInput[n, h, w, c].astype("float16")
     )

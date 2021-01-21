@@ -117,7 +117,7 @@ void TFLiteRuntime::SetInput(int index, DLTensor* data_in) {
   TVM_DTYPE_DISPATCH(dtype, DType, {
     DType* dest = interpreter_->typed_input_tensor<DType>(index);
     DType* src = static_cast<DType*>(data_in->data);
-    CHECK(data_in->strides == NULL);
+    ICHECK(data_in->strides == NULL);
     int64_t size = 1;
     for (int64_t i = 0; i < data_in->ndim; ++i) {
       size *= data_in->shape[i];
@@ -127,6 +127,8 @@ void TFLiteRuntime::SetInput(int index, DLTensor* data_in) {
     }
   });
 }
+
+void TFLiteRuntime::SetNumThreads(int num_threads) { interpreter_->SetNumThreads(num_threads); }
 
 NDArray TFLiteRuntime::GetOutput(int index) const {
   TfLiteTensor* output = interpreter_->tensor(interpreter_->outputs()[index]);
@@ -155,7 +157,7 @@ PackedFunc TFLiteRuntime::GetFunction(const std::string& name,
   if (name == "set_input") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
       int in_idx = args[0];
-      CHECK_GE(in_idx, 0);
+      ICHECK_GE(in_idx, 0);
       this->SetInput(in_idx, args[1]);
     });
   } else if (name == "get_output") {
@@ -163,6 +165,12 @@ PackedFunc TFLiteRuntime::GetFunction(const std::string& name,
         [sptr_to_self, this](TVMArgs args, TVMRetValue* rv) { *rv = this->GetOutput(args[0]); });
   } else if (name == "invoke") {
     return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) { this->Invoke(); });
+  } else if (name == "set_num_threads") {
+    return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
+      int num_threads = args[0];
+      CHECK_GE(num_threads, 1);
+      this->SetNumThreads(num_threads);
+    });
   } else {
     return PackedFunc();
   }

@@ -104,10 +104,11 @@ def download_img_labels():
         ]
     )
     synset_name = "synset.txt"
-    synset_path = download_testdata(synset_url, synset_name, module="data")
+    synset_path = download_testdata(synset_url, synset_name + ".raw", module="data", overwrite=True)
 
     with open(synset_path) as fin:
-        synset = eval(fin.read())
+        data = fin.read()
+        synset = eval(data)
 
     with open(synset_name, "w") as f:
         for key in synset:
@@ -126,7 +127,7 @@ def transform_image(image):
 
 
 def get_cat_image():
-    img_url = "https://github.com/dmlc/mxnet.js/blob/master/data/cat.png?raw=true"
+    img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
     img_path = download_testdata(img_url, "cat.png", module="data")
     shutil.copyfile(img_path, "cat.png")
     img = Image.open(img_path).resize((224, 224))

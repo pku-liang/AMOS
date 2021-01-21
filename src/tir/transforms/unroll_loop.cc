@@ -33,7 +33,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "ir_util.h"
+#include "ir_utils.h"
 
 namespace tvm {
 namespace tir {
@@ -100,14 +100,14 @@ class LoopUnroller : public StmtExprMutator {
     op = stmt.as<ForNode>();
     int value = GetExtent(op);
     // condition for auto unroll
-    bool auto_unroll = (op->for_type == ForType::Serial && value >= 0 && normal_loop_depth_ == 0 &&
+    bool auto_unroll = (op->kind == ForKind::kSerial && value >= 0 && normal_loop_depth_ == 0 &&
                         unroll_depth_ <= auto_max_depth_);
 
     auto_unroll =
         auto_unroll && (value * step_count_ <= auto_max_step_ || value <= auto_max_extent_);
 
-    if (op->for_type == ForType::Unrolled) {
-      CHECK_GE(value, 0) << "Cannot unroll non-constant loop";
+    if (op->kind == ForKind::kUnrolled) {
+      ICHECK_GE(value, 0) << "Cannot unroll non-constant loop";
       auto_unroll = true;
     }
 
@@ -124,9 +124,9 @@ class LoopUnroller : public StmtExprMutator {
       return Unroll(op);
     } else {
       if (auto_unroll) {
-        if (op->for_type != ForType::Unrolled) {
-          return For(op->loop_var, op->min, op->extent, ForType::Unrolled, op->device_api,
-                     op->body);
+        if (op->kind != ForKind::kUnrolled) {
+          return For(op->loop_var, op->min, op->extent, ForKind::kUnrolled, op->body,
+                     op->thread_binding, op->annotations);
         }
       }
       return stmt;
@@ -163,7 +163,7 @@ class LoopUnroller : public StmtExprMutator {
   Stmt Unroll(const ForNode* op) {
     int value = GetExtent(op);
     // For loop must have a constant integer extent
-    CHECK_NE(value, -1) << "loop doesn't have a constant integer extent";
+    ICHECK_NE(value, -1) << "loop doesn't have a constant integer extent";
     if (value == 0) return Evaluate(0);
     Stmt body = op->body;
     Map<Var, PrimExpr> vmap;

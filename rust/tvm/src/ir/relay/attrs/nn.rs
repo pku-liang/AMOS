@@ -27,7 +27,7 @@ use tvm_macros::Object;
 type IndexExpr = PrimExpr;
 
 #[repr(C)]
-#[derive(Object)]
+#[derive(Object, Debug)]
 #[ref_name = "Conv2DAttrs"]
 #[type_key = "relay.attrs.Conv2DAttrs"]
 pub struct Conv2DAttrsNode {
@@ -46,7 +46,7 @@ pub struct Conv2DAttrsNode {
 }
 
 #[repr(C)]
-#[derive(Object)]
+#[derive(Object, Debug)]
 #[ref_name = "BiasAddAttrs"]
 #[type_key = "relay.attrs.BiasAddAttrs"]
 pub struct BiasAddAttrsNode {
@@ -55,7 +55,7 @@ pub struct BiasAddAttrsNode {
 }
 
 #[repr(C)]
-#[derive(Object)]
+#[derive(Object, Debug)]
 #[ref_name = "DenseAttrs"]
 #[type_key = "relay.attrs.DenseAttrs"]
 pub struct DenseAttrsNode {
@@ -65,7 +65,7 @@ pub struct DenseAttrsNode {
 }
 
 #[repr(C)]
-#[derive(Object)]
+#[derive(Object, Debug)]
 #[ref_name = "GlobalPool2DAttrs"]
 #[type_key = "relay.attrs.GlobalPool2DAttrs"]
 pub struct GlobalPool2DAttrsNode {
@@ -74,7 +74,7 @@ pub struct GlobalPool2DAttrsNode {
 }
 
 #[repr(C)]
-#[derive(Object)]
+#[derive(Object, Debug)]
 #[ref_name = "MaxPool2DAttrs"]
 #[type_key = "relay.attrs.MaxPool2DAttrs"]
 pub struct MaxPool2DAttrsNode {
@@ -87,10 +87,58 @@ pub struct MaxPool2DAttrsNode {
 }
 
 #[repr(C)]
-#[derive(Object)]
+#[derive(Object, Debug)]
 #[ref_name = "SoftmaxAttrs"]
 #[type_key = "relay.attrs.SoftmaxAttrs"]
 pub struct SoftmaxAttrsNode {
     pub base: BaseAttrsNode,
     pub axis: i32,
+}
+
+#[repr(C)]
+#[derive(Object, Debug)]
+#[ref_name = "BatchNormAttrs"]
+#[type_key = "relay.attrs.BatchNormAttrs"]
+pub struct BatchNormAttrsNode {
+    pub base: BaseAttrsNode,
+    pub axis: i32,
+    pub epsilon: f64,
+    pub center: bool,
+    pub scale: bool,
+}
+
+#[repr(C)]
+#[derive(Object, Debug)]
+#[ref_name = "LeakyReluAttrs"]
+#[type_key = "relay.attrs.LeakyReluAttrs"]
+pub struct LeakyReluAttrsNode {
+    pub base: BaseAttrsNode,
+    pub alpha: f64,
+}
+
+#[repr(C)]
+#[derive(Object, Debug)]
+#[ref_name = "AvgPool2DAttrs"]
+#[type_key = "relay.attrs.AvgPool2DAttrs"]
+pub struct AvgPool2DAttrsNode {
+    pub base: BaseAttrsNode,
+    pub pool_size: Array<IndexExpr>,
+    pub strides: Array<IndexExpr>,
+    pub padding: Array<IndexExpr>,
+    pub layout: TString,
+    pub ceil_mode: bool,
+    pub count_include_pad: bool,
+}
+
+#[repr(C)]
+#[derive(Object, Debug)]
+#[ref_name = "UpSamplingAttrs"]
+#[type_key = "relay.attrs.UpSamplingAttrs"]
+pub struct UpSamplingAttrsNode {
+    pub base: BaseAttrsNode,
+    pub scale_h: f64,
+    pub scale_w: f64,
+    pub layout: TString,
+    pub method: TString,
+    pub align_corners: bool,
 }

@@ -30,8 +30,9 @@
 
 #include <mutex>
 
-#include "../../runtime/file_util.h"
+#include "../../runtime/file_utils.h"
 #include "../../runtime/library_module.h"
+#include "../func_registry_generator.h"
 #include "codegen_blob.h"
 #include "codegen_llvm.h"
 #include "llvm_common.h"
@@ -59,6 +60,13 @@ class LLVMModuleNode final : public runtime::ModuleNode {
     if (name == "__tvm_is_system_module") {
       bool flag = (mptr_->getFunction("__tvm_module_startup") != nullptr);
       return PackedFunc([flag](TVMArgs args, TVMRetValue* rv) { *rv = flag; });
+    } else if (name == "get_func_names") {
+      return PackedFunc(
+          [sptr_to_self, this](TVMArgs args, TVMRetValue* rv) { *rv = this->function_names_; });
+    } else if (name == "get_symbol") {
+      return PackedFunc(nullptr);
+    } else if (name == "get_const_vars") {
+      return PackedFunc(nullptr);
     } else if (name == "_get_target_triple") {
       std::string target_triple = tm_->getTargetTriple().str();
       // getTargetTriple() doesn't include other flags besides the triple. Add back flags which are
@@ -76,7 +84,7 @@ class LLVMModuleNode final : public runtime::ModuleNode {
     if (name == runtime::symbol::tvm_module_main) {
       const char* entry_name =
           reinterpret_cast<const char*>(GetGlobalAddr(runtime::symbol::tvm_module_main));
-      CHECK(entry_name != nullptr)
+      ICHECK(entry_name != nullptr)
           << "Symbol " << runtime::symbol::tvm_module_main << " is not presented";
       faddr = reinterpret_cast<TVMBackendPackedCFunc>(GetFunctionAddr(entry_name));
     } else {
@@ -90,7 +98,7 @@ class LLVMModuleNode final : public runtime::ModuleNode {
     std::string fmt = runtime::GetFileFormat(file_name, format);
     std::error_code ecode;
     llvm::raw_fd_ostream dest(file_name, ecode, llvm::sys::fs::F_None);
-    CHECK_EQ(ecode.value(), 0) << "Cannot open file: " << file_name << " " << ecode.message();
+    ICHECK_EQ(ecode.value(), 0) << "Cannot open file: " << file_name << " " << ecode.message();
     if (fmt == "o" || fmt == "obj") {
 #if TVM_LLVM_VERSION <= 60
       std::unique_ptr<llvm::Module> m = llvm::CloneModule(mptr_);
@@ -98,16 +106,16 @@ class LLVMModuleNode final : public runtime::ModuleNode {
       std::unique_ptr<llvm::Module> m = llvm::CloneModule(*mptr_);
 #endif
       llvm::legacy::PassManager pass;
-      CHECK(tm_);
+      ICHECK(tm_);
 #if TVM_LLVM_VERSION <= 60
-      CHECK(tm_->addPassesToEmitFile(pass, dest, llvm::TargetMachine::CGFT_ObjectFile) == 0)
+      ICHECK(tm_->addPassesToEmitFile(pass, dest, llvm::TargetMachine::CGFT_ObjectFile) == 0)
           << "Cannot emit target CGFT_ObjectFile";
 #elif TVM_LLVM_VERSION <= 90
-      CHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::TargetMachine::CGFT_ObjectFile) ==
-            0)
+      ICHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::TargetMachine::CGFT_ObjectFile) ==
+             0)
           << "Cannot emit target CGFT_ObjectFile";
 #else
-      CHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::CGFT_ObjectFile) == 0)
+      ICHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::CGFT_ObjectFile) == 0)
           << "Cannot emit target CGFT_ObjectFile";
 #endif
       pass.run(*m);
@@ -118,16 +126,16 @@ class LLVMModuleNode final : public runtime::ModuleNode {
       std::unique_ptr<llvm::Module> m = llvm::CloneModule(*mptr_);
 #endif
       llvm::legacy::PassManager pass;
-      CHECK(tm_);
+      ICHECK(tm_);
 #if TVM_LLVM_VERSION <= 60
-      CHECK(tm_->addPassesToEmitFile(pass, dest, llvm::TargetMachine::CGFT_AssemblyFile) == 0)
+      ICHECK(tm_->addPassesToEmitFile(pass, dest, llvm::TargetMachine::CGFT_AssemblyFile) == 0)
           << "Cannot emit target CGFT_AssemblyFile";
 #elif TVM_LLVM_VERSION <= 90
-      CHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::TargetMachine::CGFT_AssemblyFile) ==
-            0)
+      ICHECK(tm_->addPassesToEmitFile(pass, dest, nullptr,
+                                      llvm::TargetMachine::CGFT_AssemblyFile) == 0)
           << "Cannot emit target CGFT_AssemblyFile";
 #else
-      CHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::CGFT_AssemblyFile) == 0)
+      ICHECK(tm_->addPassesToEmitFile(pass, dest, nullptr, llvm::CGFT_AssemblyFile) == 0)
           << "Cannot emit target CGFT_AssemblyFile";
 #endif
       pass.run(*m);
@@ -163,16 +171,16 @@ class LLVMModuleNode final : public runtime::ModuleNode {
       std::unique_ptr<llvm::Module> m = llvm::CloneModule(*mptr_);
 #endif
       llvm::legacy::PassManager pass;
-      CHECK(tm_);
+      ICHECK(tm_);
 #if TVM_LLVM_VERSION <= 60
-      CHECK(tm_->addPassesToEmitFile(pass, rso, llvm::TargetMachine::CGFT_AssemblyFile) == 0)
+      ICHECK(tm_->addPassesToEmitFile(pass, rso, llvm::TargetMachine::CGFT_AssemblyFile) == 0)
           << "Cannot emit target CGFT_AssemblyFile";
 #elif TVM_LLVM_VERSION <= 90
-      CHECK(tm_->addPassesToEmitFile(pass, rso, nullptr, llvm::TargetMachine::CGFT_AssemblyFile) ==
-            0)
+      ICHECK(tm_->addPassesToEmitFile(pass, rso, nullptr, llvm::TargetMachine::CGFT_AssemblyFile) ==
+             0)
           << "Cannot emit target CGFT_AssemblyFile";
 #else
-      CHECK(tm_->addPassesToEmitFile(pass, rso, nullptr, llvm::CGFT_AssemblyFile) == 0)
+      ICHECK(tm_->addPassesToEmitFile(pass, rso, nullptr, llvm::CGFT_AssemblyFile) == 0)
           << "Cannot emit target CGFT_AssemblyFile";
 #endif
       pass.run(*m);
@@ -180,7 +188,7 @@ class LLVMModuleNode final : public runtime::ModuleNode {
     } else if (fmt == "" || fmt == "ll") {
       std::string type_str;
       llvm::raw_string_ostream rso(type_str);
-      CHECK(mptr_ != nullptr);
+      ICHECK(mptr_ != nullptr);
       mptr_->print(rso, nullptr);
       return rso.str();
     } else {
@@ -199,17 +207,33 @@ class LLVMModuleNode final : public runtime::ModuleNode {
 
     std::vector<PrimFunc> funcs;
     std::string entry_func;
+    Map<String, LinkedParam> linked_params;
+    bool found_linked_params = false;
+    bool could_have_linked_params = target->GetAttr<Bool>("link-params").value_or(Bool(false));
     for (auto kv : mod->functions) {
-      CHECK(kv.second->IsInstance<PrimFuncNode>()) << "Can only lower IR Module with PrimFuncs";
+      if (could_have_linked_params &&
+          kv.first->name_hint == ::tvm::runtime::symbol::tvm_lookup_linked_param) {
+        Map<String, ObjectRef> attrs_dict =
+            Downcast<Map<String, ObjectRef>>(kv.second->attrs->dict);
+        CHECK(attrs_dict.find(::tvm::tir::attr::kLinkedParams) != attrs_dict.end())
+            << "no " << ::tvm::tir::attr::kLinkedParams << " attribute found!";
+        linked_params =
+            Downcast<Map<String, LinkedParam>>(attrs_dict[::tvm::tir::attr::kLinkedParams]);
+        found_linked_params = true;
+        continue;
+      }
+      ICHECK(kv.second->IsInstance<PrimFuncNode>())
+          << "Can only lower IR Module with PrimFuncs, but got " << kv.second->GetTypeKey();
       auto f = Downcast<PrimFunc>(kv.second);
+      auto global_symbol = f->GetAttr<String>(tvm::attr::kGlobalSymbol);
+      ICHECK(global_symbol.defined());
+      function_names_.push_back(global_symbol.value());
       if (f->HasNonzeroAttr(tir::attr::kIsEntryFunc)) {
-        auto global_symbol = f->GetAttr<String>(tvm::attr::kGlobalSymbol);
-        CHECK(global_symbol.defined());
         entry_func = global_symbol.value();
       }
       funcs.push_back(f);
     }
-    CHECK_NE(funcs.size(), 0U);
+    ICHECK(funcs.size() > 0 || (could_have_linked_params && found_linked_params));
     // TODO(tqchen): remove the entry function behavior as it does not
     // makes sense when we start to use multiple modules.
     cg->Init("TVMMod", tm_.get(), ctx_.get(), system_lib, system_lib, target_c_runtime);
@@ -222,6 +246,9 @@ class LLVMModuleNode final : public runtime::ModuleNode {
       cg->AddMainFunction(entry_func);
     }
 
+    if (found_linked_params) {
+      cg->LinkParameters(linked_params);
+    }
     module_ = cg->Finish();
     module_->addModuleFlag(llvm::Module::Warning, "tvm_target",
                            llvm::MDString::get(*ctx_, LLVMTargetToString(target)));
@@ -254,7 +281,7 @@ class LLVMModuleNode final : public runtime::ModuleNode {
     llvm::Metadata* tvm_target = module_->getModuleFlag("tvm_target");
     if (tvm_target != nullptr) {
       llvm::MDString* pstr = llvm::dyn_cast<llvm::MDString>(tvm_target);
-      CHECK(pstr != nullptr);
+      ICHECK(pstr != nullptr);
       target_metadata = pstr->getString().str();
       if (!(target_metadata.length() >= 4 && target_metadata.substr(0, 4) == "llvm")) {
         target_metadata = "llvm " + target_metadata;
@@ -311,12 +338,12 @@ class LLVMModuleNode final : public runtime::ModuleNode {
                  << " system=" << tm_sys->getTargetTriple().str();
     }
     llvm::DataLayout layout(tm->createDataLayout());
-    CHECK(layout == mptr_->getDataLayout())
+    ICHECK(layout == mptr_->getDataLayout())
         << "Data layout mismatch between module("
         << mptr_->getDataLayout().getStringRepresentation() << ")"
         << " and ExecutionEngine (" << layout.getStringRepresentation() << ")";
     ee_ = builder.create(tm.release());
-    CHECK(ee_ != nullptr) << "Failed to initialize jit engine for " << mptr_->getTargetTriple();
+    ICHECK(ee_ != nullptr) << "Failed to initialize jit engine for " << mptr_->getTargetTriple();
     ee_->runStaticConstructorsDestructors(false);
 
     if (void** ctx_addr =
@@ -358,6 +385,8 @@ class LLVMModuleNode final : public runtime::ModuleNode {
   std::unique_ptr<llvm::Module> module_;
   // the context.
   std::shared_ptr<llvm::LLVMContext> ctx_;
+  /* \brief names of the functions declared in this module */
+  Array<String> function_names_;
 };
 
 TVM_REGISTER_GLOBAL("target.build.llvm")

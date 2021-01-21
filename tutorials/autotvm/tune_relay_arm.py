@@ -17,7 +17,7 @@
 """
 .. _tune_relay_arm:
 
-Auto-tuning a convolutional network for ARM CPU
+Auto-tuning a Convolutional Network for ARM CPU
 ===============================================
 **Author**: `Lianmin Zheng <https://github.com/merrymercy>`_, `Zhao Wu <https://github.com/FrozenGene>`_, `Eddie Yan <https://github.com/eqy>`_
 
@@ -33,8 +33,12 @@ the best knob values for all required operators. When the TVM compiler compiles
 these operators, it will query this log file to get the best knob values.
 
 We also released pre-tuned parameters for some arm devices. You can go to
-`ARM CPU Benchmark <https://github.com/apache/incubator-tvm/wiki/Benchmark#arm-cpu>`_
+`ARM CPU Benchmark <https://github.com/apache/tvm/wiki/Benchmark#arm-cpu>`_
 to see the results.
+
+Note that this tutorial will not run on Windows or recent versions of macOS. To
+get it to run, you will need to wrap the body of this tutorial in a :code:`if
+__name__ == "__main__":` block.
 """
 
 ######################################################################
@@ -45,7 +49,7 @@ to see the results.
 #
 # .. code-block:: bash
 #
-#   pip3 install --user psutil xgboost tornado
+#   pip3 install --user psutil xgboost tornado cloudpickle
 #
 # To make TVM run faster during tuning, it is recommended to use cython
 # as FFI of TVM. In the root directory of TVM, execute
@@ -62,12 +66,10 @@ import os
 
 import numpy as np
 import tvm
-from tvm import te
-from tvm import autotvm
-from tvm import relay
+from tvm import relay, autotvm
 import tvm.relay.testing
 from tvm.autotvm.tuner import XGBTuner, GATuner, RandomTuner, GridSearchTuner
-from tvm.contrib.util import tempdir
+from tvm.contrib.utils import tempdir
 import tvm.contrib.graph_runtime as runtime
 
 #################################################################
@@ -100,7 +102,7 @@ def get_network(name, batch_size):
             batch_size=batch_size, version="1.1", dtype=dtype
         )
     elif name == "inception_v3":
-        input_shape = (1, 3, 299, 299)
+        input_shape = (batch_size, 3, 299, 299)
         mod, params = relay.testing.inception_v3.get_workload(batch_size=batch_size, dtype=dtype)
     elif name == "mxnet":
         # an example for mxnet model
@@ -127,7 +129,7 @@ def get_network(name, batch_size):
 # measure the speed of code on the board.
 #
 # To scale up the tuning, TVM uses RPC Tracker to manage distributed devices.
-# The RPC Tracker is a centralized master node. We can register all devices to
+# The RPC Tracker is a centralized controller node. We can register all devices to
 # the tracker. For example, if we have 10 phones, we can register all of them
 # to the tracker, and run 10 measurements in parallel, accelerating the tuning process.
 #
@@ -146,7 +148,7 @@ def get_network(name, batch_size):
 #   INFO:RPCTracker:bind to 0.0.0.0:9190
 
 #################################################################
-# Register devices to RPC Tracker
+# Register Devices to RPC Tracker
 # -----------------------------------
 # Now we can register our devices to the tracker. The first step is to
 # build the TVM runtime for the ARM devices.
@@ -162,7 +164,7 @@ def get_network(name, batch_size):
 #   (replace :code:`[HOST_IP]` with the IP address of your host machine)
 #
 # * For Android:
-#   Follow this `readme page <https://github.com/apache/incubator-tvm/tree/master/apps/android_rpc>`_ to
+#   Follow this `readme page <https://github.com/apache/tvm/tree/main/apps/android_rpc>`_ to
 #   install the TVM RPC APK on the android device. Make sure you can pass the android rpc test.
 #   Then you have already registered your device. During tuning, you have to go to developer option
 #   and enable "Keep screen awake during changing" and charge your phone to make it stable.
@@ -412,4 +414,4 @@ def tune_and_evaluate(tuning_opt):
 #      import logging
 #      logging.getLogger('autotvm').setLevel(logging.DEBUG)
 #
-#   Finally, always feel free to ask our community for help on https://discuss.tvm.ai
+#   Finally, always feel free to ask our community for help on https://discuss.tvm.apache.org

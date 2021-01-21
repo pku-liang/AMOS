@@ -138,7 +138,7 @@ def imagenet_cat(tmpdir_factory):
     tmpdir_name = tmpdir_factory.mktemp("data")
     cat_file_name = "imagenet_cat.npz"
 
-    cat_url = "https://github.com/dmlc/mxnet.js/blob/master/data/cat.png?raw=true"
+    cat_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
     image_path = download_testdata(cat_url, "inputs", module=["tvmc"])
     resized_image = Image.open(image_path).resize((224, 224))
     image_data = np.asarray(resized_image).astype("float32")
@@ -148,3 +148,16 @@ def imagenet_cat(tmpdir_factory):
     np.savez(cat_file_full_path, input=image_data)
 
     return cat_file_full_path
+
+
+@pytest.fixture(scope="session")
+def tflite_mobilenet_v1_0_25_128(tmpdir_factory):
+    base_url = "https://storage.googleapis.com/download.tensorflow.org/models"
+    model_url = "mobilenet_v1_2018_02_22/mobilenet_v1_0.25_128.tgz"
+    model_file = download_and_untar(
+        "{}/{}".format(base_url, model_url),
+        "mobilenet_v1_0.25_128.tflite",
+        temp_dir=tmpdir_factory.mktemp("data"),
+    )
+
+    return model_file

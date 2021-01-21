@@ -36,7 +36,7 @@
 #include <utility>
 #include <vector>
 
-#include "../../../transforms/infer_layout_util.h"
+#include "../../../transforms/infer_layout_utils.h"
 
 namespace tvm {
 namespace relay {
@@ -47,11 +47,11 @@ namespace dyn {
 bool ReshapeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                 const TypeReporter& reporter) {
   // types: [data, newshape, result]
-  CHECK_EQ(types.size(), 3);
+  ICHECK_EQ(types.size(), 3);
 
   const auto* data = types[0].as<TensorTypeNode>();
   if (data == nullptr) {
-    CHECK(types[0].as<IncompleteTypeNode>())
+    ICHECK(types[0].as<IncompleteTypeNode>())
         << "reshape: expect input type to be TensorType but get " << types[0];
     return false;
   }
@@ -59,7 +59,7 @@ bool ReshapeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   Array<IndexExpr> oshape;
   const auto* newshape = types[1].as<TensorTypeNode>();
   if (newshape == nullptr) {
-    CHECK(types[1].as<IncompleteTypeNode>())
+    ICHECK(types[1].as<IncompleteTypeNode>())
         << "reshape: expect input type to be TensorType but get " << types[1];
     return false;
   }
@@ -76,7 +76,7 @@ bool ReshapeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
 Array<te::Tensor> ReshapeCompute(const Attrs& attrs, const Array<te::Tensor>& inputs,
                                  const Type& out_type) {
   const auto* out_ttype = out_type.as<TensorTypeNode>();
-  CHECK(out_ttype != nullptr);
+  ICHECK(out_ttype != nullptr);
   Array<IndexExpr> newshape;
   for (auto val : out_ttype->shape) {
     if (val->IsInstance<tir::AnyNode>()) {
@@ -90,7 +90,6 @@ Array<te::Tensor> ReshapeCompute(const Attrs& attrs, const Array<te::Tensor>& in
 
 Expr MakeReshape(Expr data, Expr newshape) {
   auto attrs = make_object<ReshapeAttrs>();
-  attrs->reverse = false;
   static const Op& op = Op::Get("dyn.reshape");
   return Call(op, {data, newshape}, Attrs(attrs), {});
 }
@@ -149,21 +148,21 @@ RELAY_REGISTER_OP("dyn.reshape")
 bool TileRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
              const TypeReporter& reporter) {
   // `types` contains: [data, reps, result]
-  CHECK_EQ(types.size(), 3);
+  ICHECK_EQ(types.size(), 3);
   const auto* data = types[0].as<TensorTypeNode>();
   const auto* reps = types[1].as<TensorTypeNode>();
   if (data == nullptr) {
-    CHECK(types[0].as<IncompleteTypeNode>())
+    ICHECK(types[0].as<IncompleteTypeNode>())
         << "tile: expect input type to be TensorType but get " << types[0];
     return false;
   }
   if (reps == nullptr) {
-    CHECK(types[1].as<IncompleteTypeNode>())
+    ICHECK(types[1].as<IncompleteTypeNode>())
         << "tile: expect input type to be TensorType but get " << types[1];
     return false;
   }
   const IntImmNode* reps_shape = reps->shape[0].as<IntImmNode>();
-  CHECK(reps_shape) << "Parameter reps must have static shape";
+  ICHECK(reps_shape) << "Parameter reps must have static shape";
   const size_t ndim = data->shape.size();
   const size_t rndim = reps_shape->value;
   size_t tndim = (ndim > rndim) ? ndim : rndim;
@@ -178,7 +177,7 @@ bool TileRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
 
 Array<te::Tensor> TileCompute(const Attrs& attrs, const Array<te::Tensor>& inputs,
                               const Type& out_type) {
-  CHECK_EQ(inputs.size(), 2);
+  ICHECK_EQ(inputs.size(), 2);
   const auto* out_ttype = out_type.as<TensorTypeNode>();
   size_t rndim = inputs[1]->shape[0].as<IntImmNode>()->value;
   return {topi::dyn_tile(inputs[0], out_ttype->shape, rndim)};
@@ -212,7 +211,7 @@ RELAY_REGISTER_OP("dyn.tile")
 bool BroadCastToRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                     const TypeReporter& reporter) {
   // types = [data_type, broadcast_shape_type, ret_type]
-  CHECK_EQ(types.size(), 3);
+  ICHECK_EQ(types.size(), 3);
 
   const auto* input_type = types[0].as<TensorTypeNode>();
   const auto* target_type = types[1].as<TensorTypeNode>();
@@ -225,8 +224,9 @@ bool BroadCastToRel(const Array<Type>& types, int num_inputs, const Attrs& attrs
   auto out_dtype = input_type->dtype;
   // rank must be static
   const IntImmNode* rank = target_type->shape[0].as<IntImmNode>();
-  CHECK(rank) << "Target shape must have static rank";  // rank must be static even in dyn pass
-                                                        // could add support for dyn rank in futures
+  ICHECK(rank)
+      << "Target shape must have static rank";  // rank must be static even in dyn pass
+                                                // could add support for dyn rank in futures
 
   std::vector<IndexExpr> oshape;
   for (int i = 0; i < rank->value; ++i) {
@@ -266,13 +266,13 @@ RELAY_REGISTER_OP("dyn.broadcast_to")
 bool InitOpRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                const TypeReporter& reporter) {
   // types = [zeros_shape, ret_type]
-  CHECK_EQ(types.size(), 2);
+  ICHECK_EQ(types.size(), 2);
   const InitOpAttrs* param = attrs.as<InitOpAttrs>();
   const auto* fill_shape = types[0].as<TensorTypeNode>();
   DataType out_dtype = param->dtype;
 
   const IntImmNode* shape_shape = fill_shape->shape[0].as<IntImmNode>();
-  CHECK(shape_shape) << "Parameter shape must have static rank";
+  ICHECK(shape_shape) << "Parameter shape must have static rank";
 
   std::vector<IndexExpr> oshape;
   for (int i = 0; i < shape_shape->value; ++i) {
@@ -324,9 +324,9 @@ RELAY_REGISTER_OP("dyn.ones")
 bool OneHotRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                const TypeReporter& reporter) {
   // `types` contains: [indices, on_value, off_value, result]
-  CHECK_EQ(types.size(), 5);
+  ICHECK_EQ(types.size(), 5);
   const auto* indices = types[0].as<TensorTypeNode>();
-  CHECK(indices);
+  ICHECK(indices);
 
   const auto param = attrs.as<OneHotAttrs>();
 
@@ -349,7 +349,7 @@ bool OneHotRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
 Array<te::Tensor> OneHotCompute(const Attrs& attrs, const Array<te::Tensor>& inputs,
                                 const Type& out_type) {
   const auto* param = attrs.as<OneHotAttrs>();
-  CHECK(param != nullptr);
+  ICHECK(param != nullptr);
   const auto* out_ttype = out_type.as<TensorTypeNode>();
   return Array<te::Tensor>{topi::one_hot(inputs[0], inputs[1](), inputs[2](), -1, param->axis,
                                          param->dtype, out_ttype->shape)};
@@ -393,7 +393,7 @@ RELAY_REGISTER_OP("dyn.one_hot")
 
 bool FullRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
              const TypeReporter& reporter) {
-  CHECK_EQ(types.size(), 3);
+  ICHECK_EQ(types.size(), 3);
   const InitOpAttrs* param = attrs.as<InitOpAttrs>();
   const auto* fill_value = types[0].as<TensorTypeNode>();
   const auto* fill_shape = types[1].as<TensorTypeNode>();
@@ -406,11 +406,11 @@ bool FullRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
     out_dtype = fill_value->dtype;
   }
 
-  CHECK_EQ(fill_value->shape.size(), 0)
+  ICHECK_EQ(fill_value->shape.size(), 0)
       << "Fill value should be a scalar but has dimension " << fill_value->shape.size() << ".";
 
   const IntImmNode* rank = fill_shape->shape[0].as<IntImmNode>();
-  CHECK(rank) << "Parameter shape must have static rank";
+  ICHECK(rank) << "Parameter shape must have static rank";
 
   std::vector<IndexExpr> oshape;
   for (int i = 0; i < rank->value; ++i) {
@@ -449,7 +449,7 @@ RELAY_REGISTER_OP("dyn.full")
 bool StridedSliceRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                      const TypeReporter& reporter) {
   // [data, begin, end, strides, out]
-  CHECK_EQ(types.size(), 5);
+  ICHECK_EQ(types.size(), 5);
   const StridedSliceAttrs* param = attrs.as<StridedSliceAttrs>();
   if (param == nullptr) {
     return false;
@@ -471,28 +471,6 @@ bool StridedSliceRel(const Array<Type>& types, int num_inputs, const Attrs& attr
   return true;
 }
 
-inline te::Tensor DynamicStridedSlice(const te::Tensor& input, const te::Tensor& begin,
-                                      const te::Tensor& end, const te::Tensor& strides,
-                                      std::string name = "T_strided_slice_dynamic",
-                                      std::string tag = topi::kInjective) {
-  int64_t src_tensor_dim = input->shape.size();
-  Array<IndexExpr> out_shape;
-  for (int64_t i = 0; i < src_tensor_dim; ++i) {
-    out_shape.push_back(tvm::tir::Var("dim"));
-  }
-  // TODO(yongwww): move the compute into topi
-  return te::compute(
-      out_shape,
-      [&](const Array<tvm::tir::Var>& indices) {
-        Array<IndexExpr> real_indices;
-        for (int32_t i = 0; i < src_tensor_dim; ++i) {
-          real_indices.push_back(indices[i] * strides(i) + begin(i));
-        }
-        return input(real_indices);
-      },
-      name, tag);
-}
-
 Array<te::Tensor> StridedSliceCompute(const Attrs& attrs, const Array<te::Tensor>& inputs,
                                       const Type& out_type) {
   te::Tensor data = inputs[0];
@@ -501,12 +479,12 @@ Array<te::Tensor> StridedSliceCompute(const Attrs& attrs, const Array<te::Tensor
   te::Tensor strides = inputs[3];
   // Dynamic computation
   int64_t data_rank = data->shape.size();
-  CHECK(begin->shape[0].as<IntImmNode>()->value == data_rank &&
-        end->shape[0].as<IntImmNode>()->value == data_rank &&
-        strides->shape[0].as<IntImmNode>()->value == data_rank)
+  ICHECK(begin->shape[0].as<IntImmNode>()->value == data_rank &&
+         end->shape[0].as<IntImmNode>()->value == data_rank &&
+         strides->shape[0].as<IntImmNode>()->value == data_rank)
       << "begin, end, and strides are required to have the same length"
       << " if they are dynamic variables.";
-  return Array<te::Tensor>{DynamicStridedSlice(data, begin, end, strides)};
+  return Array<te::Tensor>{topi::dynamic_strided_slice(data, begin, end, strides)};
 }
 
 Expr MakeStridedSlice(Expr data, Expr begin, Expr end, Expr strides, String slice_mode) {
@@ -554,6 +532,77 @@ Examples::
     .set_attr<FTVMCompute>("FTVMCompute", StridedSliceCompute)
     .set_attr<TOpPattern>("TOpPattern", kInjective)
     .set_attr<AnyCodegenStrategy>("AnyCodegenStrategy", kVariableDimensions);
+
+bool SparseToDenseRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                      const TypeReporter& reporter) {
+  ICHECK_EQ(num_inputs, 4);
+  auto sparse_indices = types[0].as<TensorTypeNode>();
+  auto sparse_values = types[1].as<TensorTypeNode>();
+  auto default_value = types[2].as<TensorTypeNode>();
+  auto output_shape = types[3].as<TensorTypeNode>();
+
+  if (sparse_indices == nullptr || sparse_values == nullptr || default_value == nullptr ||
+      output_shape == nullptr) {
+    return false;
+  }
+
+  CHECK(sparse_indices->dtype.is_int()) << "sparse_indices must be tensor of integers";
+
+  CHECK_LE(sparse_indices->shape.size(), 3)
+      << "sparse_indices must be a tensor of either 0D, 1D or 2D";
+
+  CHECK_LE(sparse_values->shape.size(), 2) << "sparse_values must be a tensor of either 0D, 1D";
+
+  CHECK_EQ(default_value->shape.size(), 0) << "default_value should be a scalar";
+
+  Array<IndexExpr> oshape;
+  for (int i = 0; i < output_shape->shape[0].as<IntImmNode>()->value; i++) {
+    oshape.push_back(Any());
+  }
+  reporter->Assign(types[4], TensorType(oshape, sparse_values->dtype));
+  return true;
+}
+
+Array<te::Tensor> SparseToDenseCompute(const Attrs& attrs, const Array<te::Tensor>& inputs,
+                                       const Type& out_type) {
+  ICHECK_EQ(inputs.size(), 4);
+  const auto* out_ttype = out_type.as<TensorTypeNode>();
+  ICHECK(out_ttype);
+  return {topi::sparse_to_dense(inputs[0], out_ttype->shape, inputs[1], inputs[2]())};
+}
+
+TVM_REGISTER_GLOBAL("relay.op.dyn._make.sparse_to_dense")
+    .set_body_typed([](Expr indices, Expr output_shape, Expr values, Expr default_value) {
+      static const Op& op = Op::Get("dyn.sparse_to_dense");
+      return Call(op, {indices, values, default_value, output_shape});
+    });
+
+RELAY_REGISTER_OP("dyn.sparse_to_dense")
+    .describe(R"code(A dense tensor from a sparse representation.
+
+    - **sparse_indices**: A 0-D, 1-D, or 2-D tensor of integers containing location of sparse values
+
+    - **output_shape**: A list of integers. Shape of the dense output tensor.
+
+    - **sparse_values**: A 0-D or 1-D tensor containing the sparse values for the sparse indices.
+
+    - **default_value**: A 0-D tensor containing the default value for the remaining locations. Defaults to 0.
+
+    Example::
+      -  sparse_to_dense([0, 0], [1, 2]], [3, 4], [1, 2], 0) = [[1, 0, 0, 0], [0, 0, 2, 0], [0, 0, 0, 0]]
+
+    )code" TVM_ADD_FILELINE)
+    .set_num_inputs(4)
+    .set_support_level(3)
+    .add_argument("sparse_indices", "Tensor", "Contains sparse indices.")
+    .add_argument("sparse_values", "Tensor", "Contains values for sparse indices.")
+    .add_argument("default_value", "Tensor", "Value to set for non-sparse indices. Defaults to 0.")
+    .add_argument("output_shape", "Tensor", "Shape of the dense output tensor")
+    .add_type_rel("DynSparseToDense", SparseToDenseRel)
+    .set_attr<TOpIsStateful>("TOpIsStateful", false)
+    .set_attr<TOpPattern>("TOpPattern", kOpaque)
+    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", ElemwiseArbitraryLayout)
+    .set_attr<FTVMCompute>("FTVMCompute", SparseToDenseCompute);
 
 }  // namespace dyn
 }  // namespace relay

@@ -46,7 +46,7 @@
 #include <tvm/relay/transform.h>
 
 #include "../analysis/type_solver.h"
-#include "pass_util.h"
+#include "pass_utils.h"
 
 namespace tvm {
 namespace relay {
@@ -60,15 +60,15 @@ struct TupleGetItemAttrs : public tvm::AttrsNode<TupleGetItemAttrs> {
 
 bool TupleGetItemRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                      const TypeReporter& reporter) {
-  CHECK_EQ(types.size(), 2);
+  ICHECK_EQ(types.size(), 2);
   if (types[0].as<IncompleteTypeNode>()) return false;
   const auto* data = types[0].as<TupleTypeNode>();
-  CHECK(data != nullptr) << "TupleGetItem expect input type to be TupleType "
-                         << " get " << types[0] << " instead";
+  ICHECK(data != nullptr) << "TupleGetItem expect input type to be TupleType "
+                          << " get " << types[0] << " instead";
   const auto* param = attrs.as<TupleGetItemAttrs>();
-  CHECK(param != nullptr);
-  CHECK_GE(param->index, 0);
-  CHECK_LT(param->index, data->fields.size());
+  ICHECK(param != nullptr);
+  ICHECK_GE(param->index, 0);
+  ICHECK_LT(param->index, data->fields.size());
   reporter->Assign(types[1], data->fields[param->index]);
   return true;
 }
@@ -129,6 +129,37 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
   TypeRelationFn tuple_getitem_rel_;
   TypeRelationFn make_tuple_rel_;
 
+  /*! \brief Internal map used for memoization. */
+  std::unordered_map<Expr, Type, ObjectPtrHash, ObjectPtrEqual> memo_;
+
+  void VisitLeaf(const Expr& expr) {
+    if (!memo_.count(expr)) {
+      Type ret = this->DispatchVisitExpr(expr);
+      memo_[expr] = ret;
+    }
+  }
+
+  bool CheckVisited(const Expr& expr) {
+    if (memo_.count(expr)) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  Type DispatchVisitExpr(const Expr& expr) { return ExprFunctor::VisitExpr(expr); }
+
+  Type VisitExpr(const Expr& expr) final {
+    auto fcheck_visited = [this](const Expr& expr) { return this->CheckVisited(expr); };
+    auto fvisit_leaf = [this](const Expr& expr) { return this->VisitLeaf(expr); };
+    if (memo_.count(expr)) {
+      return memo_[expr];
+    } else {
+      ExpandDataflow(expr, fcheck_visited, fvisit_leaf);
+      return memo_[expr];
+    }
+  }
+
   // Perform unification on two types and report the error at the expression
   // or the span of the expression.
   Type Unify(const Type& t1, const Type& t2, const Span& span) {
@@ -149,7 +180,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
       return it->second.checked_type;
     }
     Type ret = this->VisitExpr(expr);
-    CHECK(ret.defined());
+    ICHECK(ret.defined());
     KindCheck(ret, mod_, this->diag_ctx);
     ResolvedTypeInfo& rti = type_map_[expr];
     rti.checked_type = ret;
@@ -202,8 +233,8 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
   }
 
   void VisitPattern_(const PatternConstructorNode* con, const Type& t) {
-    CHECK(mod_.defined()) << "Cannot do type inference without a environment:"
-                          << con->constructor->name_hint;
+    ICHECK(mod_.defined()) << "Cannot do type inference without a environment:"
+                           << con->constructor->name_hint;
     TypeData td = mod_->type_definitions.at(con->constructor->belong_to);
     auto pc = GetRef<PatternConstructor>(con);
 
@@ -264,7 +295,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
     if (!tt) {
       this->EmitFatal(Diagnostic::Error(pt->span) << "Expected a tuple type, got " << unified);
     }
-    CHECK(tup->patterns.size() == tt->fields.size()) << "not enough pattern";
+    ICHECK(tup->patterns.size() == tt->fields.size()) << "not enough pattern";
     for (size_t i = 0; i < tup->patterns.size(); ++i) {
       VisitPattern(tup->patterns[i], tt->fields[i]);
     }
@@ -325,7 +356,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
     Type vtype = GetType(let->value);
     let_type = Unify(let_type, vtype, let->span);
 
-    CHECK(is_functional_literal || !type_map_.count(let->var));
+    ICHECK(is_functional_literal || !type_map_.count(let->var));
     // NOTE: no scoping is necessary because var are unique in program
     type_map_[let->var].checked_type = let_type;
     return GetType(let->body);
@@ -368,7 +399,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
 
     // Build a subsitituion map up from the function type and type arguments.
     // Eventually allow the type vars to be passed in.
-    CHECK(fn_ty->type_params.size() == ty_args.size())
+    ICHECK(fn_ty->type_params.size() == ty_args.size())
         << "number of type parameters does not match expected";
     for (size_t i = 0; i < ty_args.size(); ++i) {
       subst_map.Set(fn_ty->type_params[i], ty_args[i]);
@@ -408,7 +439,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
     if (type_info == type_map_.end()) {
       type_map_.insert({expr, ResolvedTypeInfo(Type(), type_args)});
     } else {
-      CHECK(!type_info->second.type_args.defined());
+      ICHECK(!type_info->second.type_args.defined());
       type_info->second.type_args = type_args;
     }
   }
@@ -511,7 +542,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
     if (f->ret_type.defined()) {
       rtype = this->Unify(f->ret_type, rtype, GetRef<Function>(f)->span);
     }
-    CHECK(rtype.defined());
+    ICHECK(rtype.defined());
     auto ret = FuncType(arg_types, rtype, f->type_params, {});
     return solver_.Resolve(ret);
   }
@@ -532,7 +563,7 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
   }
 
   Type VisitExpr_(const ConstructorNode* c) final {
-    CHECK(mod_.defined()) << "Cannot do type inference without a environment:" << c->name_hint;
+    ICHECK(mod_.defined()) << "Cannot do type inference without a environment:" << c->name_hint;
     TypeData td = mod_->LookupTypeDef(c->belong_to);
     std::vector<Type> types;
     for (const auto& t : td->type_vars) {
@@ -546,11 +577,13 @@ class TypeInferencer : private ExprFunctor<Type(const Expr&)>,
   }
 };
 
-class TypeInferencer::Resolver : public ExprMutator, PatternMutator {
+class TypeInferencer::Resolver : public MixedModeMutator, PatternMutator {
  public:
   Resolver(const std::unordered_map<Expr, ResolvedTypeInfo, ObjectPtrHash, ObjectPtrEqual>& tmap,
            TypeSolver* solver)
       : tmap_(tmap), solver_(solver) {}
+
+  using MixedModeMutator::VisitExpr_;
 
   Expr VisitExpr_(const VarNode* op) final { return VisitVar(GetRef<Var>(op)); }
 
@@ -560,13 +593,15 @@ class TypeInferencer::Resolver : public ExprMutator, PatternMutator {
 
   Expr VisitExpr_(const OpNode* op) final { return ExprMutator::VisitExpr_(op); }
 
-  Expr VisitExpr_(const TupleNode* op) final { return AttachCheckedType(op); }
+  Expr Rewrite_(const TupleNode* op, const Expr& post) final { return AttachCheckedType(op, post); }
 
-  Expr VisitExpr_(const TupleGetItemNode* op) final { return AttachCheckedType(op); }
+  Expr Rewrite_(const TupleGetItemNode* op, const Expr& post) final {
+    return AttachCheckedType(op, post);
+  }
 
   Expr VisitExpr_(const FunctionNode* op) final { return AttachCheckedType(op); }
 
-  Expr VisitExpr_(const CallNode* op) final { return AttachCheckedType(op); }
+  Expr Rewrite_(const CallNode* op, const Expr& post) final { return AttachCheckedType(op, post); }
 
   Expr VisitExpr_(const LetNode* op) final { return AttachCheckedType(op); }
 
@@ -593,9 +628,9 @@ class TypeInferencer::Resolver : public ExprMutator, PatternMutator {
 
   // attach checked type to the mutated node.
   template <typename T>
-  Expr AttachCheckedType(const T* op) {
+  Expr AttachCheckedType(const T* op, const Expr& post = Expr()) {
     auto it = tmap_.find(GetRef<Expr>(op));
-    CHECK(it != tmap_.end());
+    ICHECK(it != tmap_.end());
     Type checked_type = solver_->Resolve(it->second.checked_type);
 
     if (checked_type.as<IncompleteTypeNode>() != nullptr) {
@@ -606,7 +641,7 @@ class TypeInferencer::Resolver : public ExprMutator, PatternMutator {
           << " check other reported errors for hints of what may of happened.");
     }
 
-    Expr new_e = ExprMutator::VisitExpr_(op);
+    Expr new_e = post.defined() ? post : ExprMutator::VisitExpr_(op);
     // new_call and new_var's code is only going to be valid for VarNode/CallNode.
     // Compiler optimization will likely fold these away for other nodes.
     CallNode* new_call = (std::is_base_of<CallNode, T>::value
@@ -664,7 +699,7 @@ class TypeInferencer::Resolver : public ExprMutator, PatternMutator {
     }
     if (need_update_fn) {
       auto* fn_type = checked_type.as<FuncTypeNode>();
-      CHECK(fn_type != nullptr);
+      ICHECK(fn_type != nullptr);
       new_fn->ret_type = fn_type->ret_type;
     }
     return new_e;
@@ -702,8 +737,8 @@ Expr TypeInferencer::Infer(GlobalVar var, Function function) {
   return resolved_expr;
 }
 
-struct AllCheckTypePopulated : ExprVisitor {
-  void VisitExpr(const Expr& e) {
+struct AllCheckTypePopulated : MixedModeVisitor {
+  void DispatchExprVisit(const Expr& e) {
     if (e.as<OpNode>()) {
       return;
     }
@@ -713,7 +748,7 @@ struct AllCheckTypePopulated : ExprVisitor {
     if (e.as<ConstructorNode>()) {
       return;
     }
-    CHECK(e->checked_type_.defined()) << "Expression: " << e;
+    ICHECK(e->checked_type_.defined()) << "Expression: " << e;
     return ExprVisitor::VisitExpr(e);
   }
 };
@@ -788,7 +823,7 @@ Pass InferType() {
             }
 
             auto free_tvars = FreeTypeVars(updated_func, mod);
-            CHECK(free_tvars.size() == 0)
+            ICHECK(free_tvars.size() == 0)
                 << "Found unbound type variables in " << updated_func << ": " << free_tvars;
             EnsureCheckedType(updated_func);
             updates.push_back({it.first, Downcast<Function>(updated_func)});

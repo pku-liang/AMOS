@@ -43,7 +43,7 @@
 
 #include "./combine_parallel_op_batch.h"
 #include "./expr_subst.h"
-#include "pattern_util.h"
+#include "pattern_utils.h"
 
 namespace tvm {
 namespace relay {
@@ -57,12 +57,28 @@ class ParallelDenseToBatchCombiner : public ParallelOpBatchCombiner {
       : ParallelOpBatchCombiner("nn.dense", "nn.batch_matmul", min_num_branches) {}
 
  protected:
+  Call MakeCombinedOp(const Group& branches) {
+    Array<Expr> new_args;
+    size_t num_args = branches[0][0]->args.size();
+    for (size_t i = 0; i < num_args; i++) {
+      Array<Expr> arg_from_all_branches;
+      for (const auto& branch : branches) {
+        arg_from_all_branches.push_back(branch[0]->args[i]);
+      }
+
+      new_args.push_back(MakeStack(Tuple(arg_from_all_branches), 0));
+    }
+
+    CHECK_EQ(num_args, 2);
+    return Downcast<Call>(MakeBatchMatmul(new_args[0], new_args[1]));
+  }
+
   virtual bool CanOpsBeCombined(const CallNode* a, const CallNode* b) {
     StructuralEqual eq;
     const auto* attrs_a = a->attrs.as<DenseAttrs>();
     const auto* attrs_b = b->attrs.as<DenseAttrs>();
-    CHECK(attrs_a);
-    CHECK(attrs_b);
+    ICHECK(attrs_a);
+    ICHECK(attrs_b);
     const auto* weight_a = a->args[1]->type_as<TensorTypeNode>();
     const auto* weight_b = b->args[1]->type_as<TensorTypeNode>();
 
@@ -89,7 +105,7 @@ class ParallelDenseToDenseCombiner : public ParallelOpCombiner {
     const auto* attrs_b = b->attrs.as<DenseAttrs>();
     const auto* weight_a = a->args[1]->type_as<TensorTypeNode>();
     const auto* weight_b = b->args[1]->type_as<TensorTypeNode>();
-    CHECK(attrs_a != nullptr && attrs_b != nullptr && weight_a != nullptr && weight_b != nullptr);
+    ICHECK(attrs_a != nullptr && attrs_b != nullptr && weight_a != nullptr && weight_b != nullptr);
     // output dims (weight->shape[0]) can be different
     return eq(attrs_a->out_dtype, attrs_b->out_dtype) && eq(weight_a->shape[1], weight_b->shape[1]);
   }
@@ -102,7 +118,7 @@ class ParallelDenseToDenseCombiner : public ParallelOpCombiner {
     // concat all weights into one
     std::tie(new_weight, new_output_dims) = TransformWeight(branches);
     const auto* origin_attrs = branches[0][0]->attrs.as<DenseAttrs>();
-    CHECK(origin_attrs);
+    ICHECK(origin_attrs);
     const auto dense_attrs = make_object<DenseAttrs>();
     dense_attrs->units = new_output_dims;
     dense_attrs->out_dtype = origin_attrs->out_dtype;
@@ -115,7 +131,7 @@ class ParallelDenseToDenseCombiner : public ParallelOpCombiner {
     auto tb = b->args[index]->type_as<TensorTypeNode>();
     auto toutput_a = a->type_as<TensorTypeNode>();
     auto toutput_b = b->type_as<TensorTypeNode>();
-    CHECK(ta != nullptr && tb != nullptr && toutput_a != nullptr && toutput_b != nullptr);
+    ICHECK(ta != nullptr && tb != nullptr && toutput_a != nullptr && toutput_b != nullptr);
 
     if (!eq(ta->dtype, tb->dtype) || ta->shape.size() != tb->shape.size()) {
       return false;
@@ -148,7 +164,7 @@ class ParallelDenseToDenseCombiner : public ParallelOpCombiner {
         auto parent = branch[depth]->args[parent_index];
         auto& parent_shape = parent->type_as<TensorTypeNode>()->shape;
         auto out_dim = tir::as_const_int(parent_shape[parent_shape.size() - 1]);
-        CHECK(out_dim != nullptr);
+        ICHECK(out_dim != nullptr);
 
         auto arg = branch[depth]->args[i];
         auto& arg_shape = arg->type_as<TensorTypeNode>()->shape;
@@ -158,7 +174,7 @@ class ParallelDenseToDenseCombiner : public ParallelOpCombiner {
           arg = MakeExpandDims(arg, -1, 1);
         } else {
           auto arg_last_dim = tir::as_const_int(arg_shape[arg_shape.size() - 1]);
-          CHECK(arg_last_dim != nullptr);
+          ICHECK(arg_last_dim != nullptr);
           if (*out_dim > 1 && *arg_last_dim == 1) {
             repeat_last_dim = true;
           }
@@ -182,7 +198,7 @@ class ParallelDenseToDenseCombiner : public ParallelOpCombiner {
       const CallNode* call = branch[depth];
       auto& out_shape = call->type_as<TensorTypeNode>()->shape;
       auto out_dims = tir::as_const_int(out_shape[out_shape.size() - 1]);
-      CHECK(out_dims != nullptr);
+      ICHECK(out_dims != nullptr);
       Array<Integer> begin;
       Array<Integer> end;
       Array<Integer> strides;

@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# pylint: disable=invalid-name
 
 """ The auto-scheduler's computational graph and related program analyses. """
 
@@ -21,14 +22,63 @@ import hashlib
 
 import tvm._ffi
 from tvm.runtime import Object
+
 from tvm.te import PlaceholderOp, ComputeOp
 from tvm import auto_tensorize as at
+from tvm.runtime._ffi_node_api import LoadJSON, SaveJSON
 
+from . import _ffi_api
 from .loop_state import State, StateObject
 from .utils import get_const_tuple
 from .workload_registry import workload_key_to_tensors
 
-from . import _ffi_api
+
+class LayoutRewriteOption:
+    """
+    Options for applying layout rewrite.
+
+    The NO_REWRITE and INSERT_TRANSFORM_STAGE are expected to be used when tuning a standalone op,
+    and the REWRITE_FOR_PRE_TRANSFORMED is expected to be used when tuning ops inside a network.
+    """
+
+    # Do not perform layout rewrite
+    NO_REWRITE = 0
+    # Insert layout transformation stages for input placeholders in the compute DAG
+    INSERT_TRANSFORM_STAGE = 1
+    # Do not insert layout transformation stages and assume the input placeholders
+    # are pre-transformed.
+    # Note: The lowered function with this option does not accept the origial input shapes,
+    # so this option must be used along with `AutoSchedulerLayoutRewrite` pass in Relay.
+    REWRITE_FOR_PRE_TRANSFORMED = 2
+
+    @staticmethod
+    def get_target_default(target, in_relay_integration=False):
+        """Get the default layout rewrite option for the specified target.
+        Currently we only enable layout rewrite for cpu / mali backend for now
+
+        Parameters
+        ----------
+        target: tvm.target.Target
+            The compilation target.
+        in_relay_integration: bool
+            If this check is ask for relay integration.
+
+        Returns
+        -------
+        layout_rewrite_option: LayoutRewriteOption
+            The default layout rewrite option for the specified target.
+        """
+        layout_rewrite_option = LayoutRewriteOption.NO_REWRITE
+        if target.kind.name == "llvm" or (
+            "device" in target.attrs and target.attrs["device"] == "mali"
+        ):
+            layout_rewrite_option = (
+                LayoutRewriteOption.REWRITE_FOR_PRE_TRANSFORMED
+                if in_relay_integration
+                else LayoutRewriteOption.INSERT_TRANSFORM_STAGE
+            )
+
+        return layout_rewrite_option
 
 
 @tvm._ffi.register_object("auto_scheduler.ComputeDAG")
@@ -48,27 +98,37 @@ class ComputeDAG(Object):
 
     Parameters
     ----------
-    compute : Union[List[Tensor], str]
+    compute : Union[List[Tensor], str, Schedule]
         Input/output tensors or workload key for a compute declaration.
     """
 
-    def __init__(self, compute, recipe=None):
-        if isinstance(compute, str):
-            compute = workload_key_to_tensors(compute)
-        elif isinstance(compute, list):
-            for item in compute:
+    def __init__(self, compute_or_sche, recipe=None):
+        if isinstance(compute_or_sche, str):
+            compute = workload_key_to_tensors(compute_or_sche)
+            sche = None
+        elif isinstance(compute_or_sche, (list, tvm.ir.container.Array)):
+            for item in compute_or_sche:
                 if not isinstance(item, tvm.te.Tensor):
-                    raise ValueError("The input of ComputeDAG should be a list of Tensor")
+                    raise ValueError(
+                        "The input of ComputeDAG should be a list of Tensor, but got %s"
+                        % type(item)
+                    )
+            compute = compute_or_sche
+            sche = None
+        elif isinstance(compute_or_sche, tvm.te.Schedule):
+            compute = None
+            sche = compute_or_sche
         else:
             raise ValueError(
-                "Invalid compute: " + compute + " . ComputeDAG expects a string or list of Tensor"
+                "Invalid compute type: %s. ComputeDAG expects string, list of Tensor, or Schedule"
+                % type(compute_or_sche)
             )
         if recipe is not None:
             assert isinstance(recipe, at.RecipeStage)
             self.__init_handle_by_constructor__(
-                _ffi_api.ComputeDAGwithRecipe, compute, recipe)
+                _ffi_api.ComputeDAGwithRecipe, compute, sche, recipe)
         else:
-            self.__init_handle_by_constructor__(_ffi_api.ComputeDAG, compute)
+            self.__init_handle_by_constructor__(_ffi_api.ComputeDAG, compute, sche)
 
     def get_init_state(self):
         """Get the init state of this ComputeDAG.
@@ -80,7 +140,7 @@ class ComputeDAG(Object):
         """
         return State(self.init_state, self)
 
-    def apply_steps_from_state(self, state, layout_rewrite=False):
+    def apply_steps_from_state(self, state, layout_rewrite=LayoutRewriteOption.NO_REWRITE):
         """
         Apply the history transform steps from a State to get a TVM schedule.
 
@@ -89,7 +149,7 @@ class ComputeDAG(Object):
         state : Union[State, StateObject]
             The state from which we get transform steps.
 
-        layout_rewrite: Bool
+        layout_rewrite: LayoutRewriteOption = NoRewrite
             Rewrite the layout of placeholders specified by "layout_free_placeholders" attr
             to make it most friendly for the generated schedule to read from.
 
@@ -150,7 +210,31 @@ class ComputeDAG(Object):
                 updated_state.stage_id_map[k] = v
         return updated_state
 
-    def __hash__(self):
+    def rewrite_layout_from_state(self, state):
+        """
+        Rewrite the layout of the DAG according to the history transform steps of a state.
+
+        Parameters
+        ----------
+        state : Union[State, StateObject]
+            The state from which we get transform steps.
+
+        Returns
+        -------
+        updated_dag : ComputeDAG
+            The compute dag with rewritten layout.
+        """
+        state_obj = state if isinstance(state, StateObject) else state.state_object
+        return _ffi_api.ComputeDAGRewriteLayoutFromState(self, state_obj)
+
+    def hash_key(self):
+        """Return the hash key of this compute DAG.
+
+        Returns
+        -------
+        key: str
+            The hash key of this compute DAG
+        """
         # TODO(merrymercy): Implement this more carefully and move this to c++ as a member function
         # of ComputeDAG
         str_key = ""
@@ -169,3 +253,43 @@ class ComputeDAG(Object):
 
         str_key = str_key.encode(encoding="utf-8")
         return hashlib.md5(str_key).hexdigest()
+
+    def __str__(self):
+        # pretty print
+        MAX_LINE_WIDTH = 256
+
+        raw_lines = super().__str__().split("\n")
+        lines = []
+        for line in raw_lines:
+            if len(line) > MAX_LINE_WIDTH:
+                line = (
+                    line[: MAX_LINE_WIDTH // 2] + " ..(OMITTED).. " + line[-MAX_LINE_WIDTH // 2 :]
+                )
+            lines.append(line)
+        return "\n".join(lines)
+
+    def __getstate__(self):
+        return {"tensors": SaveJSON(self.tensors)}
+
+    def __setstate__(self, state):
+        # Since we always use tensors to recover the ComputeDAG, we do not support
+        # (de)serialization of the ComputeDAG constructed by a schedule.
+        self.__init_handle_by_constructor__(_ffi_api.ComputeDAG, LoadJSON(state["tensors"]), None)
+
+
+def get_shape_from_rewritten_layout(rewritten_layout, axis_names):
+    """Get the orginal shape from a rewritten layout string.
+
+    Parameters
+    ----------
+    rewritten_layout: str
+        The layout after rewrite
+    axis_names: List[str]
+        Specify the order of axes by names
+
+    Returns
+    -------
+    shape: List[PrimExpr]
+        The original shape
+    """
+    return _ffi_api.GetShapeFromRewrittenLayout(rewritten_layout, axis_names)

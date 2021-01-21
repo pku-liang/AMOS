@@ -22,15 +22,13 @@ import logging
 from collections import defaultdict
 
 import numpy as np
-import xgboost as xgb
-from xgboost.core import EarlyStopException
-from xgboost.callback import _fmt_metric
-from xgboost.training import aggcv
 
 from tvm.autotvm.tuner.metric import max_curve
 from .cost_model import PythonBasedModel
 from ..feature import get_per_store_features_from_measure_pairs, get_per_store_features_from_states
 from ..measure_record import RecordReader
+
+xgb = None
 
 logger = logging.getLogger("auto_scheduler")
 
@@ -76,7 +74,7 @@ dmatrix_context = XGBDMatrixContext()
 class XGBModel(PythonBasedModel):
     """Train a XGBoost model to predict the normalized throughputs of programs.
     Let the normalized throughput be the score of a program (higher is better). We predict
-    the (approximiate) score of a program = the sum of the scores of all stages in this program.
+    the (approximate) score of a program = the sum of the scores of all stages in this program.
     i.e. score(P) = score_s0 + score_s1 + ... + score_sn,
     where score_si is the score of Stage i in Program P.
     We extract feature for each stage and let the xgboost predict the score for each stage.
@@ -88,9 +86,42 @@ class XGBModel(PythonBasedModel):
     of several samples, so we implemented a custom loss function and call it pack-sum-rmse.
     It is called "pack-sum" because we combine several samples into a "pack" and sum up
     their predictions.
+
+    Parameters
+    ----------
+    verbose_eval: int = 25
+        Print training log every `verbose_eval` iterations.
+    num_warmup_sample: int = 100
+        The minimum number of samples to start to use the trained model.
+        If the number of samples is less than this number, the model outputs random predictions.
+    seed: Optional[int]
+        The random seed
+    model_file: Optional[str]
+        If is not None, save model to this file after every update.
+    adapative_training: bool = False
+        Whether to use adapatie training, which reduces the training frequency when there are
+        too many logs.
     """
 
-    def __init__(self, verbose_eval=25, num_warmup_sample=100, seed=None):
+    def __init__(
+        self,
+        verbose_eval=25,
+        num_warmup_sample=100,
+        seed=None,
+        model_file=None,
+        adapative_training=False,
+    ):
+        global xgb
+        try:
+            if xgb is None:
+                xgb = __import__("xgboost")
+        except ImportError:
+            raise ImportError(
+                "XGBoost is required for XGBModel. "
+                "Please install its python package first. "
+                "Help: (https://xgboost.readthedocs.io/en/latest/) "
+            )
+
         self.xgb_params = {
             "max_depth": 10,
             "gamma": 0.001,
@@ -107,12 +138,15 @@ class XGBModel(PythonBasedModel):
         self.plan_size = 32
         self.num_warmup_sample = num_warmup_sample
         self.verbose_eval = verbose_eval
+        self.model_file = model_file
+        self.adapative_training = adapative_training
 
         super().__init__()
 
         # cache measurement input/result pairs and extracted features
         self.inputs = []
         self.results = []
+        self.last_train_length = 0
         self.inputs_feature_cache = []
 
     def update(self, inputs, results):
@@ -131,6 +165,15 @@ class XGBModel(PythonBasedModel):
 
         self.inputs.extend(inputs)
         self.results.extend(results)
+
+        if (
+            self.adapative_training
+            and len(self.inputs) - self.last_train_length < self.last_train_length / 5
+        ):
+            # Set a training threshold related to `last_train_length` to reduce the training
+            # overhead when there're too many logs
+            return
+        self.last_train_length = len(self.inputs)
 
         # extract feature
         n_cached = len(self.inputs_feature_cache)
@@ -167,6 +210,10 @@ class XGBModel(PythonBasedModel):
             ],
         )
 
+        # Update the model file if it has been set
+        if self.model_file:
+            self.save(self.model_file)
+
     def predict(self, task, states):
         """Predict the scores of states
         Parameters
@@ -188,7 +235,7 @@ class XGBModel(PythonBasedModel):
         else:
             ret = np.random.uniform(0, 1, (len(states),))
 
-        # Predict 0 for invalid states that failed to be lowered.
+        # Predict -inf for invalid states that failed to be lowered.
         for idx, feature in enumerate(features):
             if feature.min() == feature.max() == 0:
                 ret[idx] = float("-inf")
@@ -501,6 +548,15 @@ def custom_callback(
     skip_every=2,
 ):
     """Callback function for xgboost to support multiple custom evaluation functions"""
+    # pylint: disable=import-outside-toplevel
+    from xgboost.core import EarlyStopException
+    from xgboost.callback import _fmt_metric
+
+    try:
+        from xgboost.training import aggcv
+    except ImportError:
+        from xgboost.callback import _aggcv as aggcv
+
     state = {}
     metric_shortname = metric.split("-")[1]
 

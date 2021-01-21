@@ -34,18 +34,22 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
   int64_t loop_extent = -1;
   if (extent != nullptr) loop_extent = extent->value;
   AnnotationType ann = kSerial;
-  switch (op->for_type) {
-    case ForType ::Parallel:
+  switch (op->kind) {
+    case ForKind ::kParallel:
       ann = kParallel;
       break;
-    case ForType::Unrolled:
+    case ForKind::kUnrolled:
       ann = kUnrolled;
       break;
-    case ForType::Vectorized:
+    case ForKind::kVectorized:
       ann = kVectorized;
       break;
-    case ForType::Serial:
+    case ForKind::kSerial:
       ann = kSerial;
+      break;
+    case ForKind::kThreadBinding:
+      LOG(FATAL) << "Loop ThreadBinding is reserved for future used and "
+                 << "not yet supported in TIR";
       break;
   }
 
@@ -60,7 +64,7 @@ void FeatureVisitor::VisitStmt_(const AttrStmtNode* op) {
   if (op->attr_key == attr::thread_extent || op->attr_key == attr::virtual_thread) {
     Var var = op->node.as<tir::IterVarNode>()->var;
     const auto* extent = op->value.as<IntImmNode>();
-    CHECK(extent);
+    ICHECK(extent);
 
     std::string name = var.get()->name_hint;
     AnnotationType ann = kParallel;

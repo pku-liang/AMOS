@@ -99,29 +99,29 @@ inline int OperationToStage(const te::Operation& op, const State& state) {
 
 /*! \brief Get an integer from a tvm str Map. */
 inline int GetIntParam(const Map<String, ObjectRef>& attr_dict, const std::string& key) {
-  CHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
+  ICHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
   auto pint = attr_dict[key].as<IntImmNode>();
-  CHECK(pint != nullptr);
+  ICHECK(pint != nullptr);
   return pint->value;
 }
 
 /*! \brief Get a double from a tvm str Map. */
 inline double GetDoubleParam(const Map<String, ObjectRef>& attr_dict, const std::string& key) {
-  CHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
+  ICHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
   auto pdouble = attr_dict[key].as<FloatImmNode>();
-  CHECK(pdouble != nullptr);
+  ICHECK(pdouble != nullptr);
   return pdouble->value;
 }
 
 /*! \brief Get a string from a tvm str Map. */
 inline std::string GetStringParam(const Map<String, ObjectRef>& attr_dict, const std::string& key) {
-  CHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
+  ICHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
   const auto& target = attr_dict[key];
   if (auto pstr = target.as<StringImmNode>()) {
     return pstr->value;
   }
   auto pstr = target.as<StringObj>();
-  CHECK(pstr != nullptr);
+  ICHECK(pstr != nullptr);
   return pstr->data;
 }
 
@@ -129,9 +129,9 @@ inline std::string GetStringParam(const Map<String, ObjectRef>& attr_dict, const
 inline std::set<std::string> GetIterNameSetParam(const Map<String, ObjectRef>& attr_dict,
                                                  const std::string& key) {
   std::set<std::string> ret;
-  CHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
+  ICHECK_GT(attr_dict.count(key), 0) << "Cannot find key: \"" << key << "\" in " << attr_dict;
   auto names = attr_dict[key].as<ArrayNode>();
-  CHECK(names != nullptr);
+  ICHECK(names != nullptr);
   for (const auto& name : *names) {
     ret.insert(name.as<StringObj>()->data);
   }
@@ -477,7 +477,7 @@ inline bool HasCrossThreadReduction(const State& state, int stage_id) {
 /*! \brief Return whether the stage has been tiled already. */
 inline bool IsTiled(const Stage& stage) {
   auto op = stage->op.as<te::ComputeOpNode>();
-  CHECK(op != nullptr);
+  ICHECK(op != nullptr);
   return stage->iters.size() != op->axis.size() + op->reduce_axis.size();
 }
 
@@ -502,7 +502,7 @@ inline void ExtractOriginalIterators(const std::string& name, std::set<std::stri
 /*! \brief Get the last reduce iterator in the outermost reduce tile. */
 inline Iterator GetLastReduceIteratorInOutermostReduceTile(const Stage& stage) {
   auto pop = stage->op.as<te::ComputeOpNode>();
-  CHECK(pop != nullptr);
+  ICHECK(pop != nullptr);
   std::set<std::string> original_names;
   int reserved =
     (stage->belong_capsule.defined()
@@ -690,7 +690,7 @@ inline State FuseAllReductionIterators(const State& state, int stage_id, Iterato
     }
   }
 
-  CHECK(!reduce_iters->empty());
+  ICHECK(!reduce_iters->empty());
   State tmp_s = state;
   if (reduce_iters->size() > 1) {
     *fused_iter = tmp_s.fuse(stage_id, *reduce_iters);
@@ -716,12 +716,11 @@ inline State FuseAllOuterSpaceIterators(const State& state, int stage_id, Iterat
     to_fuse.push_back(it);
   }
 
-  CHECK(!to_fuse.empty());
   State tmp_s = state;
-  if (to_fuse.size() > 1) {
-    *fused_iter = tmp_s.fuse(stage_id, to_fuse);
-  } else {
+  if (to_fuse.size() == 1) {
     *fused_iter = to_fuse[0];
+  } else {
+    *fused_iter = tmp_s.fuse(stage_id, to_fuse);
   }
   return tmp_s;
 }
@@ -756,7 +755,7 @@ inline int RandomChoose(const std::vector<double>& prefix_sum_probs, std::mt1993
   std::uniform_real_distribution<> dis(0.0, 1.0);
   double x = dis(*random_gen);
 
-  CHECK(!prefix_sum_probs.empty());
+  ICHECK(!prefix_sum_probs.empty());
 
   return std::lower_bound(prefix_sum_probs.begin(), prefix_sum_probs.end(), x) -
          prefix_sum_probs.begin();
@@ -764,9 +763,9 @@ inline int RandomChoose(const std::vector<double>& prefix_sum_probs, std::mt1993
 
 /*! \brief Print a title */
 inline void PrintTitle(const std::string& title, int verbose) {
-  StdCout(verbose) << Chars('-', 60) << "\n"
-                   << Chars('-', 25) << "  [ " << title << " ]\n"
-                   << Chars('-', 60) << std::endl;
+  StdCout(verbose) << Chars('-', 70) << "\n"
+                   << Chars('-', 30) << "  [ " << title << " ]\n"
+                   << Chars('-', 70) << std::endl;
 }
 
 /*!
@@ -783,33 +782,6 @@ class SplitFactorizationMemo {
 
  private:
   void DfsEnumerate(int now, int remaining_length, int max_innermost_factor);
-
-  /*!
-   * \brief A simple implementation of read-write lock.
-   * The guarded block can be read by multiple threads at the same time, while other operations will
-   * be blocked if one thread is writing.
-   * \note Writing threads will wait until all reading threads have finshed. If there're multiple
-   * writing threads, the process order of them is not guaranteed.
-   */
-  class ReadWriteLock {
-   public:
-    /*! \brief The method to get the read lock. One thread can process read if there's on other
-     * writing threads. */
-    void GetRead();
-    /*! \brief The method to get the write lock. One thread can process write if there's on other
-     * reading or writing threads. */
-    void GetWrite();
-    /*! \brief The method to release the read lock. */
-    void UnlockRead();
-    /*! \brief The method to release the write lock. */
-    void UnlockWrite();
-
-   private:
-    uint32_t read_count_ = 0;
-    bool is_writing_ = false;
-    std::mutex cv_mutex_;
-    std::condition_variable cv_;
-  } lock_;
 
   std::unordered_map<QueryKey, Array<Array<Integer>>> memory_;
 

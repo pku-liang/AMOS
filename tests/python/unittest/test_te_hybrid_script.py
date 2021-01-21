@@ -17,7 +17,7 @@
 import tvm, inspect, sys, traceback, numpy, pytest, types, os
 
 from tvm import te
-from tvm.contrib import util
+from tvm.contrib import utils
 from tvm.te.hybrid import script
 from tvm.te.hybrid.runtime import HYBRID_GLOBALS
 
@@ -147,7 +147,7 @@ def test_outer_product():
     assert mul.b.producer.name == "b"
 
     func, ins, outs = run_and_check(outer_product, [n, m, a, b], {n: 99, m: 101})
-    temp = util.tempdir()
+    temp = utils.tempdir()
     path = temp.relpath("%s.py" % func.name)
     func.save(path)
     func_ = te.hybrid.HybridModule()
@@ -267,9 +267,9 @@ def test_looptype():
     iloop = ir[0]
     jloop = ir[1]
     kloop = ir[2]
-    assert iloop.for_type == tvm.tir.For.Parallel
-    assert jloop.for_type == tvm.tir.For.Vectorized
-    assert kloop.for_type == tvm.tir.For.Unrolled
+    assert iloop.kind == tvm.tir.ForKind.PARALLEL
+    assert jloop.kind == tvm.tir.ForKind.VECTORIZED
+    assert kloop.kind == tvm.tir.ForKind.UNROLLED
 
     func, ins, outs = run_and_check(looptype, [a, b, c])
     run_and_check(func, ins, outs=outs)

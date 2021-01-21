@@ -135,7 +135,7 @@ Because the direct board-to-computer connection prevents the board from directly
    mkdir <mountpoint>
    sshfs xilinx@192.168.2.99:/home/xilinx <mountpoint>
    cd <mountpoint>
-   git clone --recursive https://github.com/apache/incubator-tvm tvm
+   git clone --recursive https://github.com/apache/tvm tvm
    # When finished, you can leave the moutpoint and unmount the directory
    cd ~
    sudo umount <mountpoint>
@@ -202,7 +202,7 @@ This time again, we will run the 2D convolution testbench.
 Beforehand, we need to program the Pynq board FPGA with a VTA bitstream, and build the VTA runtime via RPC.
 The following ``test_program_rpc.py`` script will perform two operations:
 
-* FPGA programming, by downloading a pre-compiled bitstream from a `VTA bitstream repository <https://github.com/uwsaml/vta-distro>`_ that matches the default ``vta_config.json`` configuration set by the host, and sending it over to the Pynq via RPC to program the Pynq's FPGA.
+* FPGA programming, by downloading a pre-compiled bitstream from a `VTA bitstream repository <https://github.com/uwsampl/vta-distro>`_ that matches the default ``vta_config.json`` configuration set by the host, and sending it over to the Pynq via RPC to program the Pynq's FPGA.
 * Runtime building on the Pynq, which needs to be run every time the ``vta_config.json`` configuration is modified. This ensures that the VTA software runtime that generates the accelerator's executable via just-in-time (JIT) compilation matches the specifications of the VTA design that is programmed on the FPGA. The build process takes about 30 seconds to complete so be patient!
 
 .. code:: bash
@@ -466,7 +466,7 @@ This would add quartus binary path into your ``PATH`` environment variable, so y
 Chisel-based Custom VTA Bitstream Compilation for DE10-Nano
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Similar to the HLS-based design, high-level hardware parameters in Chisel-based design are listed in the VTA configuration file `Configs.scala <https://github.com/apache/incubator-tvm/blob/master/3rdparty/vta-hw/hardware/chisel/src/main/scala/core/Configs.scala>`_, and they can be customized by the user.
+Similar to the HLS-based design, high-level hardware parameters in Chisel-based design are listed in the VTA configuration file `Configs.scala <https://github.com/apache/tvm/blob/main/3rdparty/vta-hw/hardware/chisel/src/main/scala/core/Configs.scala>`_, and they can be customized by the user.
 
 For Intel FPGA, bitstream generation is driven by a top-level ``Makefile`` under ``<tvm root>/3rdparty/vta-hw/hardware/intel``.
 

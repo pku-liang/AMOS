@@ -35,21 +35,21 @@ TVM_REGISTER_NODE_TYPE(AffineGridAttrs);
 
 bool AffineGridRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                    const TypeReporter& reporter) {
-  CHECK_EQ(types.size(), 2);
+  ICHECK_EQ(types.size(), 2);
   const auto* data = types[0].as<TensorTypeNode>();
   if (data == nullptr) return false;
   auto batch_size = data->shape[0];
 
   const AffineGridAttrs* param = attrs.as<AffineGridAttrs>();
-  CHECK(param != nullptr);
+  ICHECK(param != nullptr);
 
   Array<IndexExpr> oshape;
 
-  CHECK(data->shape.size() == 3U && reporter->AssertEQ(data->shape[1], 2) &&
-        reporter->AssertEQ(data->shape[2], 3))
+  ICHECK(data->shape.size() == 3U && reporter->AssertEQ(data->shape[1], 2) &&
+         reporter->AssertEQ(data->shape[2], 3))
       << "data should be an"
          "affine matrix with shape [batch_size, 2, 3]";
-  CHECK(param->target_shape.defined() && param->target_shape.size() == 2)
+  ICHECK(param->target_shape.defined() && param->target_shape.size() == 2)
       << "target_shape should be 2D";
   oshape.push_back(batch_size);
   oshape.push_back(2);
@@ -97,12 +97,12 @@ TVM_REGISTER_NODE_TYPE(GridSampleAttrs);
 
 bool GridSampleRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                    const TypeReporter& reporter) {
-  CHECK_EQ(types.size(), 3);
+  ICHECK_EQ(types.size(), 3);
   const auto* data = types[0].as<TensorTypeNode>();
   const auto* grid = types[1].as<TensorTypeNode>();
   if (!data || !grid) return false;
   const auto* param = attrs.as<GridSampleAttrs>();
-  CHECK(param);
+  ICHECK(param);
   static const Layout kNCHW("NCHW");
   const Layout in_layout(param->layout);
   auto layout_converter = tir::BijectiveLayout(in_layout, kNCHW);
@@ -149,7 +149,7 @@ grid_sample often cooperates with affine_grid which generates sampling grids for
             (batch_size, channels, in_height, in_width) for NCHW
             (batch_size, in_height, in_width, channels) for NHWC
 
-- **grid**: out is 4D array of shape [batch, 2, out_height, out_width], where each vector
+- **grid**: grid is 4D array of shape [batch, 2, out_height, out_width], where each vector
            :math:`out[b, :, h, w]` represents the coordinate :math:`(x, y)`
 
 - **out**: out is 4D array of shape
@@ -160,6 +160,7 @@ grid_sample often cooperates with affine_grid which generates sampling grids for
     .set_num_inputs(2)
     .set_attrs_type<GridSampleAttrs>()
     .add_argument("data", "Tensor", "The input tensor.")
+    .add_argument("grid", "Tensor", "The grid tensor.")
     .set_support_level(5)
     .add_type_rel("GridSample", GridSampleRel)
     .set_attr<TOpPattern>("TOpPattern", kInjective);

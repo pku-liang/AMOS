@@ -21,10 +21,10 @@
  * \file well_formed.cc
  * \brief check that expression is well formed.
  */
-#include <tvm/ir/diagnostic.h>
 #include <tvm/relay/analysis.h>
 #include <tvm/relay/expr_functor.h>
 #include <tvm/relay/pattern_functor.h>
+#include <tvm/support/logging.h>
 
 #include <unordered_set>
 
@@ -32,7 +32,7 @@ namespace tvm {
 namespace relay {
 
 //! brief make sure each Var is bound at most once in a scope.
-class WellFormedChecker : private ExprVisitor, PatternVisitor {
+class WellFormedChecker : private MixedModeVisitor, PatternVisitor {
  public:
   Optional<DiagnosticContext> diag_ctx;
   Span occurs_in;
@@ -59,9 +59,9 @@ class WellFormedChecker : private ExprVisitor, PatternVisitor {
     WellFormedChecker* wfc;
     explicit Scope(WellFormedChecker* wfc) : wfc(wfc) { wfc->scope.push_back({{}}); }
     ~Scope() {
-      CHECK_GE(wfc->scope.size(), 0);
+      ICHECK_GE(wfc->scope.size(), 0);
       for (const Var& v : wfc->scope.back()) {
-        CHECK_GE(wfc->current_bound.count(v), 0);
+        ICHECK_GE(wfc->current_bound.count(v), 0);
         wfc->current_bound.erase(v);
       }
       wfc->scope.pop_back();
@@ -73,11 +73,13 @@ class WellFormedChecker : private ExprVisitor, PatternVisitor {
       Illformed(Diagnostic::Error(v->span) << "the variable " << v->name_hint()
                                            << "is bound more then once, this is not valid IR");
     }
-    CHECK_GE(scope.size(), 0);
+    ICHECK_GE(scope.size(), 0);
     scope.back().insert(v);
     current_bound.insert(v);
     total_bound.insert(v);
   }
+
+  using MixedModeVisitor::VisitExpr_;
 
   void VisitExpr_(const VarNode* op) final {
     Var v = GetRef<Var>(op);
@@ -118,15 +120,15 @@ class WellFormedChecker : private ExprVisitor, PatternVisitor {
   }
 
   void VisitExpr_(const CallNode* call) final {
-    CHECK(call->op.defined());
+    ICHECK(call->op.defined());
 
     for (auto arg : call->args) {
-      CHECK(arg.defined());
+      ICHECK(arg.defined());
     }
 
-    // CHECK(call->attrs.defined());
-    CHECK(call->type_args.defined());
-    ExprVisitor::VisitExpr_(call);
+    // ICHECK(call->attrs.defined());
+    ICHECK(call->type_args.defined());
+    MixedModeVisitor::VisitExpr_(call);
   }
 
   void VisitClause(const Clause& c) final {
@@ -139,18 +141,14 @@ class WellFormedChecker : private ExprVisitor, PatternVisitor {
 
   void VisitVar(const Var& v) final { Bound(v); }
 
-  void VisitExpr(const Expr& e) final {
+ public:
+  bool CheckWellFormed(const Expr& e) {
     if (auto v = e.as<VarNode>()) {
       VisitExpr_(v);
     } else {
       // this->occurs_in = e->span;
-      ExprVisitor::VisitExpr(e);
+      VisitExpr(e);
     }
-  }
-
- public:
-  bool CheckWellFormed(const Expr& e) {
-    this->VisitExpr(e);
     return well_formed;
   }
 };

@@ -51,7 +51,7 @@ struct GenericFunc::Manager {
 
 GenericFunc GenericFunc::Get(const std::string& name) {
   Manager* m = Manager::Global();
-  std::lock_guard<std::mutex>(m->mutex);
+  std::lock_guard<std::mutex> lock(m->mutex);
   auto it = m->fmap.find(name);
   if (it == m->fmap.end()) {
     auto f = make_object<GenericFuncNode>();
@@ -66,9 +66,9 @@ GenericFunc GenericFunc::Get(const std::string& name) {
 
 void GenericFunc::RegisterGenericFunc(GenericFunc func, const std::string& name) {
   Manager* m = Manager::Global();
-  std::lock_guard<std::mutex>(m->mutex);
+  std::lock_guard<std::mutex> lock(m->mutex);
   auto it = m->fmap.find(name);
-  CHECK(it == m->fmap.end()) << "GenericFunc already registered " << name;
+  ICHECK(it == m->fmap.end()) << "GenericFunc already registered " << name;
   func->name_ = name;
   m->fmap[name] = func;
 }
@@ -76,7 +76,7 @@ void GenericFunc::RegisterGenericFunc(GenericFunc func, const std::string& name)
 GenericFunc& GenericFunc::set_default(const PackedFunc value, bool allow_override) {
   auto node = static_cast<GenericFuncNode*>(operator->());
   if (!allow_override) {
-    CHECK(node->generic_func_ == nullptr)
+    ICHECK(node->generic_func_ == nullptr)
         << "Generic function already registered for " << node->name_;
   }
   node->generic_func_ = value;
@@ -88,7 +88,7 @@ GenericFunc& GenericFunc::register_func(const std::vector<std::string>& tags,
   for (auto& t : tags) {
     if (!allow_override) {
       auto iter = (*this)->dispatch_dict_.find(t);
-      CHECK(iter == (*this)->dispatch_dict_.end())
+      ICHECK(iter == (*this)->dispatch_dict_.end())
           << "Tag " << t << " already registered for schedule factory " << (*this)->name_;
     }
     (*this)->dispatch_dict_[t] = value;
@@ -112,7 +112,7 @@ void GenericFunc::CallPacked(TVMArgs args, TVMRetValue* ret) const {
   }
 
   if (func == nullptr) {
-    CHECK(node->generic_func_ != nullptr) << "No generic function registered for " << node->name_;
+    ICHECK(node->generic_func_ != nullptr) << "No generic function registered for " << node->name_;
     func = node->generic_func_;
   }
 

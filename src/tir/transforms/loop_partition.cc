@@ -33,16 +33,20 @@
 
 #include "../../arith/interval_set.h"
 #include "../../runtime/thread_storage_scope.h"
-#include "ir_util.h"
+#include "ir_utils.h"
 
 namespace tvm {
 namespace tir {
 
 struct LoopPartitionConfigNode : public tvm::AttrsNode<LoopPartitionConfigNode> {
   bool partition_const_loop;
+  bool no_unroll_loop_with_extent_one;
 
   TVM_DECLARE_ATTRS(LoopPartitionConfigNode, "tir.transform.LoopPartitionConfig") {
     TVM_ATTR_FIELD(partition_const_loop).describe("Split constant loop").set_default(false);
+    TVM_ATTR_FIELD(no_unroll_loop_with_extent_one)
+        .describe("Don't unroll loops with extent 1")
+        .set_default(false);
   }
 };
 
@@ -121,7 +125,7 @@ class CandidateSelector final : public StmtExprVisitor {
   void VisitStmt_(const AttrStmtNode* op) final {
     if (op->attr_key == attr::thread_extent) {
       const IterVarNode* iv = op->node.as<IterVarNode>();
-      CHECK(iv);
+      ICHECK(iv);
       Var var = iv->var;
       runtime::ThreadScope scope = runtime::ThreadScope::Create(iv->thread_tag);
       if ((scope.rank == 0) && (!is_const_int(op->value) || partition_const_loop_)) {
@@ -210,7 +214,7 @@ class PartitionFinder : public StmtExprVisitor {
     // handle thread_axis
     if (op->attr_key == attr::thread_extent) {
       const IterVarNode* thread_axis = op->node.as<IterVarNode>();
-      CHECK(thread_axis);
+      ICHECK(thread_axis);
       const VarNode* var = thread_axis->var.get();
       IntSet dom = IntSet::FromRange(Range(make_zero(op->value.dtype()), op->value));
       hint_map_.insert({var, dom});
@@ -334,8 +338,9 @@ class ThreadPartitionInserter : public StmtMutator {
 // likely conditions
 class LoopPartitioner : public StmtMutator {
  public:
-  explicit LoopPartitioner(bool partition_const_loop)
-      : selector(CandidateSelector(partition_const_loop)) {}
+  explicit LoopPartitioner(bool partition_const_loop, bool no_unroll_loop_with_extent_one)
+      : selector(CandidateSelector(partition_const_loop)),
+        no_unroll_loop_with_extent_one_(no_unroll_loop_with_extent_one) {}
 
   Stmt VisitAndMutate(Stmt stmt) {
     selector(stmt);
@@ -363,7 +368,7 @@ class LoopPartitioner : public StmtMutator {
     }
 
     const IterVarNode* iv = op->node.as<IterVarNode>();
-    CHECK(iv);
+    ICHECK(iv);
     Var var = iv->var;
     auto as = GetRef<Stmt>(op);
     if (selector.candidates.count(as)) {
@@ -402,6 +407,7 @@ class LoopPartitioner : public StmtMutator {
   std::unordered_map<const VarNode*, IntSet> relax_map_;
   arith::Analyzer analyzer_;
   CandidateSelector selector;
+  bool no_unroll_loop_with_extent_one_;
 };
 
 // Returns an interval (in the first component) in which all the conditions
@@ -595,13 +601,14 @@ Stmt LoopPartitioner::TryPartition(const Stmt& stmt, Var var, PrimExpr min, Prim
 
 inline Stmt LoopPartitioner::MakeFor(const Object* node, PrimExpr extent, Stmt body) {
   const ForNode* for_node = static_cast<const ForNode*>(node);
-  CHECK(for_node);
-  if (analyzer_.CanProve(extent == make_const(DataType::Int(32), 1))) {
+  ICHECK(for_node);
+  if (analyzer_.CanProve(extent == make_const(DataType::Int(32), 1)) &&
+      !no_unroll_loop_with_extent_one_) {
     // If the loop extent is 1, do not create the loop anymore
     return Substitute(body, {{Var{for_node->loop_var}, make_const(DataType::Int(32), 0)}});
   } else {
-    return For(for_node->loop_var, IntImm(for_node->min.dtype(), 0), extent, for_node->for_type,
-               for_node->device_api, body);
+    ICHECK(for_node->kind != ForKind::kThreadBinding);
+    return For(for_node->loop_var, IntImm(for_node->min.dtype(), 0), extent, for_node->kind, body);
   }
 }
 
@@ -609,7 +616,7 @@ class RemoveLikelyTags : public StmtExprMutator {
  public:
   PrimExpr VisitExpr_(const CallNode* op) final {
     if (op->op.same_as(builtin::likely())) {
-      CHECK_EQ(op->args.size(), 1);
+      ICHECK_EQ(op->args.size(), 1);
       return StmtExprMutator::VisitExpr(op->args[0]);
     } else {
       return StmtExprMutator::VisitExpr_(op);
@@ -617,8 +624,9 @@ class RemoveLikelyTags : public StmtExprMutator {
   }
 };
 
-Stmt LoopPartition(Stmt stmt, bool partition_const_loop) {
-  stmt = LoopPartitioner(partition_const_loop).VisitAndMutate(std::move(stmt));
+Stmt LoopPartition(Stmt stmt, bool partition_const_loop, bool no_unroll_loop_with_extent_one) {
+  stmt = LoopPartitioner(partition_const_loop, no_unroll_loop_with_extent_one)
+             .VisitAndMutate(std::move(stmt));
   stmt = RemoveLikelyTags()(std::move(stmt));
   return stmt;
 }
@@ -632,7 +640,8 @@ Pass LoopPartition() {
     if (!cfg.defined()) {
       cfg = AttrsWithDefaultValues<LoopPartitionConfig>();
     }
-    n->body = LoopPartition(std::move(n->body), cfg.value()->partition_const_loop);
+    n->body = LoopPartition(std::move(n->body), cfg.value()->partition_const_loop,
+                            cfg.value()->no_unroll_loop_with_extent_one);
     return f;
   };
   return CreatePrimFuncPass(pass_func, 0, "tir.LoopPartition", {});

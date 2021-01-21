@@ -43,6 +43,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace tvm {
@@ -229,6 +230,35 @@ class MeasureCallbackNode : public Object {
 class MeasureCallback : public ObjectRef {
  public:
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(MeasureCallback, ObjectRef, MeasureCallbackNode);
+};
+
+/*! \brief A wrapper for measure callback defined by python code
+ *  This class will call functions defined in the python */
+class PythonBasedMeasureCallbackNode : public MeasureCallbackNode {
+ public:
+  /*! \brief Pointer to the callback funcion in python */
+  PackedFunc callback_func;
+
+  void Callback(const SearchPolicy& policy, const Array<MeasureInput>& inputs,
+                const Array<MeasureResult>& results) final;
+  static constexpr const char* _type_key = "auto_scheduler.PythonBasedMeasureCallback";
+  TVM_DECLARE_FINAL_OBJECT_INFO(PythonBasedMeasureCallbackNode, MeasureCallbackNode);
+};
+
+/*!
+ * \brief Managed reference to PythonBasedMeasureCallbackNode.
+ * \sa PythonBasedMeasureCallbackNode
+ */
+class PythonBasedMeasureCallback : public MeasureCallback {
+ public:
+  /*!
+   * \brief The constructor.
+   * \param callback_func The pointer to the callback function defined in python
+   */
+  explicit PythonBasedMeasureCallback(PackedFunc callback_func);
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(PythonBasedMeasureCallback, MeasureCallback,
+                                        PythonBasedMeasureCallbackNode);
 };
 
 // The base class of ProgramBuilders and ProgramRunners.
@@ -423,7 +453,7 @@ class RPCRunner : public ProgramRunner {
 
 /*!
  * \brief Measurer that measures the time costs of tvm programs
- * This class combines ProgramBuilder and ProgramRunner and provides a simpler API */
+ * This class combines ProgramBuilder and ProgramRunner, and provides a simpler API */
 class ProgramMeasurerNode : public Object {
  public:
   /*! \brief Measured programs counter. */
@@ -436,6 +466,8 @@ class ProgramMeasurerNode : public Object {
   std::unordered_map<std::string, State> best_state;
   /*! \brief Workload key to best state's count index map. */
   std::unordered_map<std::string, int> best_ct;
+  /*! \brief The set of workloads that have at least one valid schedule */
+  std::unordered_set<std::string> has_valid;
   /*! \brief The ProgramBuilder to build each program. */
   ProgramBuilder builder;
   /*! \brief The ProgramRunner to measure each program. */
@@ -444,7 +476,7 @@ class ProgramMeasurerNode : public Object {
   Optional<Array<MeasureCallback>> callbacks;
   /*! \brief Verbosity level. 0 for silent, 1 to output information during program measuring. */
   int verbose;
-  /*! \brief The number of max continuous error. */
+  /*! \brief The number of allowed maximum continuous error before forcely stopping the tuning */
   int max_continuous_error;
 
   /*! \brief Reset book keeping variables */
@@ -454,13 +486,12 @@ class ProgramMeasurerNode : public Object {
    * \brief Do measurement.
    * \param task The current SearchTask.
    * \param policy The current SearchPolicy.
-   * \param inputs The MeasureInputs.
-   * \param results A pointer to a MeasureResult Array, this is used as output.
+   * \param inputs The inputs of measurement.
    * \param batch_size Number of programs to be measured in one batch.
+   * \return results The results of measurement.
    */
-  void Measure(const SearchTask& task, const SearchPolicy& policy,
-               const Array<MeasureInput>& inputs, Array<MeasureResult>* results,
-               int batch_size = -1);
+  Array<MeasureResult> Measure(const SearchTask& task, const SearchPolicy& policy,
+                               const Array<MeasureInput>& inputs, int batch_size = -1);
   /*!
    * \brief Do measurement silently.
    * This API will not print the measure results to screen.
@@ -486,12 +517,13 @@ class ProgramMeasurer : public ObjectRef {
  public:
   /*!
    * \brief The constructor.
-   * \param builder The ProgramBuilder to build each program.
-   * \param runner The ProgramRunner to measure each program.
-   * \param callbacks MeasureCallback to be called after each measure batch.
+   * \param builder The ProgramBuilder to build programs.
+   * \param runner The ProgramRunner to measure programs.
+   * \param callbacks MeasureCallback to be called after each measurement batch.
    * \param verbose Verbosity level. 0 for silent, 1 to output information during program
    * measuring.
-   * \param max_continuous_error The number of allowed maximum continuous error.
+   * \param max_continuous_error The number of allowed maximum continuous error before
+   * forcely stopping the tuning.
    */
   ProgramMeasurer(ProgramBuilder builder, ProgramRunner runner,
                   Optional<Array<MeasureCallback>> callbacks, int verbose,

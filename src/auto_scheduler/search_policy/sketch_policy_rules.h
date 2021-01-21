@@ -19,7 +19,8 @@
 
 /*!
  * \file auto_scheduler/search_policy/sketch_policy_rules.h
- * \brief Rules defined to generate the sketches and initial sampled states in SketchPolicy.
+ * \brief Rules for generating the sketches, sampling the initial population, and mutating the
+ * population in SketchPolicy.
  */
 
 #ifndef TVM_AUTO_SCHEDULER_SEARCH_POLICY_SKETCH_POLICY_RULES_H_
@@ -145,6 +146,29 @@ DEFINE_SKETCH_GENERATION_RULE(RuleCrossThreadReduction);
 /*! \brief Handle special cases in Winograd transformation for GPU. We need to change the compute
  * location of the producers of compute ops that perform "fake reduction" with const tensors. */
 DEFINE_SKETCH_GENERATION_RULE(RuleSpecialComputeLocationGPU);
+
+/*! \brief The rule that allows users to generate custom sketches. */
+class RuleCustomSketch : public SketchGenerationRule {
+ public:
+  RuleCustomSketch(PackedFunc meet_condition_func, PackedFunc apply_func,
+                   String rule_name = "CustomSketchRule")
+      : meet_condition_func_(std::move(meet_condition_func)),
+        apply_func_(std::move(apply_func)),
+        rule_name_(std::move(rule_name)) {}
+
+  ConditionKind MeetCondition(const SketchPolicyNode& policy, const State& state,
+                              int stage_id) const final;
+
+  std::vector<std::pair<State, int>> Apply(const SketchPolicyNode& policy, const State& state,
+                                           int stage_id) const final;
+
+  std::string GetRuleName() const final { return rule_name_; }
+
+ private:
+  PackedFunc meet_condition_func_;
+  PackedFunc apply_func_;
+  String rule_name_;
+};
 
 /********** Init Population **********/
 

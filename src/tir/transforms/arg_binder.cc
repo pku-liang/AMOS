@@ -28,7 +28,7 @@
 #include <tvm/tir/expr.h>
 #include <tvm/tir/op.h>
 
-#include "ir_util.h"
+#include "ir_utils.h"
 
 namespace tvm {
 namespace tir {
@@ -42,14 +42,14 @@ void BinderAddAssert(arith::Analyzer* ana, PrimExpr cond, const std::string& arg
   }
   if (!is_one(scond)) {
     std::ostringstream os;
-    os << "Argument " << arg_name << " has an unsatisfied constraint";
+    os << "Argument " << arg_name << " has an unsatisfied constraint: " << cond;
     asserts->emplace_back(AssertStmt(scond, tvm::tir::StringImm(os.str()), Evaluate(0)));
   }
 }
 
 bool ArgBinder::Bind_(const PrimExpr& arg, const PrimExpr& value, const std::string& arg_name,
                       bool with_lets) {
-  CHECK_EQ(arg.dtype(), value.dtype());
+  ICHECK_EQ(arg.dtype(), value.dtype());
   if (const VarNode* v = arg.as<VarNode>()) {
     auto it = def_map_->find(v);
     if (it == def_map_->end()) {
@@ -78,7 +78,7 @@ void ArgBinder::Bind(const PrimExpr& arg, const PrimExpr& value, const std::stri
 
 void ArgBinder::BindArray(const Array<PrimExpr>& arg, const Array<PrimExpr>& value,
                           const std::string& arg_name) {
-  CHECK_EQ(arg.size(), value.size()) << "Argument " << arg_name << " array size mismatch";
+  ICHECK_EQ(arg.size(), value.size()) << "Argument " << arg_name << " array size mismatch";
   for (size_t i = 0; i < arg.size(); ++i) {
     std::ostringstream os;
     os << arg_name << "[" << i << "]";
@@ -88,8 +88,8 @@ void ArgBinder::BindArray(const Array<PrimExpr>& arg, const Array<PrimExpr>& val
 
 void ArgBinder::BindBuffer(const Buffer& arg, const Buffer& value, const std::string& arg_name,
                            bool fuzzy_match) {
-  CHECK_EQ(arg->scope, value->scope) << "Argument " << arg_name << " Buffer bind scope mismatch";
-  CHECK_EQ(arg->dtype, value->dtype)
+  ICHECK_EQ(arg->scope, value->scope) << "Argument " << arg_name << " Buffer bind scope mismatch";
+  ICHECK_EQ(arg->dtype, value->dtype)
       << "Argument " << arg_name << " Buffer bind data type mismatch";
   if (value->data_alignment % arg->data_alignment != 0) {
     LOG(WARNING) << "Trying to bind buffer to another one with lower alignment requirement "
@@ -98,7 +98,7 @@ void ArgBinder::BindBuffer(const Buffer& arg, const Buffer& value, const std::st
   }
   // bind pointer and offset.
   if (is_zero(arg->elem_offset)) {
-    CHECK(is_zero(value->elem_offset))
+    ICHECK(is_zero(value->elem_offset))
         << "Trying to bind a Buffer with offset into one without offset "
         << " required elem_offset=" << arg->elem_offset
         << ", provided elem_offset=" << value->elem_offset;
@@ -117,10 +117,10 @@ void ArgBinder::BindBuffer(const Buffer& arg, const Buffer& value, const std::st
   }
 
   if (arg->shape.size() < value->shape.size()) {
-    CHECK(fuzzy_match) << "Argument " << arg_name << " size mismatch";
+    ICHECK(fuzzy_match) << "Argument " << arg_name << " size mismatch";
     size_t diff = value->shape.size() - arg->shape.size();
     for (size_t i = 0; i < diff; ++i) {
-      CHECK(is_one(analyzer_.Simplify(value->shape[i])))
+      ICHECK(is_one(analyzer_.Simplify(value->shape[i])))
           << "Argument " << arg_name << " shape mismatch" << arg->shape << " vs " << value->shape;
     }
     for (size_t i = 0; i < arg->shape.size(); ++i) {
@@ -129,8 +129,8 @@ void ArgBinder::BindBuffer(const Buffer& arg, const Buffer& value, const std::st
       this->Bind(arg->shape[i], value->shape[i + diff], os.str());
     }
     if (value->strides.size() != 0) {
-      CHECK_EQ(arg->strides.size(), arg->shape.size());
-      CHECK_EQ(value->strides.size(), value->shape.size());
+      ICHECK_EQ(arg->strides.size(), arg->shape.size());
+      ICHECK_EQ(value->strides.size(), value->shape.size());
       for (size_t i = 0; i < arg->strides.size(); ++i) {
         std::ostringstream os;
         os << arg_name << ".strides[" << i << "]";
@@ -224,8 +224,10 @@ void ArgBinder::BindDLTensor(const Buffer& buffer, const PrimExpr& device_type,
                    << " expected to be compact array";
     if (conds.size() != 0) {
       auto stride_msg = tvm::tir::StringImm(stride_err_msg.str());
-      auto fand = [](PrimExpr a, PrimExpr b) { return a && b; };
-      Stmt check = AssertStmt(foldl(fand, const_true(1), conds), stride_msg, Evaluate(0));
+      Stmt check = AssertStmt(
+          foldl([](PrimExpr a, PrimExpr b, Span span) { return logical_and(a, b, span); },
+                const_true(1), conds),
+          stride_msg, Evaluate(0));
       check = IfThenElse(Not(is_null), check, Stmt());
       asserts_.emplace_back(SeqStmt({check, Evaluate(0)}));
     }

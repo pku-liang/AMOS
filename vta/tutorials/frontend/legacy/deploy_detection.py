@@ -58,7 +58,7 @@ import vta
 from tvm import rpc, autotvm, relay
 from tvm.relay.testing import yolo_detection, darknet
 from tvm.relay.testing.darknet import __darknetffi__
-from tvm.contrib import graph_runtime, graph_runtime, util
+from tvm.contrib import graph_runtime, utils
 from tvm.contrib.download import download_testdata
 from vta.testing import simulator
 from vta.top import graph_pack
@@ -71,7 +71,7 @@ assert tvm.runtime.enabled("rpc")
 # Model Name
 # ----------------------------------------------------------------------------
 MODEL_NAME = "yolov3-tiny"
-REPO_URL = "https://github.com/dmlc/web-data/blob/master/darknet/"
+REPO_URL = "https://github.com/dmlc/web-data/blob/main/darknet/"
 
 cfg_path = download_testdata(
     "https://github.com/pjreddie/darknet/blob/master/cfg/" + MODEL_NAME + ".cfg" + "?raw=true",
@@ -123,7 +123,7 @@ device = "vta"
 target = env.target if device == "vta" else env.target_vta_cpu
 
 pack_dict = {
-    "yolov3-tiny": ["nn.max_pool2d", "cast", 4, 185],
+    "yolov3-tiny": ["nn.max_pool2d", "cast", 4, 186],
 }
 
 # Name of Darknet model to compile
@@ -131,7 +131,7 @@ pack_dict = {
 # to start and end the graph packing relay pass: in other words
 # where to start and finish offloading to VTA.
 # the number 4 indicate the the ``start_pack`` index is 4, the
-# number 185 indicate the ``stop_pack index`` is 185, by using
+# number 186 indicate the ``stop_pack index`` is 186, by using
 # name and index number, here we can located to correct place
 # where to start/end when there are multiple ``nn.max_pool2d``
 # or ``cast``, print(mod.astext(show_meta_data=False)) can help
@@ -241,7 +241,7 @@ with autotvm.tophub.context(target):
     print(MODEL_NAME + " inference graph built in {0:.2f}s!".format(build_time))
 
     # Send the inference library over to the remote RPC server
-    temp = util.tempdir()
+    temp = utils.tempdir()
     lib.export_library(temp.relpath("graphlib.tar"))
     remote.upload(temp.relpath("graphlib.tar"))
     lib = remote.load_module("graphlib.tar")

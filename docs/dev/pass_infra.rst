@@ -196,7 +196,7 @@ optimizations (IPO), which are similar to the module pass used in LLVM. Some
 typical passes in Relay that need the global picture of a module, such as
 A-normal form conversion and lambda lifting, etc., fall into this set. At this
 level, users can even add and/or delete functions in a module. Note that all
-passes 
+passes
 
 .. code:: c++
 
@@ -276,12 +276,12 @@ order that they were appended to the pass list.
                                       const PassContext& pass_ctx) const {
       Module mod = module;
       for (const Pass& pass : passes) {
-        CHECK(pass.defined()) << "Found undefined pass for optimization.";
+        ICHECK(pass.defined()) << "Found undefined pass for optimization.";
         const PassInfo& pass_info = pass->Info();
         if (!PassEnabled(pass_info))  continue;
         for (const auto& it : pass_info->required) {
           const auto* name = it.as<tvm::ir::StringImm>();
-          CHECK(name);
+          ICHECK(name);
           mod = GetPass(name->value)(mod, pass_ctx);
         }
         mod = pass(mod, pass_ctx);
@@ -306,7 +306,7 @@ pass is registered with an API endpoint as we will show later.
       using tvm::runtime::Registry;
       std::string fpass_name = "relay._transform." + pass_name;
       const auto* f = Registry::Get(fpass_name);
-      CHECK(f != nullptr) << "Cannot find " << fpass_name
+      ICHECK(f != nullptr) << "Cannot find " << fpass_name
                           << "to create the pass " << pass_name;
       return (*f)();
     }
@@ -528,22 +528,22 @@ optimization pipeline and debug Relay and tir passes, please refer to the
 
 .. _Sequential: https://pytorch.org/docs/stable/nn.html?highlight=sequential#torch.nn.Sequential
 
-.. _Block: https://mxnet.incubator.apache.org/api/python/docs/api/gluon/block.html#gluon-block
+.. _Block: https://mxnet.apache.org/api/python/docs/api/gluon/block.html#gluon-block
 
-.. _include/tvm/ir/transform.h: https://github.com/apache/incubator-tvm/blob/master/include/tvm/ir/transform.h
+.. _include/tvm/ir/transform.h: https://github.com/apache/tvm/blob/main/include/tvm/ir/transform.h
 
-.. _src/relay/ir/transform.cc: https://github.com/apache/incubator-tvm/blob/master/src/relay/ir/transform.cc
+.. _src/relay/ir/transform.cc: https://github.com/apache/tvm/blob/main/src/relay/ir/transform.cc
 
-.. _src/ir/transform.cc: https://github.com/apache/incubator-tvm/blob/master/src/ir/transform.cc
+.. _src/ir/transform.cc: https://github.com/apache/tvm/blob/main/src/ir/transform.cc
 
-.. _src/relay/pass/fold_constant.cc: https://github.com/apache/incubator-tvm/blob/master/src/relay/pass/fold_constant.cc
+.. _src/relay/pass/fold_constant.cc: https://github.com/apache/tvm/blob/main/src/relay/pass/fold_constant.cc
 
-.. _python/tvm/relay/transform.py: https://github.com/apache/incubator-tvm/blob/master/python/tvm/relay/transform.py
+.. _python/tvm/relay/transform.py: https://github.com/apache/tvm/blob/main/python/tvm/relay/transform.py
 
-.. _include/tvm/relay/transform.h: https://github.com/apache/incubator-tvm/blob/master/include/tvm/relay/transform.h
+.. _include/tvm/relay/transform.h: https://github.com/apache/tvm/blob/main/include/tvm/relay/transform.h
 
-.. _python/tvm/ir/transform.py: https://github.com/apache/incubator-tvm/blob/master/python/tvm/ir/transform.py
+.. _python/tvm/ir/transform.py: https://github.com/apache/tvm/blob/main/python/tvm/ir/transform.py
 
-.. _src/tir/transforms/unroll_loop.cc: https://github.com/apache/incubator-tvm/blob/master/src/tir/transforms/unroll_loop.cc
+.. _src/tir/transforms/unroll_loop.cc: https://github.com/apache/tvm/blob/main/src/tir/transforms/unroll_loop.cc
 
-.. _use pass infra: https://github.com/apache/incubator-tvm/blob/master/tutorials/dev/use_pass_infra.py
+.. _use pass infra: https://github.com/apache/tvm/blob/main/tutorials/dev/use_pass_infra.py

@@ -20,7 +20,7 @@ name = "tvm-macros"
 version = "0.1.1"
 license = "Apache-2.0"
 description = "Procedural macros of the TVM crate."
-repository = "https://github.com/apache/incubator-tvm"
+repository = "https://github.com/apache/tvm"
 readme = "README.md"
 keywords = ["tvm"]
 authors = ["TVM Contributors"]
@@ -33,5 +33,5 @@ proc-macro = true
 goblin = "^0.2"
 proc-macro2 = "^1.0"
 quote = "^1.0"
-syn = { version = "1.0.17", features = ["full", "extra-traits"] }
+syn = { version = "1.0.48", features = ["full", "parsing", "extra-traits"] }
 proc-macro-error = "^1.0"

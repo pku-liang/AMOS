@@ -18,17 +18,22 @@
 """ Namespace for TVM Auto-scheduler. """
 
 from . import compute_dag
+from . import dispatcher
+from . import feature
+from . import loop_state
 from . import measure
 from . import measure_record
-from . import loop_state
+from . import relay_integration
+from . import search_policy
+from . import search_task
+from . import task_scheduler
 from . import utils
 from . import workload_registry
-from . import feature
 
 # Shortcut
-from .auto_schedule import SearchTask, TuningOptions, HardwareParams, create_task, auto_schedule
-from .compute_dag import ComputeDAG
+from .compute_dag import ComputeDAG, LayoutRewriteOption, get_shape_from_rewritten_layout
 from .cost_model import RandomModel, XGBModel
+from .dispatcher import DispatchContext, ApplyHistoryBest
 from .measure import (
     MeasureInput,
     MeasureResult,
@@ -37,6 +42,19 @@ from .measure import (
     RPCRunner,
     LocalRPCMeasureContext,
 )
-from .measure_record import RecordToFile, RecordReader, load_best, load_records, save_records
-from .search_policy import EmptyPolicy, SketchPolicy, PreloadMeasuredStates
+from .measure_record import RecordToFile, RecordReader, load_best_record, load_records, save_records
+from .relay_integration import (
+    extract_tasks,
+    remove_index_check,
+    rewrite_compute_body,
+    is_auto_scheduler_enabled,
+)
+from .search_task import SearchTask, TuningOptions, HardwareParams, create_task, auto_schedule
+from .search_policy import (
+    EmptyPolicy,
+    SketchPolicy,
+    PreloadMeasuredStates,
+    PreloadCustomSketchRule,
+)
+from .task_scheduler import TaskScheduler
 from .workload_registry import register_workload, make_workload_key

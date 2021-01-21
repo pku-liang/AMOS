@@ -185,10 +185,13 @@ class Tuple(ExprWithOp):
     ----------
     fields : List[tvm.relay.Expr]
         The fields in the tuple.
+
+    span: Optional[tvm.relay.Span]
+        Span that points to original source code
     """
 
-    def __init__(self, fields):
-        self.__init_handle_by_constructor__(_ffi_api.Tuple, fields)
+    def __init__(self, fields, span=None):
+        self.__init_handle_by_constructor__(_ffi_api.Tuple, fields, span)
 
     def __getitem__(self, index):
         if index >= len(self):
@@ -251,12 +254,15 @@ class Call(ExprWithOp):
     type_args: Optional[List[tvm.relay.Type]]
         The additional type arguments, this is only
         used in advanced usecase of template functions.
+
+    span: Optional[tvm.relay.Span]
+        Span that points to original source code
     """
 
-    def __init__(self, op, args, attrs=None, type_args=None):
+    def __init__(self, op, args, attrs=None, type_args=None, span=None):
         if not type_args:
             type_args = []
-        self.__init_handle_by_constructor__(_ffi_api.Call, op, args, attrs, type_args)
+        self.__init_handle_by_constructor__(_ffi_api.Call, op, args, attrs, type_args, span)
 
 
 @tvm._ffi.register_object("relay.Let")
@@ -482,7 +488,7 @@ def const(value, dtype=None):
         The constant value.
 
     dtype: str, optional
-        The data type of the value.
+        The data type of the resulting constant.
 
     Note
     ----
@@ -498,13 +504,13 @@ def const(value, dtype=None):
 
     if not dtype:
         # when dtype is None: int maps to "int32", float maps to "float32"
-        map_dtype = {_np.dtype("int64"): _np.int32, _np.dtype("float64"): _np.float32}.get(
+        dtype = {_np.dtype("int64"): _np.int32, _np.dtype("float64"): _np.float32}.get(
             value.dtype, None
         )
-        if map_dtype:
-            value = value.astype(map_dtype)
 
     if isinstance(value, (_np.ndarray, _np.generic)):
+        if dtype is not None:
+            value = value.astype(dtype)
         value = _nd.array(value)
 
     if not isinstance(value, _nd.NDArray):

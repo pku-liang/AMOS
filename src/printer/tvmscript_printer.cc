@@ -475,7 +475,7 @@ Doc TVMScriptPrinter::VisitExpr_(const CallNode* op) {
     doc << Doc::Text(ptr_op->name) << "(";
   } else {
     auto* op_gvar = op->op.as<GlobalVarNode>();
-    CHECK(op_gvar != nullptr);
+    ICHECK(op_gvar != nullptr);
     doc << Doc::Text(op_gvar->name_hint) << "(";
   }
   std::vector<Doc> args;
@@ -566,7 +566,7 @@ Doc TVMScriptPrinter::VisitStmt_(const AttrStmtNode* op) {
   // concise thread env
   if (op->node->IsInstance<IterVarNode>() && op->attr_key == "thread_extent") {
     const auto* iter_var = Downcast<IterVar>(op->node).get();
-    CHECK(!iter_var->dom.defined());
+    ICHECK(!iter_var->dom.defined());
     var_not_in_headers.insert(iter_var->var.get());
     var_env_map_[iter_var->var] = iter_var->thread_tag;
     if (current_num_ != num_child_ - 1) {
@@ -649,27 +649,30 @@ Doc TVMScriptPrinter::VisitStmt_(const EvaluateNode* op) {
   return doc;
 }
 
-inline const char* ForType2String(ForType t) {
+inline const char* ForKind2String(ForKind t) {
   switch (t) {
-    case ForType::Serial:
+    case ForKind::kSerial:
       return "serial";
-    case ForType::Parallel:
+    case ForKind::kParallel:
       return "parallel";
-    case ForType::Vectorized:
+    case ForKind::kVectorized:
       return "vectorized";
-    case ForType::Unrolled:
+    case ForKind::kUnrolled:
       return "unroll";
+    case ForKind::kThreadBinding:
+      LOG(FATAL) << "Loop ThreadBinding is reserved for future used and "
+                 << "not yet supported in TIR";
+      return "threadbinding";
   }
-  LOG(FATAL) << "Unknown ForType";
+  LOG(FATAL) << "Unknown ForKind";
   return "Unknown";
 }
 
 Doc TVMScriptPrinter::VisitStmt_(const ForNode* op) {
   Doc doc;
   var_not_in_headers.insert(op->loop_var.get());
-  doc << "for " << Print(op->loop_var)
-      << " in tir." + std::string(ForType2String(op->for_type)) + "(" << Print(op->min) << ", "
-      << Print(op->min + op->extent)
+  doc << "for " << Print(op->loop_var) << " in tir." + std::string(ForKind2String(op->kind)) + "("
+      << Print(op->min) << ", " << Print(op->min + op->extent)
       << "):" << Doc::Indent(4, Doc::NewLine() << PrintBody(op->body));
   return doc;
 }
@@ -890,7 +893,7 @@ Doc TVMScriptPrinter::PrintBuffer(const BufferNode* op) {
 TVM_REGISTER_GLOBAL("script.AsTVMScript")
     .set_body_typed<std::string(const ObjectRef&, bool)>([](const ObjectRef& functions,
                                                             bool show_meta) {
-      CHECK(functions.as<PrimFuncNode>() != nullptr || functions.as<IRModuleNode>() != nullptr);
+      ICHECK(functions.as<PrimFuncNode>() != nullptr || functions.as<IRModuleNode>() != nullptr);
       return "@tvm.script.tir\n" + TVMScriptPrinter(show_meta).Print(functions).str() + "\n";
     });
 

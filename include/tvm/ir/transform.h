@@ -166,7 +166,7 @@ class PassContext : public ObjectRef {
    * \return const access pointer.
    */
   const PassContextNode* operator->() const {
-    CHECK(get() != nullptr);
+    ICHECK(get() != nullptr);
     return static_cast<const PassContextNode*>(get());
   }
   /*!
@@ -174,7 +174,7 @@ class PassContext : public ObjectRef {
    * \return mutable access pointer.
    */
   PassContextNode* operator->() {
-    CHECK(get() != nullptr);
+    ICHECK(get() != nullptr);
     return static_cast<PassContextNode*>(get_mutable());
   }
 
@@ -196,6 +196,13 @@ class PassContext : public ObjectRef {
    * \param is_before Indicated whether the tracing is before or after a pass.
    */
   TVM_DLL void Trace(const IRModule& module, const PassInfo& info, bool is_before) const;
+
+  /*!
+   * \brief Check whether a pass is enabled.
+   * \param info The pass information.
+   * \return true if the pass is enabled. Otherwise, false.
+   */
+  TVM_DLL bool PassEnabled(const PassInfo& info) const;
 
   /*!
    * \brief Register a valid configuration option and its ValueType for validation.
@@ -344,7 +351,7 @@ class Pass : public ObjectRef {
    */
   IRModule operator()(IRModule mod) const {
     const PassNode* node = operator->();
-    CHECK(node != nullptr);
+    ICHECK(node != nullptr);
     return node->operator()(std::move(mod));
   }
   /*!
@@ -357,7 +364,7 @@ class Pass : public ObjectRef {
    */
   IRModule operator()(IRModule mod, const PassContext& pass_ctx) const {
     const PassNode* node = operator->();
-    CHECK(node != nullptr);
+    ICHECK(node != nullptr);
     return node->operator()(std::move(mod), pass_ctx);
   }
 

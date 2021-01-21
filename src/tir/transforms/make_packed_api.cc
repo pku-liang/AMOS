@@ -36,10 +36,71 @@
 #include <vector>
 
 #include "arg_binder.h"
-#include "ir_util.h"
+#include "ir_utils.h"
 
 namespace tvm {
 namespace tir {
+
+class ReturnRewriter : public StmtMutator {
+ public:
+  explicit ReturnRewriter(Var ret_var, Var ret_tcode) : ret_var_(ret_var), ret_tcode_(ret_tcode) {}
+
+  Stmt VisitStmt_(const ForNode* node) override {
+    if (node->kind == ForKind::kParallel) in_parallel_ += 1;
+    Stmt ret = StmtMutator::VisitStmt_(node);
+    if (node->kind == ForKind::kParallel) in_parallel_ -= 1;
+    return ret;
+  }
+
+  Stmt VisitStmt_(const EvaluateNode* node) override {
+    Stmt ret = StmtMutator::VisitStmt_(node);
+    const EvaluateNode* eval = ret.as<EvaluateNode>();
+    ICHECK(eval);
+    if (const CallNode* call = eval->value.as<CallNode>()) {
+      if (call->op.same_as(builtin::ret())) {
+        ICHECK_EQ(in_parallel_, 0) << "tir.ret cannot be used in parallel scope.";
+        ICHECK_EQ(call->args.size(), 1) << "tir.ret expect a single argument.";
+        ret = WriteToOut(call->args[0], ret_var_, ret_tcode_);
+      }
+    }
+    return ret;
+  }
+
+ private:
+  std::pair<int, PrimExpr> ConvertForFFI(PrimExpr val) {
+    // convert val's data type to FFI data type, return type code
+    DataType dtype = val.dtype();
+    if (dtype.is_int() || dtype.is_uint()) {
+      return {kTVMArgInt, Cast(DataType::Int(64), val)};
+    } else if (dtype.is_float()) {
+      return {kTVMArgFloat, Cast(DataType::Float(64), val)};
+    } else if (dtype.is_void()) {
+      return {kTVMNullptr, val};
+    } else {
+      LOG(FATAL) << "data type " << dtype << " not supported yet";
+    }
+    return {kTVMNullptr, val};
+  }
+
+  Stmt WriteToOut(PrimExpr val, Var ret_var, Var ret_tcode) {
+    auto p = ConvertForFFI(val);
+    int tcode = p.first;
+    val = p.second;
+    Stmt store_val = Store(ret_var_, val, 0, const_true());
+    Stmt store_tcode = Store(ret_tcode_, tcode, 0, const_true());
+    Stmt ret_zero = Evaluate(tvm::ret(0));
+    return SeqStmt({store_val, store_tcode, ret_zero});
+  }
+
+  Var ret_var_;
+  Var ret_tcode_;
+  int in_parallel_{0};
+};
+
+Stmt RewriteReturn(Stmt body, Var ret_var, Var ret_tcode) {
+  ReturnRewriter rewriter(ret_var, ret_tcode);
+  return rewriter(body);
+}
 
 inline Stmt MakeAssertEQ(PrimExpr lhs, PrimExpr rhs, std::string msg) {
   return AssertStmt(lhs == rhs, tvm::tir::StringImm(msg), Evaluate(0));
@@ -47,10 +108,10 @@ inline Stmt MakeAssertEQ(PrimExpr lhs, PrimExpr rhs, std::string msg) {
 
 PrimFunc MakePackedAPI(PrimFunc&& func, int num_unpacked_args) {
   auto global_symbol = func->GetAttr<String>(tvm::attr::kGlobalSymbol);
-  CHECK(global_symbol) << "MakePackedAPI: Expect PrimFunc to have the global_symbol attribute";
+  ICHECK(global_symbol) << "MakePackedAPI: Expect PrimFunc to have the global_symbol attribute";
 
   auto target = func->GetAttr<Target>(tvm::attr::kTarget);
-  CHECK(target.defined()) << "MakePackedAPI: Require the target attribute";
+  ICHECK(target.defined()) << "MakePackedAPI: Require the target attribute";
   int target_device_type = target.value()->kind->device_type;
 
   std::string name_hint = global_symbol.value();
@@ -58,7 +119,7 @@ PrimFunc MakePackedAPI(PrimFunc&& func, int num_unpacked_args) {
   auto* func_ptr = func.CopyOnWrite();
   const Stmt nop = Evaluate(0);
   int num_args = static_cast<int>(func_ptr->params.size());
-  CHECK_LE(num_unpacked_args, num_args);
+  ICHECK_LE(num_unpacked_args, num_args);
 
   int num_packed_args = num_args - num_unpacked_args;
   // Data field definitions
@@ -143,7 +204,7 @@ PrimFunc MakePackedAPI(PrimFunc&& func, int num_unpacked_args) {
         msg << name_hint << ": Expect arg[" << i << "] to be int";
         seq_check.emplace_back(AssertStmt(tcode == kDLInt, tvm::tir::StringImm(msg.str()), nop));
       } else {
-        CHECK(t.is_float());
+        ICHECK(t.is_float());
         std::ostringstream msg;
         msg << name_hint << ": Expect arg[" << i << "] to be float";
         seq_check.emplace_back(AssertStmt(tcode == kDLFloat, tvm::tir::StringImm(msg.str()), nop));
@@ -161,7 +222,7 @@ PrimFunc MakePackedAPI(PrimFunc&& func, int num_unpacked_args) {
   }
 
   size_t expected_nargs = num_unpacked_args + (num_packed_args != 0 ? 6 : 0);
-  CHECK_EQ(args.size(), expected_nargs);
+  ICHECK_EQ(args.size(), expected_nargs);
 
   // Arg definitions are defined before buffer binding to avoid the use before
   // def errors.
@@ -182,8 +243,9 @@ PrimFunc MakePackedAPI(PrimFunc&& func, int num_unpacked_args) {
     func = WithAttr(std::move(func), tvm::attr::kCallingConv, Integer(CallingConv::kCPackedFunc));
   }
 
-  Stmt body = AttrStmt(make_zero(DataType::Int(32)), attr::compute_scope,
-                       StringImm(name_hint + "_compute_"), func_ptr->body);
+  Stmt body = RewriteReturn(func_ptr->body, v_out_ret_value, v_out_ret_tcode);
+  body = AttrStmt(make_zero(DataType::Int(32)), attr::compute_scope,
+                  StringImm(name_hint + "_compute_"), body);
   // Set device context
   if (vmap.count(device_id.get())) {
     PrimExpr node = StringImm("default");

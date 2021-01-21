@@ -24,7 +24,7 @@
 #include <tvm/tir/builtin.h>
 
 #include "compute_op.h"
-#include "op_util.h"
+#include "op_utils.h"
 
 namespace tvm {
 namespace te {
@@ -92,12 +92,13 @@ Stmt MakeCrossThreadReduction(const ComputeOpNode* self, const Stage& stage,
                            debug_keep_trivial_loop);
 
   size_t size = self->body.size();
-  CHECK_GT(size, 0);
+  ICHECK_GT(size, 0);
   std::vector<const ReduceNode*> reduces(size);
   for (size_t i = 0; i < size; ++i) {
     const ReduceNode* reduce = self->body[i].as<ReduceNode>();
-    CHECK(reduce);
-    CHECK(reduce->init.empty()) << "Cannot perform cross_thread_reduction for reductions with init";
+    ICHECK(reduce);
+    ICHECK(reduce->init.empty())
+        << "Cannot perform cross_thread_reduction for reductions with init";
     reduces[i] = reduce;
   }
 
@@ -140,11 +141,12 @@ Stmt MakeCrossThreadReduction(const ComputeOpNode* self, const Stage& stage,
     normal_init.reserve(size);
     normal_update.resize(size);
     const CommReducerNode* combiner = reduces[0]->combiner.as<CommReducerNode>();
-    CHECK(combiner);
+    ICHECK(combiner);
     Array<PrimExpr> lhs;
     for (size_t i = 0; i < size; ++i) {
       DataType t = reduces[i]->dtype;
-      normal_res_handles.emplace_back("normal_reduce_temp" + std::to_string(i), DataType::Handle());
+      normal_res_handles.emplace_back("normal_reduce_temp" + std::to_string(i),
+                                      PointerType(PrimType(t)));
       lhs.push_back(Load(t, normal_res_handles[i], 0, const_true(t.lanes())));
     }
     Array<PrimExpr> init_value = combiner->identity_element;
@@ -174,7 +176,8 @@ Stmt MakeCrossThreadReduction(const ComputeOpNode* self, const Stage& stage,
   freduce_args.push_back(const_true(1));
   std::vector<Var> res_handles(size);
   for (size_t idx = 0; idx < size; ++idx) {
-    res_handles[idx] = Var("reduce_temp" + std::to_string(idx), DataType::Handle());
+    DataType dtype = reduces[idx]->dtype;
+    res_handles[idx] = Var("reduce_temp" + std::to_string(idx), PointerType(PrimType(dtype)));
     freduce_args.push_back(res_handles[idx]);
   }
 

@@ -28,14 +28,12 @@ _reg.register_broadcast_schedule("dyn.tile")
 _reg.register_injective_schedule("dyn.one_hot")
 _reg.register_injective_schedule("dyn.full")
 _reg.register_injective_schedule("dyn.strided_slice")
+_reg.register_injective_schedule("dyn.sparse_to_dense")
 
 
 @script
-def _reshape_shape_func_input_data(data, newshape, ndim):
+def _reshape_shape_func_input_data(data_shape, newshape, ndim):
     out = output_tensor((ndim,), "int64")
-    data_shape = allocate((len(data.shape),), "int64")
-    for x in const_range(len(data.shape)):
-        data_shape[x] = int64(data.shape[x])
     src_idx = 0
     dst_idx = 0
     infer_idx = -1
@@ -86,7 +84,7 @@ def _reshape_shape_func_input_data(data, newshape, ndim):
     return out
 
 
-@_reg.register_shape_func("dyn.reshape", True)
+@_reg.register_shape_func("dyn.reshape", [False, True])
 def dynamic_reshape_shape_func(attrs, inputs, out_ndims):
     return [_reshape_shape_func_input_data(*inputs, out_ndims[0])]
 
@@ -149,34 +147,36 @@ def one_hot_shape_func(attrs, inputs, _):
 
 
 @script
-def _strided_slice_shape_func_input_data(data, begin, end, strides, slice_mode):
-    ndim = len(data.shape)
+def _strided_slice_shape_func_input_data(data_shape, begin, end, strides, slice_mode):
+    ndim = len(data_shape)
     out = output_tensor((ndim,), "int64")
     for i in const_range(ndim):
         cbegin = int64(0)
-        cend = int64(data.shape[i])
+        cend = int64(data_shape[i])
         cstride = int64(1)
         if strides.shape[0] > i:
             cstride = int64(strides[i])
         if begin.shape[0] > i:
             cbegin = int64(begin[i])
             if cbegin < 0:
-                cbegin += int64(data.shape[i])
+                cbegin += int64(data_shape[i])
         if end.shape[0] <= i:
-            cend = int64(data.shape[i])
+            cend = int64(data_shape[i])
         elif slice_mode != 0:
             cstride = int64(1)
             if end[i] < 0:
-                cend = int64(data.shape[i])
+                cend = int64(data_shape[i])
             else:
                 cend = cbegin + int64(end[i])
         else:
-            if end[i] > data.shape[i]:
-                cend = int64(data.shape[i])
+            if end[i] > data_shape[i]:
+                cend = int64(data_shape[i])
+            elif end[i] < -data_shape[i]:
+                cend = int64(-1)
             else:
                 cend = int64(end[i])
                 if cend < 0:
-                    cend += int64(data.shape[i])
+                    cend += int64(data_shape[i])
         assert cstride != 0, "Strides can't be zero."
         if cstride < 0:
             slice_range = cbegin - cend
@@ -189,10 +189,23 @@ def _strided_slice_shape_func_input_data(data, begin, end, strides, slice_mode):
     return out
 
 
-@_reg.register_shape_func("dyn.strided_slice", True)
+@_reg.register_shape_func("dyn.strided_slice", [False, True, True, True])
 def strided_slice_shape_func(attrs, inputs, _):
     """
     Shape func for strided_slice
     """
     slice_mode = convert(0 if attrs.slice_mode == "end" else 1)
     return [_strided_slice_shape_func_input_data(*inputs, slice_mode)]
+
+
+@script
+def _sparse_to_dense_shape_func(output_shape, ndim):
+    out = output_tensor((ndim,), "int64")
+    for i in const_range(ndim):
+        out[i] = int64(output_shape[i])
+    return out
+
+
+@_reg.register_shape_func("dyn.sparse_to_dense", True)
+def sparse_to_dense_shape_func(attrs, inputs, out_ndims):
+    return [_sparse_to_dense_shape_func(inputs[3], out_ndims[0])]

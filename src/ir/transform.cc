@@ -60,8 +60,8 @@ void PassContext::EnterWithScope() {
 
 void PassContext::ExitWithScope() {
   PassContextThreadLocalEntry* entry = RelayPassContextThreadLocalStore::Get();
-  CHECK(!entry->context_stack.empty());
-  CHECK(entry->context_stack.top().same_as(*this));
+  ICHECK(!entry->context_stack.empty());
+  ICHECK(entry->context_stack.top().same_as(*this));
   entry->context_stack.pop();
 }
 
@@ -74,10 +74,30 @@ PassContext PassContext::Current() {
   }
 }
 
+// linearly scan the pass array to match pass_name
+bool PassArrayContains(const Array<runtime::String>& pass_array, const std::string& pass_name) {
+  for (auto x : pass_array) {
+    if (x == pass_name) return true;
+  }
+  return false;
+}
+
+bool PassContext::PassEnabled(const PassInfo& info) const {
+  if (PassArrayContains(operator->()->disabled_pass, info->name)) {
+    return false;
+  }
+
+  if (PassArrayContains(operator->()->required_pass, info->name)) {
+    return true;
+  }
+
+  return operator->()->opt_level >= info->opt_level;
+}
+
 class PassConfigManager {
  public:
   void Register(std::string key, uint32_t value_type_index) {
-    CHECK_EQ(key2vtype_.count(key), 0U);
+    ICHECK_EQ(key2vtype_.count(key), 0U);
     ValueTypeInfo info;
     info.type_index = value_type_index;
     info.type_key = runtime::Object::TypeIndex2Key(value_type_index);
@@ -103,7 +123,7 @@ class PassConfigManager {
         LOG(FATAL) << os.str();
       }
       const auto& info = it->second;
-      CHECK(kv.second.defined()) << "AttributeError: " << kv.first << " is None";
+      ICHECK(kv.second.defined()) << "AttributeError: " << kv.first << " is None";
       if (kv.second->IsInstance<Map<String, ObjectRef>::ContainerType>()) {
         ObjectRef converted =
             reflection->CreateObject(info.type_key, Downcast<Map<String, ObjectRef>>(kv.second));
@@ -225,15 +245,6 @@ class SequentialNode : public PassNode {
   PassInfo Info() const override { return pass_info; }
 
   /*!
-   * \brief Check if a pass is enabled.
-   *
-   * \param info The pass information.
-   *
-   * \return true if the pass is enabled. Otherwise, false.
-   */
-  bool PassEnabled(const PassInfo& info) const;
-
-  /*!
    * \brief Resolve the pass dependency. It globs all required passes by
    *        a given pass and executes them.
    *
@@ -344,29 +355,6 @@ void SequentialNode::ResolveDependency(const IRModule& mod) {
              << "\n";
 }
 
-// linearly scan the pass array to match pass_name
-inline bool PassArrayContains(const Array<runtime::String>& pass_array,
-                              const std::string& pass_name) {
-  for (auto x : pass_array) {
-    if (x == pass_name) return true;
-  }
-  return false;
-}
-
-bool SequentialNode::PassEnabled(const PassInfo& info) const {
-  PassContext ctx = PassContext::Current();
-
-  if (PassArrayContains(ctx->disabled_pass, info->name)) {
-    return false;
-  }
-
-  if (PassArrayContains(ctx->required_pass, info->name)) {
-    return true;
-  }
-
-  return ctx->opt_level >= info->opt_level;
-}
-
 Pass GetPass(const String& pass_name) {
   using tvm::runtime::Registry;
   const runtime::PackedFunc* f = nullptr;
@@ -376,7 +364,7 @@ Pass GetPass(const String& pass_name) {
     // pass
   } else if ((f = Registry::Get("relay._transform." + pass_name))) {
   }
-  CHECK(f != nullptr) << "Cannot use " << pass_name << "to create the pass";
+  ICHECK(f != nullptr) << "Cannot use " << pass_name << "to create the pass";
   return (*f)();
 }
 
@@ -385,9 +373,9 @@ Pass GetPass(const String& pass_name) {
 // ordering problem needs to be handled in the future.
 IRModule SequentialNode::operator()(IRModule mod, const PassContext& pass_ctx) const {
   for (const Pass& pass : passes) {
-    CHECK(pass.defined()) << "Found undefined pass for optimization.";
+    ICHECK(pass.defined()) << "Found undefined pass for optimization.";
     const PassInfo& pass_info = pass->Info();
-    if (!PassEnabled(pass_info)) continue;
+    if (!pass_ctx.PassEnabled(pass_info)) continue;
     // resolve dependencies
     for (const auto& it : pass_info->required) {
       mod = GetPass(it)(std::move(mod), pass_ctx);

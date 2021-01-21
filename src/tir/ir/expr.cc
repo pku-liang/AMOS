@@ -33,45 +33,50 @@
 namespace tvm {
 namespace tir {
 
-#define TVM_DEFINE_BINOP_CONSTRUCTOR(Name)                            \
-  Name::Name(PrimExpr a, PrimExpr b) {                                \
-    using T = Name::ContainerType;                                    \
-    CHECK(a.defined()) << "ValueError: a is undefined\n";             \
-    CHECK(b.defined()) << "ValueError: b is undefined\n";             \
-    CHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types\n"; \
-    ObjectPtr<T> node = make_object<T>();                             \
-    node->dtype = a.dtype();                                          \
-    node->a = std::move(a);                                           \
-    node->b = std::move(b);                                           \
-    data_ = std::move(node);                                          \
+#define TVM_DEFINE_BINOP_CONSTRUCTOR(Name)                                               \
+  Name::Name(PrimExpr a, PrimExpr b, Span span) {                                        \
+    using T = Name::ContainerType;                                                       \
+    ICHECK(a.defined()) << "ValueError: a is undefined\n";                               \
+    ICHECK(b.defined()) << "ValueError: b is undefined\n";                               \
+    ICHECK(a.dtype() == b.dtype())                                                       \
+        << "TypeError: mismatched types. " << a.dtype() << " vs. " << b.dtype() << "\n"; \
+    ObjectPtr<T> node = make_object<T>();                                                \
+    node->dtype = a.dtype();                                                             \
+    node->a = std::move(a);                                                              \
+    node->b = std::move(b);                                                              \
+    node->span = std::move(span);                                                        \
+    data_ = std::move(node);                                                             \
   }
 
-#define TVM_DEFINE_CMPOP_CONSTRUCTOR(Name)                            \
-  Name::Name(PrimExpr a, PrimExpr b) {                                \
-    using T = Name::ContainerType;                                    \
-    CHECK(a.defined()) << "ValueError: a is undefined\n";             \
-    CHECK(b.defined()) << "ValueError: b is undefined\n";             \
-    CHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types\n"; \
-    ObjectPtr<T> node = make_object<T>();                             \
-    node->dtype = DataType::Bool(a.dtype().lanes());                  \
-    node->a = std::move(a);                                           \
-    node->b = std::move(b);                                           \
-    data_ = std::move(node);                                          \
+#define TVM_DEFINE_CMPOP_CONSTRUCTOR(Name)                             \
+  Name::Name(PrimExpr a, PrimExpr b, Span span) {                      \
+    using T = Name::ContainerType;                                     \
+    ICHECK(a.defined()) << "ValueError: a is undefined\n";             \
+    ICHECK(b.defined()) << "ValueError: b is undefined\n";             \
+    ICHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types\n"; \
+    ObjectPtr<T> node = make_object<T>();                              \
+    node->dtype = DataType::Bool(a.dtype().lanes());                   \
+    node->a = std::move(a);                                            \
+    node->b = std::move(b);                                            \
+    node->span = std::move(span);                                      \
+    data_ = std::move(node);                                           \
   }
 
 // Var
-Var::Var(String name_hint, DataType dtype) {
+Var::Var(String name_hint, DataType dtype, Span span) {
   auto n = make_object<VarNode>();
   n->name_hint = std::move(name_hint);
   n->dtype = std::move(dtype);
+  n->span = std::move(span);
   data_ = std::move(n);
 }
 
-Var::Var(String name_hint, Type type_annotation) {
+Var::Var(String name_hint, Type type_annotation, Span span) {
   auto n = make_object<VarNode>();
   n->name_hint = std::move(name_hint);
   n->dtype = GetRuntimeDataType(type_annotation);
   n->type_annotation = std::move(type_annotation);
+  n->span = std::move(span);
   data_ = std::move(n);
 }
 
@@ -87,11 +92,12 @@ Var Var::copy_with_suffix(const String& suffix) const {
   return Var(new_ptr);
 }
 
-TVM_REGISTER_GLOBAL("tir.Var").set_body_typed([](String name_hint, runtime::TVMArgValue type) {
+TVM_REGISTER_GLOBAL("tir.Var").set_body_typed([](String name_hint, runtime::TVMArgValue type,
+                                                 Span span) {
   if (type.IsObjectRef<Type>()) {
-    return Var(name_hint, type.operator Type());
+    return Var(name_hint, type.operator Type(), span);
   } else {
-    return Var(name_hint, type.operator DataType());
+    return Var(name_hint, type.operator DataType(), span);
   }
 });
 
@@ -106,15 +112,16 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // SizeVar
-SizeVar::SizeVar(String name_hint, DataType dtype) {
+SizeVar::SizeVar(String name_hint, DataType dtype, Span span) {
   auto n = make_object<SizeVarNode>();
   n->name_hint = std::move(name_hint);
   n->dtype = std::move(dtype);
+  n->span = std::move(span);
   data_ = std::move(n);
 }
 
-TVM_REGISTER_GLOBAL("tir.SizeVar").set_body_typed([](String s, DataType t) {
-  return SizeVar(s, t);
+TVM_REGISTER_GLOBAL("tir.SizeVar").set_body_typed([](String s, DataType t, Span span) {
+  return SizeVar(s, t, span);
 });
 
 TVM_REGISTER_NODE_TYPE(SizeVarNode);
@@ -126,18 +133,19 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // IterVar
-IterVar::IterVar(Range dom, Var var, IterVarType t, String thread_tag) {
+IterVar::IterVar(Range dom, Var var, IterVarType t, String thread_tag, Span span) {
   ObjectPtr<IterVarNode> n = make_object<IterVarNode>();
   n->dom = dom;
   n->var = var;
   n->iter_type = t;
   n->thread_tag = thread_tag;
+  n->span = std::move(span);
   data_ = std::move(n);
 }
 
 TVM_REGISTER_GLOBAL("tir.IterVar")
-    .set_body_typed([](Range dom, Var var, int iter_type, String thread_tag) {
-      return IterVar(dom, var, static_cast<IterVarType>(iter_type), thread_tag);
+    .set_body_typed([](Range dom, Var var, int iter_type, String thread_tag, Span span) {
+      return IterVar(dom, var, static_cast<IterVarType>(iter_type), thread_tag, span);
     });
 
 TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
@@ -159,14 +167,17 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 TVM_REGISTER_NODE_TYPE(IterVarNode);
 
 // StringImm
-StringImm::StringImm(String value) {
+StringImm::StringImm(String value, Span span) {
   ObjectPtr<StringImmNode> node = make_object<StringImmNode>();
   node->dtype = DataType::Handle();
   node->value = std::move(value);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.StringImm").set_body_typed([](String value) { return StringImm(value); });
+TVM_REGISTER_GLOBAL("tir.StringImm").set_body_typed([](String value, Span span) {
+  return StringImm(value, span);
+});
 
 TVM_REGISTER_NODE_TYPE(StringImmNode);
 
@@ -177,17 +188,18 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Cast
-Cast::Cast(DataType t, PrimExpr value) {
-  CHECK(value.defined());
-  CHECK_EQ(t.lanes(), value.dtype().lanes());
+Cast::Cast(DataType t, PrimExpr value, Span span) {
+  ICHECK(value.defined());
+  ICHECK_EQ(t.lanes(), value.dtype().lanes());
   ObjectPtr<CastNode> node = make_object<CastNode>();
   node->dtype = t;
   node->value = std::move(value);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.Cast").set_body_typed([](DataType dtype, PrimExpr value) {
-  return Cast(dtype, value);
+TVM_REGISTER_GLOBAL("tir.Cast").set_body_typed([](DataType dtype, PrimExpr value, Span span) {
+  return Cast(dtype, value, span);
 });
 
 TVM_REGISTER_NODE_TYPE(CastNode);
@@ -203,7 +215,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Add
 TVM_DEFINE_BINOP_CONSTRUCTOR(Add);
 
-TVM_REGISTER_GLOBAL("tir.Add").set_body_typed([](PrimExpr a, PrimExpr b) { return Add(a, b); });
+TVM_REGISTER_GLOBAL("tir.Add").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Add(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(AddNode);
 
@@ -220,7 +234,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Sub
 TVM_DEFINE_BINOP_CONSTRUCTOR(Sub);
 
-TVM_REGISTER_GLOBAL("tir.Sub").set_body_typed([](PrimExpr a, PrimExpr b) { return Sub(a, b); });
+TVM_REGISTER_GLOBAL("tir.Sub").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Sub(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(SubNode);
 
@@ -237,7 +253,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Mul
 TVM_DEFINE_BINOP_CONSTRUCTOR(Mul);
 
-TVM_REGISTER_GLOBAL("tir.Mul").set_body_typed([](PrimExpr a, PrimExpr b) { return Mul(a, b); });
+TVM_REGISTER_GLOBAL("tir.Mul").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Mul(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(MulNode);
 
@@ -254,7 +272,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Div
 TVM_DEFINE_BINOP_CONSTRUCTOR(Div);
 
-TVM_REGISTER_GLOBAL("tir.Div").set_body_typed([](PrimExpr a, PrimExpr b) { return Div(a, b); });
+TVM_REGISTER_GLOBAL("tir.Div").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Div(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(DivNode);
 
@@ -271,7 +291,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Mod
 TVM_DEFINE_BINOP_CONSTRUCTOR(Mod);
 
-TVM_REGISTER_GLOBAL("tir.Mod").set_body_typed([](PrimExpr a, PrimExpr b) { return Mod(a, b); });
+TVM_REGISTER_GLOBAL("tir.Mod").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Mod(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(ModNode);
 
@@ -288,8 +310,8 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // FloorDiv
 TVM_DEFINE_BINOP_CONSTRUCTOR(FloorDiv);
 
-TVM_REGISTER_GLOBAL("tir.FloorDiv").set_body_typed([](PrimExpr a, PrimExpr b) {
-  return FloorDiv(a, b);
+TVM_REGISTER_GLOBAL("tir.FloorDiv").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return FloorDiv(a, b, span);
 });
 
 TVM_REGISTER_NODE_TYPE(FloorDivNode);
@@ -303,8 +325,8 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // FloorMod
 TVM_DEFINE_BINOP_CONSTRUCTOR(FloorMod);
 
-TVM_REGISTER_GLOBAL("tir.FloorMod").set_body_typed([](PrimExpr a, PrimExpr b) {
-  return FloorMod(a, b);
+TVM_REGISTER_GLOBAL("tir.FloorMod").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return FloorMod(a, b, span);
 });
 
 TVM_REGISTER_NODE_TYPE(FloorModNode);
@@ -318,7 +340,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Min
 TVM_DEFINE_BINOP_CONSTRUCTOR(Min);
 
-TVM_REGISTER_GLOBAL("tir.Min").set_body_typed([](PrimExpr a, PrimExpr b) { return Min(a, b); });
+TVM_REGISTER_GLOBAL("tir.Min").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Min(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(MinNode);
 
@@ -335,7 +359,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // Max
 TVM_DEFINE_BINOP_CONSTRUCTOR(Max);
 
-TVM_REGISTER_GLOBAL("tir.Max").set_body_typed([](PrimExpr a, PrimExpr b) { return Max(a, b); });
+TVM_REGISTER_GLOBAL("tir.Max").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Max(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(MaxNode);
 
@@ -352,7 +378,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // EQ
 TVM_DEFINE_CMPOP_CONSTRUCTOR(EQ);
 
-TVM_REGISTER_GLOBAL("tir.EQ").set_body_typed([](PrimExpr a, PrimExpr b) { return EQ(a, b); });
+TVM_REGISTER_GLOBAL("tir.EQ").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return EQ(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(EQNode);
 
@@ -369,7 +397,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // NE
 TVM_DEFINE_CMPOP_CONSTRUCTOR(NE);
 
-TVM_REGISTER_GLOBAL("tir.NE").set_body_typed([](PrimExpr a, PrimExpr b) { return NE(a, b); });
+TVM_REGISTER_GLOBAL("tir.NE").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return NE(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(NENode);
 
@@ -386,7 +416,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // LT
 TVM_DEFINE_CMPOP_CONSTRUCTOR(LT);
 
-TVM_REGISTER_GLOBAL("tir.LT").set_body_typed([](PrimExpr a, PrimExpr b) { return LT(a, b); });
+TVM_REGISTER_GLOBAL("tir.LT").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return LT(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(LTNode);
 
@@ -403,7 +435,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // LE
 TVM_DEFINE_CMPOP_CONSTRUCTOR(LE);
 
-TVM_REGISTER_GLOBAL("tir.LE").set_body_typed([](PrimExpr a, PrimExpr b) { return LE(a, b); });
+TVM_REGISTER_GLOBAL("tir.LE").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return LE(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(LENode);
 
@@ -420,7 +454,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // GT
 TVM_DEFINE_CMPOP_CONSTRUCTOR(GT);
 
-TVM_REGISTER_GLOBAL("tir.GT").set_body_typed([](PrimExpr a, PrimExpr b) { return GT(a, b); });
+TVM_REGISTER_GLOBAL("tir.GT").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return GT(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(GTNode);
 
@@ -437,7 +473,9 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 // GE
 TVM_DEFINE_CMPOP_CONSTRUCTOR(GE);
 
-TVM_REGISTER_GLOBAL("tir.GE").set_body_typed([](PrimExpr a, PrimExpr b) { return GE(a, b); });
+TVM_REGISTER_GLOBAL("tir.GE").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return GE(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(GENode);
 
@@ -452,21 +490,24 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // And
-And::And(PrimExpr a, PrimExpr b) {
-  CHECK(a.defined()) << "ValueError: a is undefined";
-  CHECK(b.defined()) << "ValueError: b is undefined";
-  CHECK(a.dtype().is_bool());
-  CHECK(b.dtype().is_bool());
-  CHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types";
+And::And(PrimExpr a, PrimExpr b, Span span) {
+  ICHECK(a.defined()) << "ValueError: a is undefined";
+  ICHECK(b.defined()) << "ValueError: b is undefined";
+  ICHECK(a.dtype().is_bool());
+  ICHECK(b.dtype().is_bool());
+  ICHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types";
 
   ObjectPtr<AndNode> node = make_object<AndNode>();
   node->dtype = DataType::Bool(a.dtype().lanes());
   node->a = std::move(a);
   node->b = std::move(b);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.And").set_body_typed([](PrimExpr a, PrimExpr b) { return And(a, b); });
+TVM_REGISTER_GLOBAL("tir.And").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return And(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(AndNode);
 
@@ -481,21 +522,24 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Or
-Or::Or(PrimExpr a, PrimExpr b) {
-  CHECK(a.defined()) << "ValueError: a is undefined";
-  CHECK(b.defined()) << "ValueError: b is undefined";
-  CHECK(a.dtype().is_bool());
-  CHECK(b.dtype().is_bool());
-  CHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types";
+Or::Or(PrimExpr a, PrimExpr b, Span span) {
+  ICHECK(a.defined()) << "ValueError: a is undefined";
+  ICHECK(b.defined()) << "ValueError: b is undefined";
+  ICHECK(a.dtype().is_bool());
+  ICHECK(b.dtype().is_bool());
+  ICHECK(a.dtype() == b.dtype()) << "TypeError: mismatched types";
 
   ObjectPtr<OrNode> node = make_object<OrNode>();
   node->dtype = DataType::Bool(a.dtype().lanes());
   node->a = std::move(a);
   node->b = std::move(b);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.Or").set_body_typed([](PrimExpr a, PrimExpr b) { return Or(a, b); });
+TVM_REGISTER_GLOBAL("tir.Or").set_body_typed([](PrimExpr a, PrimExpr b, Span span) {
+  return Or(a, b, span);
+});
 
 TVM_REGISTER_NODE_TYPE(OrNode);
 
@@ -510,17 +554,18 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Not
-Not::Not(PrimExpr a) {
-  CHECK(a.defined()) << "ValueError: a is undefined";
-  CHECK(a.dtype().is_bool());
+Not::Not(PrimExpr a, Span span) {
+  ICHECK(a.defined()) << "ValueError: a is undefined";
+  ICHECK(a.dtype().is_bool());
 
   ObjectPtr<NotNode> node = make_object<NotNode>();
   node->dtype = DataType::Bool(a.dtype().lanes());
   node->a = std::move(a);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.Not").set_body_typed([](PrimExpr a) { return Not(a); });
+TVM_REGISTER_GLOBAL("tir.Not").set_body_typed([](PrimExpr a, Span span) { return Not(a, span); });
 
 TVM_REGISTER_NODE_TYPE(NotNode);
 
@@ -532,25 +577,26 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Select
-Select::Select(PrimExpr condition, PrimExpr true_value, PrimExpr false_value) {
-  CHECK(condition.defined()) << "ValueError: condition is undefined";
-  CHECK(true_value.defined()) << "ValueError: true_value is undefined";
-  CHECK(false_value.defined()) << "ValueError: true_value is undefined";
-  CHECK(condition.dtype().is_bool());
-  CHECK(condition.dtype().lanes() == true_value.dtype().lanes() || condition.dtype().lanes() == 1);
-  CHECK(false_value.dtype() == true_value.dtype()) << "TypeError: mismatched types";
+Select::Select(PrimExpr condition, PrimExpr true_value, PrimExpr false_value, Span span) {
+  ICHECK(condition.defined()) << "ValueError: condition is undefined";
+  ICHECK(true_value.defined()) << "ValueError: true_value is undefined";
+  ICHECK(false_value.defined()) << "ValueError: true_value is undefined";
+  ICHECK(condition.dtype().is_bool());
+  ICHECK(condition.dtype().lanes() == true_value.dtype().lanes() || condition.dtype().lanes() == 1);
+  ICHECK(false_value.dtype() == true_value.dtype()) << "TypeError: mismatched types";
 
   ObjectPtr<SelectNode> node = make_object<SelectNode>();
   node->dtype = true_value.dtype();
   node->condition = std::move(condition);
   node->true_value = std::move(true_value);
   node->false_value = std::move(false_value);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
 TVM_REGISTER_GLOBAL("tir.Select")
-    .set_body_typed([](PrimExpr condition, PrimExpr true_value, PrimExpr false_value) {
-      return Select(condition, true_value, false_value);
+    .set_body_typed([](PrimExpr condition, PrimExpr true_value, PrimExpr false_value, Span span) {
+      return Select(condition, true_value, false_value, span);
     });
 
 TVM_REGISTER_NODE_TYPE(SelectNode);
@@ -568,18 +614,19 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Load
-Load::Load(DataType dtype, Var buffer_var, PrimExpr index, PrimExpr predicate) {
-  CHECK(buffer_var.defined());
-  CHECK(predicate.defined());
-  CHECK(index.defined());
-  CHECK_EQ(dtype.lanes(), index.dtype().lanes());
-  CHECK_EQ(dtype.lanes(), predicate.dtype().lanes());
+Load::Load(DataType dtype, Var buffer_var, PrimExpr index, PrimExpr predicate, Span span) {
+  ICHECK(buffer_var.defined());
+  ICHECK(predicate.defined());
+  ICHECK(index.defined());
+  ICHECK_EQ(dtype.lanes(), index.dtype().lanes());
+  ICHECK_EQ(dtype.lanes(), predicate.dtype().lanes());
 
   ObjectPtr<LoadNode> node = make_object<LoadNode>();
   node->dtype = dtype;
   node->buffer_var = std::move(buffer_var);
   node->index = std::move(index);
   node->predicate = std::move(predicate);
+  node->span = std::move(span);
 
   data_ = std::move(node);
 }
@@ -587,9 +634,11 @@ Load::Load(DataType dtype, Var buffer_var, PrimExpr index, PrimExpr predicate) {
 TVM_REGISTER_GLOBAL("tir.Load").set_body([](TVMArgs args, TVMRetValue* ret) {
   DataType t = args[0];
   if (args.size() == 3) {
-    *ret = Load(t, args[1], args[2], const_true(t.lanes()));
+    *ret = Load(t, args[1], args[2], const_true(t.lanes()), Span());
+  } else if (args.size() == 4) {
+    *ret = Load(t, args[1], args[2], args[3], Span());
   } else {
-    *ret = Load(t, args[1], args[2], args[3]);
+    *ret = Load(t, args[1], args[2], args[3], args[4]);
   }
 });
 
@@ -608,25 +657,27 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Ramp
-Ramp::Ramp(PrimExpr base, PrimExpr stride, int lanes) {
-  CHECK(base.defined());
-  CHECK(stride.defined());
-  CHECK(base.dtype().is_scalar());
-  CHECK(stride.dtype().is_scalar());
-  CHECK_GT(lanes, 1);
-  CHECK_EQ(stride.dtype(), base.dtype());
+Ramp::Ramp(PrimExpr base, PrimExpr stride, int lanes, Span span) {
+  ICHECK(base.defined());
+  ICHECK(stride.defined());
+  ICHECK(base.dtype().is_scalar());
+  ICHECK(stride.dtype().is_scalar());
+  ICHECK_GT(lanes, 1);
+  ICHECK_EQ(stride.dtype(), base.dtype());
 
   ObjectPtr<RampNode> node = make_object<RampNode>();
   node->dtype = base.dtype().with_lanes(lanes);
   node->base = base;
   node->stride = stride;
   node->lanes = lanes;
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.Ramp").set_body_typed([](PrimExpr base, PrimExpr stride, int lanes) {
-  return Ramp(base, stride, lanes);
-});
+TVM_REGISTER_GLOBAL("tir.Ramp")
+    .set_body_typed([](PrimExpr base, PrimExpr stride, int lanes, Span span) {
+      return Ramp(base, stride, lanes, span);
+    });
 
 TVM_REGISTER_NODE_TYPE(RampNode);
 
@@ -641,20 +692,21 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Broadcast
-Broadcast::Broadcast(PrimExpr value, int lanes) {
-  CHECK(value.defined());
-  CHECK(value.dtype().is_scalar());
-  CHECK_GT(lanes, 1);
+Broadcast::Broadcast(PrimExpr value, int lanes, Span span) {
+  ICHECK(value.defined());
+  ICHECK(value.dtype().is_scalar());
+  ICHECK_GT(lanes, 1);
 
   ObjectPtr<BroadcastNode> node = make_object<BroadcastNode>();
   node->dtype = value.dtype().with_lanes(lanes);
   node->value = std::move(value);
   node->lanes = lanes;
+  node->span = std::move(span);
   data_ = node;
 }
 
-TVM_REGISTER_GLOBAL("tir.Broadcast").set_body_typed([](PrimExpr value, int lanes) {
-  return Broadcast(value, lanes);
+TVM_REGISTER_GLOBAL("tir.Broadcast").set_body_typed([](PrimExpr value, int lanes, Span span) {
+  return Broadcast(value, lanes, span);
 });
 
 TVM_REGISTER_NODE_TYPE(BroadcastNode);
@@ -668,21 +720,23 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Let
-Let::Let(Var var, PrimExpr value, PrimExpr body) {
-  CHECK(value.defined());
-  CHECK(body.defined());
-  CHECK_EQ(value.dtype(), var.dtype());
+Let::Let(Var var, PrimExpr value, PrimExpr body, Span span) {
+  ICHECK(value.defined());
+  ICHECK(body.defined());
+  ICHECK_EQ(value.dtype(), var.dtype());
 
   ObjectPtr<LetNode> node = make_object<LetNode>();
   node->dtype = body.dtype();
   node->var = std::move(var);
   node->value = std::move(value);
   node->body = std::move(body);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.Let").set_body_typed([](Var var, PrimExpr value, PrimExpr body) {
-  return Let(var, value, body);
+TVM_REGISTER_GLOBAL("tir.Let").set_body_typed([](Var var, PrimExpr value, PrimExpr body,
+                                                 Span span) {
+  return Let(var, value, body, span);
 });
 
 TVM_REGISTER_NODE_TYPE(LetNode);
@@ -698,30 +752,32 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Call
-Call::Call(DataType dtype, RelayExpr op, Array<PrimExpr> args) {
+Call::Call(DataType dtype, RelayExpr op, Array<PrimExpr> args, Span span) {
   for (size_t i = 0; i < args.size(); ++i) {
-    CHECK(args[i].defined());
+    ICHECK(args[i].defined());
   }
 
   ObjectPtr<CallNode> node = make_object<CallNode>();
   node->dtype = dtype;
   node->op = std::move(op);
   node->args = std::move(args);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
 TVM_REGISTER_GLOBAL("tir.Call")
-    .set_body_typed([](DataType type, RelayExpr op, Array<ObjectRef> args) {
+    .set_body_typed([](DataType type, RelayExpr op, Array<ObjectRef> args, Span span) {
       Array<PrimExpr> prim_expr_args;
       for (const auto& it : args) {
-        CHECK(it->IsInstance<runtime::StringObj>() || it->IsInstance<PrimExprNode>());
+        ICHECK(it->IsInstance<runtime::StringObj>() || it->IsInstance<PrimExprNode>())
+            << "Argument " << it << " is not a string or primexpr";
         if (const auto* str = it.as<runtime::StringObj>()) {
           prim_expr_args.push_back(StringImm(str->data));
         } else {
           prim_expr_args.push_back(Downcast<PrimExpr>(it));
         }
       }
-      return Call(type, op, prim_expr_args);
+      return Call(type, op, prim_expr_args, span);
     });
 
 TVM_REGISTER_NODE_TYPE(CallNode);
@@ -733,7 +789,7 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
         p->stream << ptr_op->name << "(";
       } else {
         auto* ptr_gvar = op->op.as<GlobalVarNode>();
-        CHECK(ptr_gvar != nullptr);
+        ICHECK(ptr_gvar != nullptr);
         p->stream << "@" << ptr_gvar->name_hint << "(";
       }
       for (size_t i = 0; i < op->args.size(); ++i) {
@@ -746,28 +802,29 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Shuffle
-Shuffle::Shuffle(Array<PrimExpr> vectors, Array<PrimExpr> indices) {
-  CHECK_NE(vectors.size(), 0U);
-  CHECK_NE(indices.size(), 0U);
+Shuffle::Shuffle(Array<PrimExpr> vectors, Array<PrimExpr> indices, Span span) {
+  ICHECK_NE(vectors.size(), 0U);
+  ICHECK_NE(indices.size(), 0U);
 
   DataType base_type = vectors[0].dtype().element_of();
   int total_lanes = 0;
 
   for (PrimExpr val : vectors) {
-    CHECK(val.dtype().element_of() == base_type);
+    ICHECK(val.dtype().element_of() == base_type);
     total_lanes += val.dtype().lanes();
   }
-  CHECK_LE(indices.size(), static_cast<size_t>(total_lanes));
+  ICHECK_LE(indices.size(), static_cast<size_t>(total_lanes));
 
   ObjectPtr<ShuffleNode> node = make_object<ShuffleNode>();
   node->dtype = base_type.with_lanes(static_cast<int>(indices.size()));
   node->vectors = std::move(vectors);
   node->indices = std::move(indices);
+  node->span = std::move(span);
   data_ = node;
 }
 
-PrimExpr Shuffle::Concat(Array<PrimExpr> vectors) {
-  CHECK_NE(vectors.size(), 0);
+PrimExpr Shuffle::Concat(Array<PrimExpr> vectors, Span span) {
+  ICHECK_NE(vectors.size(), 0);
   if (vectors.size() == 1) {
     return vectors[0];
   }
@@ -778,16 +835,16 @@ PrimExpr Shuffle::Concat(Array<PrimExpr> vectors) {
       indices.push_back(IntImm(DataType::Int(32), index++));
     }
   }
-  return Shuffle(vectors, indices);
+  return Shuffle(vectors, indices, span);
 }
 
-PrimExpr Shuffle::ExtractElement(PrimExpr vector, int index) {
-  return Shuffle({vector}, {Integer(index)});
+PrimExpr Shuffle::ExtractElement(PrimExpr vector, int index, Span span) {
+  return Shuffle({vector}, {Integer(index)}, span);
 }
 
 TVM_REGISTER_GLOBAL("tir.Shuffle")
-    .set_body_typed([](Array<PrimExpr> vectors, Array<PrimExpr> indices) {
-      return Shuffle(vectors, indices);
+    .set_body_typed([](Array<PrimExpr> vectors, Array<PrimExpr> indices, Span span) {
+      return Shuffle(vectors, indices, span);
     });
 
 TVM_REGISTER_NODE_TYPE(ShuffleNode);
@@ -814,19 +871,20 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 
 // CommReducer
 CommReducer::CommReducer(Array<Var> lhs, Array<Var> rhs, Array<PrimExpr> result,
-                         Array<PrimExpr> identity_element) {
+                         Array<PrimExpr> identity_element, Span span) {
   auto node = make_object<CommReducerNode>();
   node->lhs = lhs;
   node->rhs = rhs;
   node->result = result;
   node->identity_element = identity_element;
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
 Array<PrimExpr> CommReducerNode::operator()(Array<PrimExpr> a, Array<PrimExpr> b) const {
-  CHECK_EQ(a.size(), b.size());
-  CHECK_EQ(lhs.size(), a.size());
-  CHECK_EQ(rhs.size(), b.size());
+  ICHECK_EQ(a.size(), b.size());
+  ICHECK_EQ(lhs.size(), a.size());
+  ICHECK_EQ(rhs.size(), b.size());
   Map<Var, PrimExpr> value_map;
   for (size_t i = 0; i < a.size(); ++i) {
     value_map.Set(lhs[i], a[i]);
@@ -839,8 +897,8 @@ Array<PrimExpr> CommReducerNode::operator()(Array<PrimExpr> a, Array<PrimExpr> b
 
 TVM_REGISTER_GLOBAL("tir.CommReducer")
     .set_body_typed([](Array<Var> lhs, Array<Var> rhs, Array<PrimExpr> result,
-                       Array<PrimExpr> identity_element) {
-      return CommReducer(lhs, rhs, result, identity_element);
+                       Array<PrimExpr> identity_element, Span span) {
+      return CommReducer(lhs, rhs, result, identity_element, span);
     });
 
 TVM_REGISTER_GLOBAL("tir.CommReducerCombine")
@@ -857,23 +915,23 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
 
 // Reduce
 Reduce::Reduce(CommReducer combiner, Array<PrimExpr> source, Array<IterVar> axis,
-               PrimExpr condition, int value_index, Array<PrimExpr> init) {
+               PrimExpr condition, int value_index, Array<PrimExpr> init, Span span) {
   for (size_t i = 0; i < axis.size(); ++i) {
-    CHECK_EQ(axis[i]->iter_type, kCommReduce) << "Can only take axis created by reduce_axis";
+    ICHECK_EQ(axis[i]->iter_type, kCommReduce) << "Can only take axis created by reduce_axis";
   }
   if (!condition.defined()) {
     condition = const_true();
   }
   auto n = make_object<ReduceNode>();
-  CHECK(source.defined());
+  ICHECK(source.defined());
   for (size_t i = 0; i < axis.size(); ++i) {
-    CHECK(axis[i].defined());
+    ICHECK(axis[i].defined());
   }
   if (!init.empty()) {
-    CHECK_EQ(init.size(), source.size()) << "Number of inits should match number of exprs";
+    ICHECK_EQ(init.size(), source.size()) << "Number of inits should match number of exprs";
     for (size_t i = 0; i < init.size(); i++) {
-      CHECK(init[i]->IsInstance<ProducerLoadNode>() || init[i]->IsInstance<IntImmNode>() ||
-            init[i]->IsInstance<FloatImmNode>())
+      ICHECK(init[i]->IsInstance<ProducerLoadNode>() || init[i]->IsInstance<IntImmNode>() ||
+             init[i]->IsInstance<FloatImmNode>())
           << "init can only be a IntImm, FloatImm or ProducerLoad";
     }
   }
@@ -884,13 +942,14 @@ Reduce::Reduce(CommReducer combiner, Array<PrimExpr> source, Array<IterVar> axis
   n->axis = std::move(axis);
   n->condition = condition;
   n->value_index = value_index;
+  n->span = std::move(span);
   data_ = std::move(n);
 }
 
 TVM_REGISTER_GLOBAL("tir.Reduce")
     .set_body_typed([](CommReducer combiner, Array<PrimExpr> source, Array<IterVar> axis,
-                       PrimExpr condition, int value_index, Array<PrimExpr> init) {
-      return Reduce(combiner, source, axis, condition, value_index, init);
+                       PrimExpr condition, int value_index, Array<PrimExpr> init, Span span) {
+      return Reduce(combiner, source, axis, condition, value_index, init, span);
     });
 
 TVM_REGISTER_NODE_TYPE(ReduceNode);
@@ -908,13 +967,14 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // Any
-Any::Any() {
+Any::Any(Span span) {
   auto n = make_object<AnyNode>();
   n->dtype = DataType::Int(32);
+  n->span = std::move(span);
   data_ = std::move(n);
 }
 
-TVM_REGISTER_GLOBAL("tir.Any").set_body_typed([]() { return Any(); });
+TVM_REGISTER_GLOBAL("tir.Any").set_body_typed([](Span span) { return Any(span); });
 
 TVM_REGISTER_NODE_TYPE(AnyNode);
 
@@ -922,17 +982,19 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     .set_dispatch<AnyNode>([](const ObjectRef& node, ReprPrinter* p) { p->stream << "?"; });
 
 // BufferLoad
-BufferLoad::BufferLoad(Buffer buffer, Array<PrimExpr> indices) {
+BufferLoad::BufferLoad(Buffer buffer, Array<PrimExpr> indices, Span span) {
   ObjectPtr<BufferLoadNode> node = make_object<BufferLoadNode>();
   node->dtype = buffer->dtype;
   node->buffer = std::move(buffer);
   node->indices = std::move(indices);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
-TVM_REGISTER_GLOBAL("tir.BufferLoad").set_body_typed([](Buffer buffer, Array<PrimExpr> indices) {
-  return BufferLoad(buffer, indices);
-});
+TVM_REGISTER_GLOBAL("tir.BufferLoad")
+    .set_body_typed([](Buffer buffer, Array<PrimExpr> indices, Span span) {
+      return BufferLoad(buffer, indices, span);
+    });
 
 TVM_REGISTER_NODE_TYPE(BufferLoadNode);
 
@@ -950,17 +1012,18 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     });
 
 // ProducerLoad
-ProducerLoad::ProducerLoad(DataProducer producer, Array<PrimExpr> indices) {
+ProducerLoad::ProducerLoad(DataProducer producer, Array<PrimExpr> indices, Span span) {
   ObjectPtr<ProducerLoadNode> node = make_object<ProducerLoadNode>();
   node->dtype = producer->GetDataType();
   node->producer = std::move(producer);
   node->indices = std::move(indices);
+  node->span = std::move(span);
   data_ = std::move(node);
 }
 
 TVM_REGISTER_GLOBAL("tir.ProducerLoad")
-    .set_body_typed([](DataProducer producer, Array<PrimExpr> indices) {
-      return ProducerLoad(producer, indices);
+    .set_body_typed([](DataProducer producer, Array<PrimExpr> indices, Span span) {
+      return ProducerLoad(producer, indices, span);
     });
 
 TVM_REGISTER_NODE_TYPE(ProducerLoadNode);

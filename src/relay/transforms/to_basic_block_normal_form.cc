@@ -31,7 +31,7 @@
 #include "../../support/arena.h"
 #include "../analysis/dependency_graph.h"
 #include "let_list.h"
-#include "pass_util.h"
+#include "pass_utils.h"
 
 namespace tvm {
 namespace relay {
@@ -54,7 +54,7 @@ IRModule ToBasicBlockNormalForm(const IRModule& mod) {
   tvm::Map<GlobalVar, Function> updates;
   auto funcs = mod->functions;
   for (const auto& it : funcs) {
-    CHECK_EQ(FreeVars(it.second).size(), 0) << "Expected no free variables";
+    ICHECK_EQ(FreeVars(it.second).size(), 0) << "Expected no free variables";
     if (const auto* n = it.second.as<FunctionNode>()) {
       if (n->GetAttr<String>(attr::kCompiler).defined()) continue;
     }

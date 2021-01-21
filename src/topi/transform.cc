@@ -24,7 +24,7 @@
 #include <tvm/runtime/packed_func.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/topi/transform.h>
-#include <tvm/topi/util.h>
+#include <tvm/topi/utils.h>
 
 namespace tvm {
 namespace topi {
@@ -150,7 +150,7 @@ TVM_REGISTER_GLOBAL("topi.matmul").set_body([](TVMArgs args, TVMRetValue* rv) {
       *rv = matmul(args[0], args[1], args[2], args[3]);
       break;
     default:
-      CHECK(0) << "topi.matmul expects 2, 3 or 4 arguments";
+      ICHECK(0) << "topi.matmul expects 2, 3 or 4 arguments";
   }
 });
 
@@ -167,6 +167,10 @@ TVM_REGISTER_GLOBAL("topi.tensordot").set_body([](TVMArgs args, TVMRetValue* rv)
 
 TVM_REGISTER_GLOBAL("topi.strided_slice").set_body([](TVMArgs args, TVMRetValue* rv) {
   *rv = strided_slice(args[0], args[1], args[2], args[3], args[4]);
+});
+
+TVM_REGISTER_GLOBAL("topi.dynamic_strided_slice").set_body([](TVMArgs args, TVMRetValue* rv) {
+  *rv = dynamic_strided_slice(args[0], args[1], args[2], args[3]);
 });
 
 TVM_REGISTER_GLOBAL("topi.one_hot").set_body([](TVMArgs args, TVMRetValue* rv) {

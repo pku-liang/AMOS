@@ -25,7 +25,7 @@ from .tensor_intrin import dp4a
 from .. import nn
 from .. import tag
 from .. import generic
-from ..util import traverse_inline, get_const_tuple
+from ..utils import traverse_inline, get_const_tuple
 
 logger = logging.getLogger("topi")
 
@@ -42,7 +42,8 @@ def dense_cublas(cfg, data, weight, bias=None, out_dtype=None):
     batch, in_dim = data.shape
     out_dim, _ = weight.shape
     matmul = cublas.matmul(data, weight, False, True)
-    cfg.add_flop(batch * in_dim * out_dim * 2)
+    if isinstance(batch, int):
+        cfg.add_flop(batch * in_dim * out_dim * 2)
     if bias is not None:
         matmul = te.compute(
             (batch, out_dim), lambda i, j: matmul[i, j] + bias[j], tag=tag.BROADCAST

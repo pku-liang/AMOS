@@ -22,8 +22,8 @@ from tvm.autotvm.task.space import OtherOptionEntity
 from tvm.contrib import cudnn
 
 from .. import nn, generic
-from ..nn.util import get_pad_tuple
-from ..util import get_const_tuple, traverse_inline
+from ..nn.utils import get_pad_tuple
+from ..utils import get_const_tuple, traverse_inline
 from .conv2d_direct import schedule_direct_cuda
 from .conv2d_nhwc import schedule_conv2d_nhwc_direct
 
@@ -96,17 +96,19 @@ def conv2d_cudnn(
     pt, pl, pb, pr = get_pad_tuple(padding, (KH, KW))
     OH = (H + pt + pb - KH) // stride_h + 1
     OW = (W + pl + pr - KW) // stride_w + 1
-    cfg.add_flop(
-        groups
-        * 2
-        * N
-        * OH
-        * OW
-        * CO
-        * CI
-        * ((KH - 1) * dilation_h + 1)
-        * ((KW - 1) * dilation_w + 1)
-    )
+
+    if isinstance(N, int):
+        cfg.add_flop(
+            groups
+            * 2
+            * N
+            * OH
+            * OW
+            * CO
+            * CI
+            * ((KH - 1) * dilation_h + 1)
+            * ((KW - 1) * dilation_w + 1)
+        )
 
     if data.dtype == "int8" or kernel.dtype == "int8":
         if layout == "NCHW":

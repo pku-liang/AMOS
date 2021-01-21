@@ -15,13 +15,15 @@
 # specific language governing permissions and limitations
 # under the License.
 """Basic tensor operations."""
-# pylint: disable=redefined-builtin
+# pylint: disable=redefined-builtin, unused-argument
 from tvm.runtime import ndarray as _nd
 from tvm.runtime import TVMContext as _TVMContext
+from tvm.te.hybrid import script
 
 from . import _make
 from .dyn import _make as _dyn_make
 from ..expr import Tuple, Expr
+from . import op as reg
 
 
 # We create a wrapper function for each operator in the
@@ -1103,8 +1105,8 @@ def stack(data, axis):
 
     Parameters
     ----------
-    data : Union(List[relay.Expr], Tuple(relay.Expr))
-        A list of tensors.
+    data : Union(List[relay.Expr], relay.Expr)
+        A list of tensors or a Relay expression that evaluates to a tuple of tensors.
 
     axis : int
         The axis in the result array along which the input arrays are stacked.
@@ -1114,12 +1116,13 @@ def stack(data, axis):
     ret : relay.Expr
         The stacked tensor.
     """
-    data = list(data)
     if not data:
         raise ValueError("relay.stack requires data to be non-empty.")
     if not isinstance(axis, int):
         raise ValueError("For now, we only support integer axis")
-    return _make.stack(Tuple(data), axis)
+    if not isinstance(data, Expr):
+        data = Tuple(list(data))
+    return _make.stack(data, axis)
 
 
 def copy(data):
@@ -1136,6 +1139,19 @@ def copy(data):
         The copied result.
     """
     return _make.copy(data)
+
+
+@script
+def _copy_shape_func(data_shape):
+    return data_shape
+
+
+@reg.register_shape_func("copy", False)
+def copy_shape_func(attrs, inputs, _):
+    """
+    Shape function for copy op.
+    """
+    return [_copy_shape_func(inputs[0])]
 
 
 def device_copy(data, src_dev, dst_dev):

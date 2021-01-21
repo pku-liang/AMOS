@@ -32,7 +32,7 @@
 
 #include "../../arith/interval_set.h"
 #include "../../runtime/thread_storage_scope.h"
-#include "ir_util.h"
+#include "ir_utils.h"
 
 namespace tvm {
 namespace tir {
@@ -248,7 +248,7 @@ class HoistCandidateSelector final : public StmtExprVisitor {
  private:
   void ResetRecorderInternal() {
     if (is_recorder_on_) {
-      CHECK_GT(ordered_list_.size(), 0);
+      ICHECK_GT(ordered_list_.size(), 0);
       is_recorder_on_ = false;
     }
     ordered_list_.clear();

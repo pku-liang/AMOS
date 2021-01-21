@@ -19,13 +19,15 @@
 
 /*!
  * \file auto_scheduler/search_policy/sketch_policy.h
- * \brief The search policy that searches in a hierarchical search space defined by sketches.
- * The policy randomly samples programs from the space defined by sketches and use evolutionary
- * search to fine-tune them.
+ * \brief This search policy constructs a search space according to the compute declaration.
+ * It then randomly samples programs from the search space and uses evolutionary search with a
+ * learned cost model to fine tune the sampled programs.
+ * The final optimized programs are sent to actual hardware for measurement.
+ * The above process is repeated until the auto-scheduler runs out of time budget.
  *
  * Reference:
  * L. Zheng, C. Jia, M. Sun, Z. Wu, C. Yu, et al. "Ansor : Generating High-Performance Tensor
- * Programs for Deep Learning." arXiv preprint arXiv:2006.06762 (2020).
+ * Programs for Deep Learning." (OSDI 2020).
  */
 
 #ifndef TVM_AUTO_SCHEDULER_SEARCH_POLICY_SKETCH_POLICY_H_
@@ -54,16 +56,20 @@ struct SketchParamKey {
   /*! \brief Retry several times if SearchOneRound gets no valid state. */
   static constexpr const char* empty_retry_count = "retry_search_one_round_on_empty";
 
+  struct SampleInitPopulation {
+    /*! \brief The minimal size of valid population in the initial sampling. */
+    static constexpr const char* min_population = "sample_init_min_population";
+    /*! \brief The maximum percentage of measured states in the initial sampling. */
+    static constexpr const char* use_measured_ratio = "sample_init_use_measured_ratio";
+  };
+
   struct EvolutionarySearch {
-    /*! \brief The population size for evolutionary search. */
+    /*! \brief The population size of evolutionary search. */
     static constexpr const char* population = "evolutionary_search_population";
     /*! \brief The number of iterations performed by generic algorithm.*/
     static constexpr const char* num_iters = "evolutionary_search_num_iters";
     /*! \brief The mutation probability.*/
     static constexpr const char* mutation_prob = "evolutionary_search_mutation_prob";
-    /*! \brief The maximum percentage of measured states in the initial population for evolutionary
-     * search. */
-    static constexpr const char* use_measured_ratio = "evolutionary_search_use_measured_ratio";
   };
 
   struct MultiLevelTiling {
@@ -80,6 +86,8 @@ struct SketchParamKey {
   /*! \brief Whether disable compute location changing. */
   static constexpr const char* disable_change_compute_location = "disable_change_compute_location";
 };
+
+class SketchPolicy;
 
 /*!
  * \brief The search policy that searches in a hierarchical search space defined by sketches.
@@ -106,6 +114,9 @@ class SketchPolicyNode : public SearchPolicyNode {
   State Search(int num_measure_trials, int early_stopping, int num_measures_per_round,
                ProgramMeasurer measurer) final;
 
+  std::pair<Array<MeasureInput>, Array<MeasureResult>> ContinueSearchOneRound(
+      int num_measure, ProgramMeasurer measurer) final;
+
   /*!
    * \brief Generate sketches.
    * \return The generated sketches(states).
@@ -115,10 +126,9 @@ class SketchPolicyNode : public SearchPolicyNode {
   /*!
    * \brief Sample the init population.
    * \param sketches The initial sketches for the sampled population
-   * \param out_size The number of output states.
    * \return The generated states (the initial population).
    */
-  Array<State> SampleInitPopulation(const Array<State>& sketches, int out_size);
+  Array<State> SampleInitPopulation(const Array<State>& sketches);
 
   /*!
    * \brief Perform evolutionary search.
@@ -158,6 +168,11 @@ class SketchPolicyNode : public SearchPolicyNode {
 
   /*! \brief The cached sketches */
   Array<State> sketch_cache_;
+
+  /*! \brief The minimul output population of SampleInitPopulation */
+  int sample_init_min_pop_;
+
+  friend class SketchPolicy;
 };
 
 /*!
@@ -180,6 +195,40 @@ class SketchPolicy : public SearchPolicy {
                int seed, int verbose, Optional<Array<SearchCallback>> init_search_callbacks);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SketchPolicy, SearchPolicy, SketchPolicyNode);
+};
+
+/*! \brief Pre-search callback function to load custom rules for sketch generation */
+class PreloadCustomSketchRuleNode : public SearchCallbackNode {
+ public:
+  /*! \brief The condition check function of this rule. */
+  PackedFunc meet_condition_func;
+  /*! \brief The apply function of this rule. */
+  PackedFunc apply_func;
+  /*! \brief The name of this rule. */
+  String rule_name;
+
+  void Callback(SearchPolicyNode* policy) final;
+
+  static constexpr const char* _type_key = "auto_scheduler.PreloadCustomSketchRule";
+  TVM_DECLARE_FINAL_OBJECT_INFO(PreloadCustomSketchRuleNode, SearchCallbackNode);
+};
+
+/*!
+ * \brief Managed reference to PreloadCustomSketchRuleNode.
+ * \sa PreloadCustomSketchRuleNode
+ */
+class PreloadCustomSketchRule : public SearchCallback {
+ public:
+  /*!
+   * \brief The constructor.
+   * \param meet_condition_func The condition check function of this rule.
+   * \param apply_func The apply function of this rule.
+   * \param rule_name The name of this rule.
+   */
+  PreloadCustomSketchRule(PackedFunc meet_condition_func, PackedFunc apply_func, String rule_name);
+
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(PreloadCustomSketchRule, SearchCallback,
+                                        PreloadCustomSketchRuleNode);
 };
 
 }  // namespace auto_scheduler

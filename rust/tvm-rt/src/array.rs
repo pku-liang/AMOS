@@ -18,6 +18,7 @@
  */
 
 use std::convert::{TryFrom, TryInto};
+use std::iter::{FromIterator, IntoIterator, Iterator};
 use std::marker::PhantomData;
 
 use crate::errors::Error;
@@ -42,6 +43,26 @@ external! {
     fn array_get_item(array: ObjectRef, index: isize) -> ObjectRef;
     #[name("node.ArraySize")]
     fn array_size(array: ObjectRef) -> i64;
+}
+
+impl<T: IsObjectRef> IsObjectRef for Array<T> {
+    type Object = Object;
+    fn as_ptr(&self) -> Option<&ObjectPtr<Self::Object>> {
+        self.object.as_ptr()
+    }
+    fn into_ptr(self) -> Option<ObjectPtr<Self::Object>> {
+        self.object.into_ptr()
+    }
+    fn from_ptr(object_ptr: Option<ObjectPtr<Self::Object>>) -> Self {
+        let object_ref = match object_ptr {
+            Some(o) => o.into(),
+            _ => panic!(),
+        };
+        Array {
+            object: object_ref,
+            _data: PhantomData,
+        }
+    }
 }
 
 impl<T: IsObjectRef> Array<T> {
@@ -81,8 +102,57 @@ impl<T: IsObjectRef> Array<T> {
     }
 }
 
-impl<T: IsObjectRef> From<Array<T>> for ArgValue<'static> {
-    fn from(array: Array<T>) -> ArgValue<'static> {
+impl<T: IsObjectRef> std::fmt::Debug for Array<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let as_vec: Vec<T> = self.clone().into_iter().collect();
+        write!(formatter, "{:?}", as_vec)
+    }
+}
+
+pub struct IntoIter<T: IsObjectRef> {
+    array: Array<T>,
+    pos: isize,
+    size: isize,
+}
+
+impl<T: IsObjectRef> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos < self.size {
+            let item =
+                self.array.get(self.pos)
+                    .expect("Can not index as in-bounds position after bounds checking.\nNote: this error can only be do to an uncaught issue with API bindings.");
+            self.pos += 1;
+            Some(item)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: IsObjectRef> IntoIterator for Array<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let size = self.len() as isize;
+        IntoIter {
+            array: self,
+            pos: 0,
+            size: size,
+        }
+    }
+}
+
+impl<T: IsObjectRef> FromIterator<T> for Array<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Array::from_vec(iter.into_iter().collect()).unwrap()
+    }
+}
+
+impl<'a, T: IsObjectRef> From<Array<T>> for ArgValue<'a> {
+    fn from(array: Array<T>) -> ArgValue<'a> {
         array.object.into()
     }
 }
@@ -122,6 +192,7 @@ impl<'a, T: IsObjectRef> TryFrom<RetValue> for Array<T> {
 mod tests {
     use super::Array;
     use crate::function::Result;
+    use crate::object::{IsObjectRef, ObjectRef};
     use crate::string::String;
 
     #[test]
@@ -131,6 +202,15 @@ mod tests {
         assert_eq!(array.get(0)?.to_string(), "foo");
         assert_eq!(array.get(1)?.to_string(), "bar");
         assert_eq!(array.get(2)?.to_string(), "baz");
+        Ok(())
+    }
+
+    #[test]
+    fn downcast() -> Result<()> {
+        let vec: Vec<String> = vec!["foo".into(), "bar".into(), "baz".into()];
+        let array: ObjectRef = ObjectRef::from_ptr(Array::from_vec(vec)?.into_ptr());
+        let array: Array<ObjectRef> = array.downcast::<Array<ObjectRef>>().unwrap();
+        assert_eq!(array.get(1)?.downcast::<String>().unwrap(), "bar");
         Ok(())
     }
 }

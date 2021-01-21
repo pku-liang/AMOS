@@ -35,7 +35,7 @@
 #include <vector>
 
 #include "../../src/support/socket.h"
-#include "../../src/support/util.h"
+#include "../../src/support/utils.h"
 #include "rpc_server.h"
 
 #if defined(_WIN32)
@@ -139,7 +139,7 @@ string GetCmdOption(int argc, char* argv[], string option, bool key = false) {
         return cmd;
       }
       // We assume "=" is the end of option.
-      CHECK_EQ(*option.rbegin(), '=');
+      ICHECK_EQ(*option.rbegin(), '=');
       cmd = arg.substr(arg.find('=') + 1);
       return cmd;
     }

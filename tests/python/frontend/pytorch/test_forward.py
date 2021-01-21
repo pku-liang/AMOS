@@ -181,14 +181,14 @@ def verify_model(model_name, input_data=[], custom_convert_map={}, rtol=1e-5, at
         baseline_input = [inp.cuda() for inp in baseline_input]
 
     with torch.no_grad():
-        baseline_outputs = baseline_model(*baseline_input)
+        baseline_outputs = baseline_model(*[input.clone() for input in baseline_input])
 
     if isinstance(baseline_outputs, tuple):
         baseline_outputs = tuple(out.cpu().numpy() for out in baseline_outputs)
     else:
         baseline_outputs = (baseline_outputs.cpu().numpy(),)
 
-    trace = torch.jit.trace(baseline_model, baseline_input)
+    trace = torch.jit.trace(baseline_model, [input.clone() for input in baseline_input])
     if isinstance(baseline_model, torch.nn.Module):
         trace = trace.float().eval()
 
@@ -200,7 +200,7 @@ def verify_model(model_name, input_data=[], custom_convert_map={}, rtol=1e-5, at
     input_names = ["input{}".format(idx) for idx, inp in enumerate(baseline_input)]
     input_shapes = list(zip(input_names, [inp.shape for inp in baseline_input]))
     mod, params = relay.frontend.from_pytorch(trace, input_shapes, custom_convert_map)
-    compiled_input = dict(zip(input_names, [inp.cpu().numpy() for inp in baseline_input]))
+    compiled_input = dict(zip(input_names, [inp.clone().cpu().numpy() for inp in baseline_input]))
 
     with tvm.transform.PassContext(opt_level=3):
         for target, ctx in tvm.testing.enabled_targets():
@@ -447,8 +447,16 @@ def test_forward_unsqueeze():
         def forward(self, *args):
             return args[0].unsqueeze(2)
 
+    class Unsqueeze2(Module):
+        def forward(self, *args):
+            _ = args[0].unsqueeze_(2)
+            # Check whether operations after inplace unsqueeze works as expected
+            y = args[0].squeeze(2)
+            return torch.add(y, y)
+
     input_data = torch.rand(input_shape).float()
     verify_model(Unsqueeze1().float().eval(), input_data=input_data)
+    verify_model(Unsqueeze2().float().eval(), input_data=input_data)
 
 
 @tvm.testing.uses_gpu
@@ -1675,10 +1683,10 @@ def test_forward_nms():
         boxes = torch.rand(num_boxes, box_len, dtype=torch.float) * 0.5
         boxes[:, 2] += boxes[:, 0]
         boxes[:, 3] += boxes[:, 1]
-        scores = torch.rand(num_boxes, dtype=torch.float)
+        scores = torch.from_numpy(np.random.uniform(-1, 1, size=(num_boxes,)).astype(np.float32))
         return boxes, scores
 
-    targets = ["llvm"]  # dynamic nms does not work on gpu
+    targets = ["llvm", "cuda"]
 
     for num_boxes, iou_thres in [(10, 0.3), (100, 0.5), (500, 0.9)]:
         in_boxes, in_scores = _gen_rand_inputs(num_boxes)
@@ -1889,9 +1897,10 @@ def _get_default_vm_targets():
     return [tgt for (tgt, _) in tvm.testing.enabled_targets()]
 
 
-def verify_script_model(pt_model, ishapes, targets):
+def verify_script_model(pt_model, ishapes, targets, idtype=None):
     script_module = torch.jit.script(pt_model)
-    verify_model_vm(script_module, ishapes, targets=targets)
+
+    verify_model_vm(script_module, ishapes, idtype=idtype, targets=targets)
 
 
 def verify_trace_model(pt_model, idata, targets):
@@ -1900,10 +1909,60 @@ def verify_trace_model(pt_model, idata, targets):
     verify_model_vm(traced_model, ishapes, idata=idata, targets=targets)
 
 
-def verify_model_vm(input_model, ishapes, idtype=torch.float, idata=None, targets=["llvm"]):
+def convert_pt_to_tvm_type(idtype):
+    """ Accepts a pytorch dtype and returns string TVM dtype."""
+    # TVM does not support PyTorch complex dtypes
+    if idtype == torch.float64:
+        curr_dtype = "float64"
+    elif idtype == torch.float32:
+        curr_dtype = "float32"
+    elif idtype == torch.float16:
+        curr_dtype = "float16"
+    elif idtype == torch.bfloat16:
+        curr_dtype = "bfloat16"
+    elif idtype == torch.int64:
+        curr_dtype = "int64"
+    elif idtype == torch.int32:
+        curr_dtype = "int32"
+    elif idtype == torch.int16:
+        curr_dtype = "int16"
+    elif idtype == torch.int8:
+        curr_dtype = "int8"
+    elif idtype == torch.uint8:
+        curr_dtype = "uint8"
+    elif idtype == torch.bool:
+        curr_dtype = "bool"
+    else:
+        raise NotImplementedError("Unsupported dtype: {}".format(idtype))
+    return curr_dtype
+
+
+def verify_model_vm(input_model, ishapes, idtype=None, idata=None, targets=["llvm"]):
+    if not idtype:
+        idtype = torch.float
+
     input_names = ["i{}".format(idx) for idx, ish in enumerate(ishapes)]
-    input_shapes = list(zip(input_names, ishapes))
-    input_data = idata if idata else [torch.randn(shape, dtype=idtype) for shape in ishapes]
+    tvm_dtype = convert_pt_to_tvm_type(idtype)
+    input_dtypes = [tvm_dtype] * len(input_names)
+    input_shapes = list(zip(input_names, list(zip(ishapes, input_dtypes))))
+
+    if idata:
+        input_data = idata
+    # If no input_data provided, generate random data of specified dtype
+    else:
+        if idtype == torch.bool:
+            input_data = [
+                torch.Tensor.bool(torch.randint(low=0, high=2, size=shape)) for shape in ishapes
+            ]
+        # Torch dtype can be float, complex, int, or Bool. Complex not supported, so if not float or Bool,
+        # dtype must be int!
+        elif not idtype.is_floating_point:
+            input_data = [
+                torch.randint(low=0, high=10, size=shape, dtype=idtype) for shape in ishapes
+            ]
+        else:
+            input_data = [torch.randn(shape, dtype=idtype) for shape in ishapes]
+
     # Compile via VM
     mod, params = relay.frontend.from_pytorch(input_model, input_shapes)
 
@@ -2535,7 +2594,7 @@ def test_forward_linspace():
 
     class Linspace1(Module):
         def forward(self, *args):
-            return torch.linspace(5, 10)
+            return torch.linspace(5, 10, steps=100)
 
     class Linspace2(Module):
         def forward(self, *args):
@@ -2559,7 +2618,7 @@ def test_forward_linspace():
 
     class Linspace7(Module):
         def forward(self, *args):
-            return torch.linspace(1, 4, dtype=torch.float32)
+            return torch.linspace(1, 4, steps=100, dtype=torch.float32)
 
     class Linspace8(Module):
         def forward(self, *args):
@@ -2865,10 +2924,19 @@ def test_forward_where():
         def forward(self, *args):
             return torch.where(args[0] > 0, args[0], args[1])
 
+    class Where3(Module):
+        def forward(self, *args):
+            return torch.where(args[0])[0]
+
     x = torch.rand([3, 2]).float()
-    verify_model(Where1().float().eval(), input_data=[x])
+    verify_model(Where1(), input_data=[x])
     y = torch.rand([3, 2])
-    verify_model(Where2().float().eval(), input_data=[x, y])
+    verify_model(Where2(), input_data=[x, y])
+
+    # a single argument variant, equivalent to torch.nonzero(..., as_tuple=True)
+    inp = torch.rand([10])
+    inp[3:8] = 0
+    verify_trace_model(Where3(), [inp], ["llvm"])
 
 
 @tvm.testing.uses_gpu
@@ -2939,6 +3007,29 @@ def test_forward_true_divide():
     verify_model(
         TrueDivide().float().eval(), input_data=[dividend, divisor_scalar], atol=1e-4, rtol=1e-4
     )
+
+
+@tvm.testing.uses_gpu
+def test_forward_is_floating_point():
+    torch.set_grad_enabled(False)
+
+    class IsFloatingPoint(Module):
+        def forward(self, arg):
+            # `torch.jit.trace` cannot accept something that outputs
+            # a Bool, so `torch.jit.script` will be used instead
+            return torch.is_floating_point(arg)
+
+    targets = _get_default_vm_targets()
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.float64)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.float32)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.float16)
+    # todo(dvisnty): Run the test for bfloat16 when full bfloat16 support is implemented
+    # verify_script_model(IsFloatingPoint(), [(1,1)], targets, idtype=torch.bfloat16)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.int64)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.int32)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.int16)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.int8)
+    verify_script_model(IsFloatingPoint(), [(1, 1)], targets, idtype=torch.uint8)
 
 
 @tvm.testing.uses_gpu
@@ -3130,26 +3221,38 @@ def test_forward_nonzero():
 
 
 def test_forward_scatter():
-    class Scatter(Module):
-        def __init__(self, dim=0):
-            super().__init__()
-            self.dim = dim
+    # integer cannot be traced
+    def test_fn_scatter(dim):
+        return lambda data, index, src: torch.scatter(data, dim=dim, index=index, src=src)
 
-        def forward(self, data, index, src):
-            return torch.scatter(data, dim=self.dim, index=index, src=src)
+    def test_fn_scatter_add(dim):
+        return lambda data, index, src: torch.scatter_add(data, dim=dim, index=index, src=src)
 
     in_data = torch.zeros(3, 5)
     in_index = torch.tensor([[0, 1, 2, 0, 0], [2, 0, 0, 1, 2]])
     in_src = torch.rand(2, 5)
-    # TODO: add scatter gpu schedule to enable gpu test.
-    verify_trace_model(Scatter(), [in_data, in_index, in_src], ["llvm"])
+
+    targets = ["llvm", "cuda"]
+    verify_trace_model(test_fn_scatter(0), [in_data, in_index, in_src], targets)
+    verify_trace_model(test_fn_scatter_add(0), [in_data, in_index, in_src], targets)
 
     in_data = torch.zeros(2, 4)
     in_index = torch.tensor([[2], [3]])
     in_src = torch.rand(2, 1)
 
-    # TODO: add scatter gpu schedule to enable gpu test.
-    verify_trace_model(Scatter(1), [in_data, in_index, in_src], ["llvm"])
+    verify_trace_model(test_fn_scatter(1), [in_data, in_index, in_src], targets)
+    verify_trace_model(test_fn_scatter_add(1), [in_data, in_index, in_src], targets)
+
+
+def test_numel():
+    class Numel(Module):
+        def forward(self, data):
+            return torch.tensor(torch.numel(data))
+
+    targets = _get_default_vm_targets()
+    verify_script_model(Numel(), [(1,)], targets)
+    verify_script_model(Numel(), [(3, 5)], targets)
+    verify_script_model(Numel(), [(3, 5, 8)], targets)
 
 
 def test_forward_pretrained_bert_base_uncased():
@@ -3330,6 +3433,25 @@ def test_convert_torch_script_with_input_types():
     assert tvm.ir.structural_equal(expected_mod, mod["main"], map_free_vars=True)
 
 
+def test_bincount():
+    def test_fn(x, weights=None):
+        return torch.bincount(x, weights=weights)
+
+    inp = torch.randint(0, 100, (10000,), dtype=torch.int64)
+    weights = torch.linspace(0, 100, steps=10000)
+
+    targets = ["llvm", "cuda"]
+    verify_trace_model(test_fn, [inp], targets)
+    verify_trace_model(test_fn, [inp, weights], targets)
+
+
+def test_hard_swish():
+    examples = [torch.rand(8).float(), torch.rand(8, 10).float(), torch.rand(1, 1, 10).float()]
+    for input in examples:
+        verify_model(torch.nn.Hardswish().eval(), input_data=input)
+        verify_model(torch.nn.Hardswish(inplace=True).eval(), input_data=input)
+
+
 if __name__ == "__main__":
     # some structural tests
     test_forward_traced_function()
@@ -3392,6 +3514,7 @@ if __name__ == "__main__":
     test_forward_addcdiv()
     test_forward_addcmul()
     test_forward_true_divide()
+    test_forward_is_floating_point()
     test_forward_clone()
     test_forward_softplus()
     test_forward_softsign()
@@ -3455,6 +3578,8 @@ if __name__ == "__main__":
     test_forward_unbind()
     test_forward_nonzero()
     test_forward_scatter()
+    test_numel()
+    test_bincount()
 
     # Model tests
     test_resnet18()
@@ -3493,3 +3618,4 @@ if __name__ == "__main__":
 
     # Test convert torch script(jit) with specific inputs' types
     test_convert_torch_script_with_input_types()
+    test_hard_swish()

@@ -107,6 +107,14 @@ TVM_DLL Pass FoldConstant();
 TVM_DLL Pass FuseOps(int fuse_opt_level = -1);
 
 /*!
+ * \brief The inverse operation of FuseOps. It transforms a fused program returned by
+ * FuseOps into the program before FuseOps. (i.e. x == DefuseOps(FuseOps(x)))
+ *
+ * \return The pass.
+ */
+TVM_DLL Pass DefuseOps();
+
+/*!
  * \brief Rewrite the annotated program.
  *
  * \param fallback_device The fallback device which is the default device for
@@ -194,8 +202,9 @@ TVM_DLL Pass ToGraphNormalForm();
 TVM_DLL Pass PartialEval();
 
 /*!
- * \brief Simplify certain operators during inference. For example, batch norm
- * will be unpacked into a number of simplified operators.
+ * \brief Simplify certain operators during inference. For example, the result
+ * of a batch norm which is indexed at tuple index 0 will be unpacked into a
+ * number of simplified operators.
  *
  * \return The Pass.
  */
@@ -313,6 +322,12 @@ TVM_DLL Pass CanonicalizeOps();
  * \return The pass.
  */
 TVM_DLL Pass AlterOpLayout();
+
+/*!
+ * \brief Do layout rewrite according to the tile structure created by auto-scheduler.
+ * \return The pass
+ */
+TVM_DLL Pass AutoSchedulerLayoutRewrite();
 
 /*!
  * \brief Given a dest layout, this pass transforms the expr such that most of the ops input data

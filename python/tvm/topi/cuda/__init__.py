@@ -42,10 +42,12 @@ from .dense import *
 from .pooling import *
 from .nn import schedule_lrn
 from .batch_matmul import *
+from .batch_matmul_tensorcore import *
 from .vision import *
 from .ssd import *
 from .nms import get_valid_counts, non_max_suppression
 from .rcnn import *
+from .scatter import *
 from .sort import *
 from .conv2d_nhwc_tensorcore import *
 from .conv3d_ndhwc_tensorcore import *
@@ -53,3 +55,4 @@ from .dense_tensorcore import *
 from .conv2d_hwnc_tensorcore import *
 from .correlation import *
 from .sparse import *
+from .argwhere import *

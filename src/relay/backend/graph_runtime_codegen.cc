@@ -56,7 +56,7 @@ struct LoweredOutput {
   std::string graph_json;
   Map<String, IRModule> lowered_funcs;
   Array<tvm::runtime::Module> external_mods;
-  std::unordered_map<std::string, tvm::runtime::NDArray> params;
+  std::unordered_map<std::string, std::pair<int, const tvm::runtime::NDArray>> params;
 };
 
 /*! \brief Node types */
@@ -203,7 +203,12 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
     GetJSON(&writer);
     LoweredOutput ret;
     ret.graph_json = os.str();
-    ret.params = params_;
+    ret.params = std::unordered_map<std::string, std::pair<int, const tvm::runtime::NDArray>>();
+    for (auto param : params_) {
+      ret.params.emplace(std::make_pair(
+          param.first,
+          std::make_pair(static_cast<int>(param_storage_ids_[param.first]), param.second)));
+    }
 
     for (auto& kv : lowered_funcs_) {
       if (ret.lowered_funcs.count(kv.first) == 0) {
@@ -243,9 +248,9 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
   std::vector<GraphNodeRef> AddNode(GraphObjectPtr node, Expr expr) {
     auto checked_type = expr->checked_type();
     size_t count = storage_device_map_.count(expr);
-    CHECK_GT(count, 0) << "Expr is not existing in storage plan";
+    ICHECK_GT(count, 0) << "Expr is not existing in storage plan";
     auto storage_device_info = storage_device_map_[expr];
-    CHECK_EQ(storage_device_info.size(), 2);
+    ICHECK_EQ(storage_device_info.size(), 2);
     // storage
     std::vector<int64_t> storage_info;
     for (auto& v : storage_device_info[0]) {
@@ -282,7 +287,7 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
           LOG(FATAL) << "type " << checked_type->GetTypeKey() << " not supported";
         }
       }
-      CHECK_EQ(node->Type(), kGraphOpNode);
+      ICHECK_EQ(node->Type(), kGraphOpNode);
       auto op_nd = std::dynamic_pointer_cast<GraphOpNode>(node);
       op_nd->attrs_["shape"] = shape;
       op_nd->attrs_["dtype"] = dtype;
@@ -312,9 +317,12 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
     Expr expr = GetRef<Expr>(op);
     size_t index = params_.size();
     std::string name = "p" + std::to_string(index);
-    params_[name] = op->data;
     auto node = GraphInputNode::make_node_ptr(name, GraphAttrs());
-    return AddNode(node, expr);
+    auto to_return = AddNode(node, expr);
+    CHECK_EQ(to_return.size(), 1) << "Expected exactly 1 parameter node created";
+    param_storage_ids_[name] = storage_device_map_[expr][0][0]->value;
+    params_[name] = op->data;
+    return to_return;
   }
 
   std::vector<GraphNodeRef> VisitExpr_(const TupleNode* op) override {
@@ -367,19 +375,12 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
       target = Target("ext_dev");
       CCacheKey key = (*pf0)(func, target);
       CachedFunc ext_func = (*pf1)(compile_engine_, key);
-      CHECK(ext_func.defined()) << "External function is not defined.";
-
-      // Step into the functions that are handled by external codegen to
-      // collect metadata.
-      const auto name_node = func->GetAttr<String>(tvm::attr::kGlobalSymbol);
-      std::string symobl = std::string(name_node.value());
-      ConstantUpdater const_visit(symobl, &params_);
-      const_visit(func);
-
+      ICHECK(ext_func.defined()) << "External function is not defined.";
+      UpdateConstants(func, &params_);
       return GraphAddCallNode(op, ext_func->func_name, ext_func->func_name);
     }
 
-    CHECK_GE(storage_device_map_.count(expr), 0);
+    ICHECK_GE(storage_device_map_.count(expr), 0);
     auto& device_type = storage_device_map_[expr][1];
     auto call_dev_type = device_type[0]->value;
     // Normal Relay Function
@@ -410,7 +411,7 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
   }
 
   std::vector<GraphNodeRef> VisitExpr_(const LetNode* op) override {
-    CHECK_EQ(var_map_.count(op->var.get()), 0);
+    ICHECK_EQ(var_map_.count(op->var.get()), 0);
     var_map_[op->var.get()] = VisitExpr(op->value);
     return VisitExpr(op->body);
   }
@@ -431,7 +432,7 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
     return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const FunctionNode* op) override {
-    CHECK(op->GetAttr<String>(attr::kCompiler).defined())
+    ICHECK(op->GetAttr<String>(attr::kCompiler).defined())
         << "Only functions supported by custom codegen";
     return {};
   }
@@ -479,7 +480,7 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
       const auto& storage_id = dmlc::get<std::vector<int64_t>>(node->attrs_["storage_id"]);
       const auto& dtype_vec = dmlc::get<std::vector<std::string>>(node->attrs_["dtype"]);
 
-      CHECK_EQ(node->num_outputs_, shape_vec.size());
+      ICHECK_EQ(node->num_outputs_, shape_vec.size());
       num_entry += node->num_outputs_;
 
       shapes.insert(shapes.end(), shape_vec.begin(), shape_vec.end());
@@ -538,8 +539,14 @@ class GraphRuntimeCodegen : public backend::MemoizedExprTranslator<std::vector<G
   std::unordered_map<const Object*, std::vector<GraphNodeRef>> var_map_;
   /*! \brief target device */
   TargetsMap targets_;
-  /*! \brief params */
+  /*!
+   * \brief parameters (i.e. ConstantNodes found in the graph).
+   * These are take as inputs to the GraphRuntime.
+   * Maps param name to a pair of storage_id and NDArray. At runtime, the storage_id can be
+   * used to lookup the parameter.
+   */
   std::unordered_map<std::string, runtime::NDArray> params_;
+  std::unordered_map<std::string, int64_t> param_storage_ids_;
   /*! \brief plan memory of device result */
   Map<Expr, Array<IntegerArray>> storage_device_map_;
   /*! \brief lowered funcs */
@@ -556,14 +563,14 @@ class GraphRuntimeCodegenModule : public runtime::ModuleNode {
   virtual PackedFunc GetFunction(const std::string& name, const ObjectPtr<Object>& sptr_to_self) {
     if (name == "init") {
       return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
-        CHECK_EQ(args.num_args, 2) << "The expected of arguments are: "
-                                   << "runtime::Module mod and Map<int, Target> targets";
+        ICHECK_EQ(args.num_args, 2) << "The expected of arguments are: "
+                                    << "runtime::Module mod and Map<int, Target> targets";
         void* mod = args[0];
         Map<Integer, tvm::Target> tmp = args[1];
         TargetsMap targets;
         for (const auto& it : tmp) {
           auto dev_type = it.first.as<tir::IntImmNode>();
-          CHECK(dev_type);
+          ICHECK(dev_type);
           targets[dev_type->value] = it.second;
         }
         codegen_ =
@@ -588,8 +595,16 @@ class GraphRuntimeCodegenModule : public runtime::ModuleNode {
     } else if (name == "get_param_by_name") {
       return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
         String key = args[0];
-        CHECK_GT(this->output_.params.count(key), 0);
-        *rv = this->output_.params[key];
+        auto it = this->output_.params.find(key);
+        CHECK(it != this->output_.params.end()) << "no such parameter " << key;
+        *rv = (*it).second.second;
+      });
+    } else if (name == "get_param_id") {
+      return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {
+        String key = args[0];
+        auto it = this->output_.params.find(key);
+        CHECK(it != this->output_.params.end()) << "no such parameter " << key;
+        *rv = (*it).second.first;
       });
     } else if (name == "get_irmodule") {
       return PackedFunc([sptr_to_self, this](TVMArgs args, TVMRetValue* rv) {

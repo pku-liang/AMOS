@@ -16,6 +16,7 @@
 # under the License.
 """Test builder and runner"""
 import logging
+import multiprocessing
 import time
 
 import numpy as np
@@ -46,35 +47,21 @@ def test_task_tuner_without_measurement():
         assert tuner.best_flops > 1
 
 
-def test_check_correctness():
-    task, target = get_sample_task()
+def task_tuner_spawn():
+    assert multiprocessing.get_start_method(False) == "spawn"
+    test_task_tuner_without_measurement()
 
-    measure_option = autotvm.measure_option(
-        builder=autotvm.LocalBuilder(), runner=autotvm.LocalRunner(check_correctness=True)
-    )
 
-    def _callback_correct(tuner, measure_inputs, measure_results):
-        for _, res in zip(measure_inputs, measure_results):
-            assert res.error_no == 0
-
-    tuner = autotvm.tuner.RandomTuner(task)
-    tuner.tune(n_trial=2, measure_option=measure_option, callbacks=[_callback_correct])
-
-    # a bad template
-    n = 128
-    target = tvm.target.Target("llvm -device=bad_device")
-    task = autotvm.task.create("testing/bad_matmul", args=(n, n, n, "float32"), target=target)
-
-    def _callback_wrong(tuner, measure_inputs, measure_results):
-        for _, res in zip(measure_inputs, measure_results):
-            assert res.error_no == MeasureErrorNo.WRONG_ANSWER
-
-    tuner = autotvm.tuner.RandomTuner(task)
-    tuner.tune(n_trial=2, measure_option=measure_option, callbacks=[_callback_wrong])
+def test_task_tuner_without_measurement_spawn():
+    # Subprocesses inherit the spawn method of their parents
+    ctx = multiprocessing.get_context("spawn")
+    p = ctx.Process(target=task_tuner_spawn)
+    p.start()
+    p.join()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     test_task_tuner_without_measurement()
-    test_check_correctness()
+    test_task_tuner_without_measurement_spawn()

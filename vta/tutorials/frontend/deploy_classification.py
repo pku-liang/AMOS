@@ -52,7 +52,7 @@ from matplotlib import pyplot as plt
 import tvm
 from tvm import te
 from tvm import rpc, autotvm, relay
-from tvm.contrib import graph_runtime, util, download
+from tvm.contrib import graph_runtime, utils, download
 from tvm.contrib.debugger import debug_runtime
 from tvm.relay import transform
 
@@ -204,7 +204,7 @@ with autotvm.tophub.context(target):
     print(model + " inference graph built in {0:.2f}s!".format(build_time))
 
     # Send the inference library over to the remote RPC server
-    temp = util.tempdir()
+    temp = utils.tempdir()
     lib.export_library(temp.relpath("graphlib.tar"))
     remote.upload(temp.relpath("graphlib.tar"))
     lib = remote.load_module("graphlib.tar")
@@ -220,7 +220,7 @@ with autotvm.tophub.context(target):
 # and an input test image.
 
 # Download ImageNet categories
-categ_url = "https://github.com/uwsaml/web-data/raw/master/vta/models/"
+categ_url = "https://github.com/uwsampl/web-data/raw/main/vta/models/"
 categ_fn = "synset.txt"
 download.download(join(categ_url, categ_fn), categ_fn)
 synset = eval(open(categ_fn).read())

@@ -44,21 +44,29 @@ template <typename AttrType>
 bool ConcatenateRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
                     const TypeReporter& reporter) {
   // types: [data, result]
-  CHECK_EQ(types.size(), 2);
+  ICHECK_EQ(types.size(), 2) << "the arity of concatenate is 2, not " << types.size();
   /* If we receive a tuple we can continue, if we receive
    * anything but an incomplete type we should signal an
    * error.
    */
   const auto* tensor_tuple = types[0].as<TupleTypeNode>();
   if (tensor_tuple == nullptr) {
-    throw Error(
-        ErrorBuilder() << "concatenate requires a tuple of tensors as the first argument, found "
-                       << PrettyPrint(types[0]));
+    reporter->GetDiagCtx().EmitFatal(
+        Diagnostic::Error(reporter->GetSpan())
+        << "concatenate requires a tuple of tensors as the first argument, found "
+        << PrettyPrint(types[0]));
+    return false;
   } else if (types[0].as<IncompleteTypeNode>() != nullptr) {
     return false;
   }
 
   const auto* param = attrs.as<AttrType>();
+  if (param == nullptr) {
+    reporter->GetDiagCtx().EmitFatal(Diagnostic::Error(reporter->GetSpan())
+                                     << "the call attributes are not defined");
+    return false;
+  }
+
   if (tensor_tuple->fields[0].as<IncompleteTypeNode>()) {
     return false;
   }
@@ -131,9 +139,9 @@ static inline Array<Array<Layout>> ConcatenateLayout(const Attrs& attrs,
   ConcatenateAttrs* param = const_cast<ConcatenateAttrs*>(attrs.as<ConcatenateAttrs>());
 
   Array<Array<IndexExpr>> old_in_shapes;
-  CHECK_EQ(old_in_types.size(), 1);
+  ICHECK_EQ(old_in_types.size(), 1);
   for (auto old_in_tuple_t : old_in_types) {
-    CHECK(old_in_tuple_t.as<TupleTypeNode>());
+    ICHECK(old_in_tuple_t.as<TupleTypeNode>());
     for (auto old_in_t : old_in_tuple_t.as<TupleTypeNode>()->fields) {
       old_in_shapes.push_back(old_in_t.as<TensorTypeNode>()->shape);
     }
@@ -185,9 +193,11 @@ static inline Array<Array<Layout>> ConcatenateLayout(const Attrs& attrs,
  *
  * \param data_shape The input data shape.
  * \param attrs The attributes.
+ * \param reverse Whether to reverse the indices.
  * \return Output shape.
  */
-Array<IndexExpr> infer_newshape(const Array<IndexExpr>& data_shape, const Attrs& attrs);
+Array<IndexExpr> InferNewShape(const Array<IndexExpr>& data_shape, const Attrs& attrs,
+                               bool reverse);
 
 }  // namespace relay
 }  // namespace tvm

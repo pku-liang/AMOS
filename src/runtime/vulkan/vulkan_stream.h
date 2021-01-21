@@ -16,7 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#pragma once
+
+#ifndef TVM_RUNTIME_VULKAN_VULKAN_STREAM_H_
+#define TVM_RUNTIME_VULKAN_VULKAN_STREAM_H_
 
 #include <functional>
 #include <memory>
@@ -93,7 +95,7 @@ class VulkanStream {
   void LaunchDeferred(const std::function<void()>& deferred_initializer,
                       const std::function<void(VulkanStreamState*)>& deferred_kernel,
                       const VulkanStreamToken& deferred_token) {
-    CHECK(!vctx_->UseImmediate());
+    ICHECK(!vctx_->UseImmediate());
 
     // It is invalid to schedule this instance on the current stream if we already
     // have a matching descriptor set and a non-matching buffer set.
@@ -184,3 +186,4 @@ class VulkanStream {
 }  // namespace vulkan
 }  // namespace runtime
 }  // namespace tvm
+#endif  // TVM_RUNTIME_VULKAN_VULKAN_STREAM_H_

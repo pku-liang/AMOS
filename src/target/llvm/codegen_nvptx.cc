@@ -46,11 +46,11 @@ class CodeGenNVPTX : public CodeGenLLVM {
   }
 
   void VisitStmt_(const AllocateNode* op) final {
-    CHECK(!is_zero(op->condition));
+    ICHECK(!is_zero(op->condition));
     llvm::Value* buf = nullptr;
 
     int32_t constant_size = op->constant_allocation_size();
-    CHECK_GT(constant_size, 0) << "Can only handle constant size stack allocation in GPU";
+    ICHECK_GT(constant_size, 0) << "Can only handle constant size stack allocation in GPU";
     StorageInfo& info = alloc_storage_info_[op->buffer_var.get()];
     if (constant_size % 4 == 0 && info.alignment == 0) {
       info.alignment = GetTempAllocaAlignment(op->dtype, constant_size);
@@ -75,7 +75,7 @@ class CodeGenNVPTX : public CodeGenLLVM {
       }
       buf = alloca;
     } else {
-      CHECK(info.scope.rank == runtime::StorageRank::kShared)
+      ICHECK(info.scope.rank == runtime::StorageRank::kShared)
           << "Can only allocate shared or local memory inside kernel";
       // Shared memory: address space  == 3
       const unsigned shared_address_space = 3;
@@ -94,7 +94,7 @@ class CodeGenNVPTX : public CodeGenLLVM {
 
     buf = builder_->CreatePointerCast(
         buf, DTypeToLLVMType(op->dtype)->getPointerTo(buf->getType()->getPointerAddressSpace()));
-    CHECK(!var_map_.count(op->buffer_var.get()));
+    ICHECK(!var_map_.count(op->buffer_var.get()));
     var_map_[op->buffer_var.get()] = buf;
     this->VisitStmt(op->body);
   }
@@ -118,7 +118,7 @@ class CodeGenNVPTX : public CodeGenLLVM {
           LOG(FATAL) << "unknown thread idx";
       }
     } else {
-      CHECK_EQ(ts.rank, 0);
+      ICHECK_EQ(ts.rank, 0);
       switch (ts.dim_index) {
         case 0:
           intrin_id = ::llvm::Intrinsic::nvvm_read_ptx_sreg_ctaid_x;
@@ -232,13 +232,27 @@ llvm::Value* CodeGenNVPTX::CreateIntrinsic(const CallNode* op) {
     auto fty = llvm::FunctionType::get(t_int32_, false);
     auto val = llvm::InlineAsm::get(fty, "activemask.b32 %0", "=r", true);
     return builder_->CreateCall(val);
+  } else if (op->op.same_as(builtin::atomic_add())) {
+    ICHECK(op->args[1]->dtype.bits() == 32) << "Only supports 32 bit atomic for now";
+    llvm::Value* v0 = MakeValue(op->args[0]);
+    llvm::Value* v1 = MakeValue(op->args[1]);
+    if (op->args[1]->dtype.is_float()) {
+#if TVM_LLVM_VERSION >= 90
+      return builder_->CreateAtomicRMW(llvm::AtomicRMWInst::FAdd, v0, v1,
+                                       llvm::AtomicOrdering::Monotonic);
+#else
+      LOG(FATAL) << "Floating point atomic requires LLVM 9 or newer";
+#endif
+    }
+    return builder_->CreateAtomicRMW(llvm::AtomicRMWInst::Add, v0, v1,
+                                     llvm::AtomicOrdering::Monotonic);
   }
   return CodeGenLLVM::CreateIntrinsic(op);
 }
 
 int GetCUDAComputeVersion(const Target& target) {
   Optional<String> mcpu = target->GetAttr<String>("mcpu");
-  CHECK(mcpu.defined()) << "InternalError: \"-mcpu\" is undefined in the NVPTX target";
+  ICHECK(mcpu.defined()) << "InternalError: \"-mcpu\" is undefined in the NVPTX target";
   std::string sm_version = mcpu.value();
   return std::stoi(sm_version.substr(3));
 }
@@ -255,7 +269,7 @@ runtime::Module BuildNVPTX(IRModule mod, Target target) {
   cg->Init("TVMPTXModule", tm.get(), ctx.get(), false, false, false);
 
   for (auto kv : mod->functions) {
-    CHECK(kv.second->IsInstance<PrimFuncNode>()) << "Can only lower IR Module with PrimFuncs";
+    ICHECK(kv.second->IsInstance<PrimFuncNode>()) << "Can only lower IR Module with PrimFuncs";
     auto f = Downcast<PrimFunc>(kv.second);
     cg->AddFunction(f);
   }
@@ -287,14 +301,14 @@ runtime::Module BuildNVPTX(IRModule mod, Target target) {
   // emit ptx
   llvm::legacy::PassManager pass;
 #if TVM_LLVM_VERSION <= 60
-  CHECK(tm->addPassesToEmitFile(pass, dest_ptx, llvm::TargetMachine::CGFT_AssemblyFile) == 0)
+  ICHECK(tm->addPassesToEmitFile(pass, dest_ptx, llvm::TargetMachine::CGFT_AssemblyFile) == 0)
       << "Cannot emit target CGFT_ObjectFile";
 #elif TVM_LLVM_VERSION <= 90
-  CHECK(tm->addPassesToEmitFile(pass, dest_ptx, nullptr, llvm::TargetMachine::CGFT_AssemblyFile) ==
-        0)
+  ICHECK(tm->addPassesToEmitFile(pass, dest_ptx, nullptr, llvm::TargetMachine::CGFT_AssemblyFile) ==
+         0)
       << "Cannot emit target CGFT_ObjectFile";
 #else
-  CHECK(tm->addPassesToEmitFile(pass, dest_ptx, nullptr, llvm::CGFT_AssemblyFile) == 0)
+  ICHECK(tm->addPassesToEmitFile(pass, dest_ptx, nullptr, llvm::CGFT_AssemblyFile) == 0)
       << "Cannot emit target CGFT_ObjectFile";
 #endif
   pass.run(*module);

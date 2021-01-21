@@ -27,7 +27,7 @@
 
 #include <unordered_set>
 
-#include "../../tir/transforms/ir_util.h"
+#include "../../tir/transforms/ir_utils.h"
 #include "message_passing.h"
 #include "operation_inline.h"
 
@@ -89,14 +89,16 @@ PrimExpr InjectPredicate(const Array<PrimExpr>& predicates, PrimExpr body) {
   using tir::SelectNode;
   if (predicates.size() == 0) return body;
   const ReduceNode* reduce = body.as<ReduceNode>();
-  auto fand = [](PrimExpr a, PrimExpr b) { return a && b; };
 
   if (reduce) {
     auto n = make_object<ReduceNode>(*reduce);
-    n->condition = foldl(fand, n->condition, predicates);
+    n->condition = foldl([](PrimExpr a, PrimExpr b, Span span) { return logical_and(a, b, span); },
+                         n->condition, predicates);
     return PrimExpr(n);
   }
-  return Select(foldl(fand, const_true(1), predicates), body, make_zero(body.dtype()));
+  return Select(foldl([](PrimExpr a, PrimExpr b, Span span) { return logical_and(a, b, span); },
+                      const_true(1), predicates),
+                body, make_zero(body.dtype()));
 }
 
 // Replace data flow appears in all stages given the tensor change.
@@ -136,6 +138,15 @@ Tensor Schedule::cache_read(const Tensor& tensor, const std::string& scope,
   if (tensor->op->num_outputs() != 1) {
     os << ".v" << tensor->value_index;
   }
+
+  // when a schedule has multiple cache_read on the same tensor,
+  // we make sure their op names are unique. e.g., w.shared, w_d.shared, w_d_d.shared
+  for (auto pair : (*this)->stage_map) {
+    auto stage = pair.second;
+    if (stage->op->name == os.str() + "." + scope) {
+      os << ".d";
+    }
+  }
   os << "." << scope;
 
   std::unordered_map<Tensor, Tensor> vsub;
@@ -154,7 +165,7 @@ Tensor Schedule::cache_read(const Tensor& tensor, const std::string& scope,
   for (Operation op : readers) {
     Stage s = operator[](op);
     Operation repl_op = s->op->ReplaceInputs(s->op, vsub);
-    CHECK(!repl_op.same_as(s->op)) << "Cannot find " << tensor << " in the inputs of " << s->op;
+    ICHECK(!repl_op.same_as(s->op)) << "Cannot find " << tensor << " in the inputs of " << s->op;
     vmap[s->op.output(0)] = repl_op.output(0);
     rvmap[repl_op.output(0)] = s->op.output(0);
     s->op = repl_op;
@@ -165,7 +176,7 @@ Tensor Schedule::cache_read(const Tensor& tensor, const std::string& scope,
   size_t pos = FindNodeRef(stages.GetArrayNode(), op_stage);
   Stage cache_stage = Stage(cache->op);
   cache_stage.set_scope(scope);
-  CHECK_LT(pos, stages.size());
+  ICHECK_LT(pos, stages.size());
   stages.insert(stages.begin() + pos + 1, cache_stage);
   (*this)->stage_map.Set(cache->op, cache_stage);
   // Update group
@@ -203,7 +214,7 @@ void PrepareAxisMapping(Stage orig_stage, OpType* op, std::unordered_set<IterVar
     std::unordered_map<IterVar, PrimExpr> value_map;
     for (IterVar iv : orig_stage->leaf_iter_vars) {
       if (red_axis.count(iv)) continue;
-      CHECK_EQ(iv->iter_type, kDataPar) << "Can only relayout with in data parallel dimensions";
+      ICHECK_EQ(iv->iter_type, kDataPar) << "Can only relayout with in data parallel dimensions";
       Range dom = dom_map.at(iv);
       IterVar new_iv = IterVar(dom, iv->var.copy_with_suffix(".c"), iv->iter_type);
       new_axis.push_back(new_iv);
@@ -257,7 +268,7 @@ Array<Tensor> ReplaceOriginalOp(Schedule sch, Stage orig_stage, const std::strin
   size_t pos = FindNodeRef(stages.GetArrayNode(), orig_stage);
   Stage cache_stage = Stage(cache_op);
   cache_stage.set_scope(scope);
-  CHECK_LT(pos, stages.size());
+  ICHECK_LT(pos, stages.size());
   stages.insert(stages.begin() + pos, cache_stage);
   sch->stage_map.Set(cache_op, cache_stage);
   // Update group
@@ -300,14 +311,14 @@ Array<Tensor> CacheWriteWithReLayout(Schedule sch, const Array<Tensor>& tensor_a
     if (body->IsInstance<tir::ReduceNode>()) {
       const tir::ReduceNode* reduce_body = body.as<tir::ReduceNode>();
       if (first_reduce != nullptr) {
-        CHECK(ReduceEqual(reduce_body, first_reduce));
+        ICHECK(ReduceEqual(reduce_body, first_reduce));
         body = tir::Reduce(first_reduce->combiner, first_reduce->source, first_reduce->axis,
                            first_reduce->condition, reduce_body->value_index, reduce_body->init);
       } else {
         first_reduce = reduce_body;
       }
     } else {
-      CHECK(first_reduce == nullptr) << "cannot mix reduce and other node in ONE compute bodys";
+      ICHECK(first_reduce == nullptr) << "cannot mix reduce and other node in ONE compute bodys";
     }
     body_list.push_back(body);
   }
@@ -346,7 +357,7 @@ Array<Tensor> CacheWriteWithReLayoutTensor(Schedule sch, const Array<Tensor>& te
   Tensor tensor = tensor_array[0];
   Stage orig_stage = sch[tensor->op];
   const TensorComputeOpNode* tensor_op = orig_stage->op.as<TensorComputeOpNode>();
-  CHECK_EQ(tensor_op->num_outputs(), 1)
+  ICHECK_EQ(tensor_op->num_outputs(), 1)
       << "cache write only support single output tensor_compute_op";
 
   std::unordered_set<IterVar> red_axis;
@@ -426,15 +437,15 @@ Array<Tensor> CacheWriteWithReLayoutTensor(Schedule sch, const Array<Tensor>& te
 
 Array<Tensor> Schedule::cache_write(const Array<Tensor>& tensor_array, const std::string& scope) {
   (*this)->InvalidateCache();
-  CHECK(tensor_array.size() > 0) << "size of tensor_array must be greater than 0";
+  ICHECK(tensor_array.size() > 0) << "size of tensor_array must be greater than 0";
   Tensor tensor = tensor_array[0];
   Stage orig_stage = operator[](tensor->op);
   const ComputeOpNode* compute = tensor->op.as<ComputeOpNode>();
-  CHECK(static_cast<size_t>(compute->num_outputs()) == tensor_array.size())
+  ICHECK(static_cast<size_t>(compute->num_outputs()) == tensor_array.size())
       << "size of input tensor list must be same as number of stage outputs";
   for (size_t i = 1; i < tensor_array.size(); i++) {
     Stage tmp_stage = operator[](tensor_array[i]->op);
-    CHECK(orig_stage.same_as(tmp_stage)) << "Input tensor list must be generated by ONE computeOp";
+    ICHECK(orig_stage.same_as(tmp_stage)) << "Input tensor list must be generated by ONE computeOp";
   }
   return CacheWriteWithReLayout(*this, tensor_array, scope);
 }
@@ -493,7 +504,7 @@ void RebaseNonZeroMinLoop(ScheduleNode* sch) {
   }
 }
 
-void InjectInline(ScheduleNode* sch) {
+void InjectInline(ScheduleNode* sch, bool feature_extraction_mode) {
   sch->InvalidateCache();
 
   std::vector<Array<PrimExpr> > new_body(sch->stages.size());
@@ -510,12 +521,20 @@ void InjectInline(ScheduleNode* sch) {
       {
         // setup args
         const ComputeOpNode* compute = stage->op.as<ComputeOpNode>();
-        CHECK(compute) << "can only inline compute op";
+        ICHECK(compute) << "can only inline compute op";
         for (auto iv : compute->axis) {
           args.push_back(iv->var);
         }
-        CHECK_EQ(compute->body.size(), 1U) << "can only inline compute op with 1 output";
-        body = compute->body[0];
+        ICHECK_EQ(compute->body.size(), 1U) << "can only inline compute op with 1 output";
+
+        if (feature_extraction_mode && compute->attrs.count("const_matrix")) {
+          // Use constant value to replace access of const matrices.
+          // This produces wrong IR but is good enough for feature extraction purposes.
+          // This simplification can accelerate the feature extration and evolutionary search.
+          body = make_const(compute->output_dtype(0), 1.0f);
+        } else {
+          body = compute->body[0];
+        }
       }
       for (size_t j = i; j < sch->stages.size(); ++j) {
         Stage s = sch->stages[j];
@@ -530,9 +549,9 @@ void InjectInline(ScheduleNode* sch) {
             const tir::ReduceNode* reduce = new_body[j][0].as<tir::ReduceNode>();
             for (size_t k = 1; k < new_body[j].size(); ++k) {
               const tir::ReduceNode* reduce_ = new_body[j][k].as<tir::ReduceNode>();
-              CHECK(reduce_);
-              CHECK(ReduceEqual(reduce_, reduce)) << "The Reduce inputs of ComputeOp should "
-                                                  << "have the same attribute except value_index";
+              ICHECK(reduce_);
+              ICHECK(ReduceEqual(reduce_, reduce)) << "The Reduce inputs of ComputeOp should "
+                                                   << "have the same attribute except value_index";
             }
             PrimExpr new_value = Inline(tir::Evaluate(new_body[j][0]), stage->op, args, body)
                                      .as<tir::EvaluateNode>()
@@ -540,8 +559,9 @@ void InjectInline(ScheduleNode* sch) {
             if (!new_value.same_as(new_body[j][0])) {
               changed[j] = true;
               const tir::ReduceNode* r = new_value.as<tir::ReduceNode>();
-              CHECK(r != nullptr);
-              CHECK_EQ(new_body[j].size(), r->source.size());  // SIZE: strange compare
+
+              ICHECK(r != nullptr);
+              ICHECK_EQ(new_body[j].size(), r->source.size());
               for (size_t k = 0; k < new_body[j].size(); ++k) {
                 auto n = make_object<tir::ReduceNode>(*r);
                 n->value_index = static_cast<int>(k);
@@ -581,7 +601,7 @@ void InjectInline(ScheduleNode* sch) {
     if (new_body[i].size()) {
       // Logics from ReplaceDataFlow
       const ComputeOpNode* compute = sch->stages[i]->op.as<ComputeOpNode>();
-      CHECK(compute);
+      ICHECK(compute);
       Operation op = s->op;
       if (changed[i]) {
         op = ComputeOp(compute->name, compute->tag, compute->attrs, compute->axis, new_body[i]);
@@ -595,7 +615,7 @@ void InjectInline(ScheduleNode* sch) {
       }
     } else if (hybrid_changed[i]) {
       const HybridOpNode* hybrid = sch->stages[i]->op.as<HybridOpNode>();
-      CHECK(hybrid);
+      ICHECK(hybrid);
       Operation op = HybridOp(hybrid->name, hybrid->tag, hybrid->attrs, hybrid->inputs,
                               hybrid->outputs, new_hybrid_body[i]);
       op = op->ReplaceInputs(op, repl);
@@ -638,8 +658,8 @@ void LegalizeInvalidAttach(ScheduleNode* sch) {
       bool start_attach = false;
       IterVar attach_ivar = spec->attach_ivar;
       s = spec->attach_stage;
-      CHECK(attach_ivar.defined());
-      CHECK(s.defined());
+      ICHECK(attach_ivar.defined());
+      ICHECK(s.defined());
 
       for (size_t i = s->leaf_iter_vars.size(); i != 0; --i) {
         IterVar iv = s->leaf_iter_vars[i - 1];
@@ -691,7 +711,15 @@ void LegalizeInvalidAttach(ScheduleNode* sch) {
 
 Schedule Schedule::normalize() {
   Schedule sn = copy();
-  InjectInline(sn.operator->());
+  InjectInline(sn.operator->(), false);
+  RebaseNonZeroMinLoop(sn.operator->());
+  LegalizeInvalidAttach(sn.operator->());
+  return sn;
+}
+
+Schedule Schedule::normalize_for_feature_extraction() {
+  Schedule sn = copy();
+  InjectInline(sn.operator->(), true);
   RebaseNonZeroMinLoop(sn.operator->());
   LegalizeInvalidAttach(sn.operator->());
   return sn;
@@ -701,14 +729,15 @@ Schedule Schedule::normalize() {
 Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int factor_axis) {
   (*this)->InvalidateCache();
   using tir::ReduceNode;
-  CHECK_EQ(axis->iter_type, kCommReduce) << "Can only factor reduction axis";
+  ICHECK_EQ(axis->iter_type, kCommReduce) << "Can only factor reduction axis";
   Stage reduce_stage = operator[](tensor->op);
   const ComputeOpNode* compute_op = reduce_stage->op.as<ComputeOpNode>();
-  CHECK(compute_op) << "Can only factor ComputeOp";
+  ICHECK(compute_op) << "Can only factor ComputeOp";
   ArrayNode* leaf_vars = reduce_stage->leaf_iter_vars.CopyOnWrite();
   {
     size_t axis_pos = FindNodeRef(leaf_vars, axis);
-    CHECK_NE(axis_pos, leaf_vars->size()) << "Cannot find IterVar " << axis << " in leaf iter vars";
+    ICHECK_NE(axis_pos, leaf_vars->size())
+        << "Cannot find IterVar " << axis << " in leaf iter vars";
   }
   // Find touched reduction axis.
   std::unordered_map<IterVar, int> touch_map;
@@ -719,7 +748,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
   std::unordered_set<IterVar> skip_bound_check;
   // Verify normal axis are not touched.
   for (IterVar iv : compute_op->axis) {
-    CHECK(!touch_map.count(iv)) << "Factor axis touches normal axis.";
+    ICHECK(!touch_map.count(iv)) << "Factor axis touches normal axis.";
     skip_bound_check.insert(iv);
   }
   // get analyzer.
@@ -753,14 +782,14 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
   // Get the factored op node.
   const int factor_axis_pos =
       factor_axis >= 0 ? factor_axis : static_cast<int>(compute_op->axis.size() + 1) + factor_axis;
-  CHECK_LE(factor_axis_pos, compute_op->axis.size());
+  ICHECK_LE(factor_axis_pos, compute_op->axis.size());
   auto n = make_object<ComputeOpNode>();
   n->name = compute_op->name + ".rf";
   {
     // axis relacement.
     auto iv_node = make_object<IterVarNode>();
     iv_node->dom = dom_map.at(axis);
-    CHECK(is_zero(iv_node->dom->min)) << "Can only factor reduction domain starting from 0";
+    ICHECK(is_zero(iv_node->dom->min)) << "Can only factor reduction domain starting from 0";
     iv_node->var = axis->var;
     iv_node->iter_type = kDataPar;
 
@@ -778,11 +807,12 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
   // predicate generation, copy not touched axis.
   int idx = tensor->value_index;
   const ReduceNode* reduce = compute_op->body[idx].as<ReduceNode>();
-  CHECK(reduce) << "Can only rfactor non-inline reductions";
+  ICHECK(reduce) << "Can only rfactor non-inline reductions";
   predicates.push_back(reduce->condition);
-  auto fand = [](PrimExpr a, PrimExpr b) { return a && b; };
 
-  PrimExpr predicate = likely(foldl(fand, const_true(1), predicates));
+  PrimExpr predicate =
+      likely(foldl([](PrimExpr a, PrimExpr b, Span span) { return logical_and(a, b, span); },
+                   const_true(1), predicates));
 
   std::unordered_map<const VarNode*, PrimExpr> vsub;
 
@@ -790,7 +820,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
     if (!touch_map.count(iv)) {
       n->reduce_axis.push_back(iv);
     } else {
-      CHECK(value_map.count(iv));
+      ICHECK(value_map.count(iv));
       PrimExpr index = value_map.at(iv);
       vsub[iv->var.get()] = index;
     }
@@ -799,7 +829,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
   // Copy touched axis.
   for (IterVar iv : reduce_stage->leaf_iter_vars) {
     if (touch_map.count(iv) && !iv.same_as(axis)) {
-      CHECK_EQ(iv->iter_type, kCommReduce);
+      ICHECK_EQ(iv->iter_type, kCommReduce);
       auto ncpy = make_object<IterVarNode>(*iv.operator->());
       ncpy->dom = dom_map.at(iv);
       n->reduce_axis.push_back(IterVar(ncpy));
@@ -839,7 +869,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
   size_t stage_pos = FindNodeRef(stages.GetArrayNode(), reduce_stage);
   Stage factor_stage = Stage(factor_op);
   factor_stage->relations = rels;
-  CHECK_LT(stage_pos, stages.size());
+  ICHECK_LT(stage_pos, stages.size());
   stages.insert(stages.begin() + stage_pos, factor_stage);
   (*this)->stage_map.Set(factor_op, factor_stage);
   factor_stage->group = reduce_stage->group;
@@ -871,7 +901,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor, const IterVar& axis, int f
           std::unordered_map<const VarNode*, PrimExpr> init_vsub;
           for (const auto& init : reduce->init) {
             if (init->IsInstance<ProducerLoadNode>()) {
-              CHECK_EQ(compute_op->axis.size(), idx_size)
+              ICHECK_EQ(compute_op->axis.size(), idx_size)
                   << "'init' should have the number of dimensions as output when using with "
                      "rfactor";
               for (int idx = 0; idx < idx_size; idx++) {

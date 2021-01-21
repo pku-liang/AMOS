@@ -23,7 +23,7 @@ import tvm
 from tvm.ir import IRModule
 
 from tvm import relay
-from tvm.topi.util import get_const_tuple
+from tvm.topi.utils import get_const_tuple
 from .. import analysis
 from .. import expr as _expr
 from .. import function as _function
@@ -790,6 +790,16 @@ def _mx_dot(inputs, attrs):
 def _mx_batch_dot(inputs, attrs):
     assert len(inputs) == 2
     a, b = inputs
+    a_shape = _infer_type(a).checked_type.shape
+    batch_shapes = None
+    if len(a_shape) > 3:
+        batch_shapes = a_shape[:-2]
+        a = _op.reverse_reshape(a, newshape=(-1, 0, 0))
+    b_shape = _infer_type(b).checked_type.shape
+    if len(b_shape) > 3:
+        if batch_shapes is None:
+            batch_shapes = b_shape[:-2]
+        b = _op.reverse_reshape(b, newshape=(-1, 0, 0))
     transpose_a = attrs.get_bool("transpose_a", False)
     transpose_b = attrs.get_bool("transpose_b", False)
     if transpose_a is True:
@@ -797,7 +807,10 @@ def _mx_batch_dot(inputs, attrs):
         raise tvm.error.OpAttributeInvalid(msg.format(transpose_a))
     if transpose_b is False:
         b = _op.transpose(b, axes=[0, 2, 1])
-    return _op.nn.batch_matmul(a, b)
+    out = _op.nn.batch_matmul(a, b)
+    if batch_shapes is not None:
+        out = _op.reverse_reshape(out, newshape=tuple(batch_shapes) + (0, 0))
+    return out
 
 
 def _mx_arange(inputs, attrs):
@@ -1078,12 +1091,19 @@ def _mx_box_decode(inputs, attrs):
 def _mx_l2_normalize(inputs, attrs):
     new_attrs = {}
     mode = attrs.get_str("mode", "instance")
-    if mode != "channel":
+    if mode == "channel":
+        new_attrs["axis"] = [1]
+    elif mode == "instance":
+        ndim = len(_infer_type(inputs[0]).checked_type.shape)
+        new_attrs["axis"] = list(range(1, ndim))
+    elif mode == "spatial":
+        ndim = len(_infer_type(inputs[0]).checked_type.shape)
+        new_attrs["axis"] = list(range(2, ndim))
+    else:
         raise tvm.error.OpAttributeInvalid(
-            'Value of attribute "mode" must equal "channel" for operator l2_normalize.'
+            'Mode "{}" is not supported for operator l2_normalize.'.format(mode)
         )
     new_attrs["eps"] = attrs.get_float("eps", 1e-10)
-    new_attrs["axis"] = [1]
     return _op.nn.l2_normalize(inputs[0], **new_attrs)
 
 
@@ -2251,6 +2271,16 @@ def _mx_broadcast_to(inputs, attrs):
     return _op.broadcast_to(data, tgt_shape)
 
 
+def _mx_broadcast_like(inputs, attrs):
+    assert len(inputs) == 2
+    for axes in ["lhs_axes", "rhs_axes"]:
+        if axes in attrs.attrs:
+            raise tvm.error.OpAttributeUnImplemented(
+                'Attribute "{}" is not supported for operator broadcast_like.'.format(axes)
+            )
+    return _op.broadcast_to_like(*inputs)
+
+
 def _mx_logical_not(inputs, input_types):
     data = inputs[0]
     dtype = _infer_type(data).checked_type.dtype
@@ -2284,18 +2314,16 @@ def _mx_npi_pad(inputs, attrs):
         raise tvm.error.OpAttributeRequired('Attribute "mode" not found in operator pad.')
     if pad_mode not in ["constant", "edge", "reflect"]:
         raise tvm.error.OpAttributeInvalid("Value " + mode + ' in attribute "mode" is not valid')
-    pad_width = attrs.get_int_tuple("pad_width", None)
-    if pad_width is None:
+    if "pad_width" not in attrs.attrs:
         raise tvm.error.OpAttributeRequired('Attribute "pad_width" not found in operator pad.')
-    if None in pad_width:
-        raise tvm.error.OpAttributeInvalid(
-            'Value None in attribute "pad_width" of operator Slice is not valid.'
-        )
+    # Begin to parse tuple of tuple, we cannot use get_int_tuple here because it's a tuple of tuple.
+    pad_width = attrs.attrs["pad_width"]
+    pad_width = pad_width.replace("(", "[")
+    pad_width = pad_width.replace(")", "]")
+    pad_width = json.loads(pad_width)
     constant_values = attrs.get_float("constant_values", 0.0)
-    padding = tuple(tuple((b, a)) for b, a in zip(pad_width[::2], pad_width[1::2]))
-
     return _op.nn.pad(
-        data=inputs[0], pad_width=padding, pad_value=constant_values, pad_mode=pad_mode
+        data=inputs[0], pad_width=pad_width, pad_value=constant_values, pad_mode=pad_mode
     )
 
 
@@ -2307,28 +2335,86 @@ def _mx_npi_concatenate(inputs, attrs):
         return _op.concatenate(tuple(inputs), axis=int(axis))
 
 
+def _mx_npi_stack(inputs, attrs):
+    axis = attrs.get_str("axis", "0")
+    if axis == "None":
+        return _op.reshape(_op.stack(tuple(inputs), axis=0), (-1,))
+    else:
+        return _op.stack(tuple(inputs), axis=int(axis))
+
+
 def _mx_npx_reshape(inputs, attrs):
     shape = attrs.get_int_tuple("newshape")
     reverse = attrs.get_bool("reverse", False)
     shape_list = list(shape)
-    new_shape_list = []
-    for num in shape_list:
-        if num > 0 or num == -1:
-            new_shape_list.append(num)
-        elif num == -2:
-            new_shape_list.append(0)
-        elif num == -4:
-            new_shape_list.append(-2)
-        elif num == -5:
-            new_shape_list.append(-3)
-        elif num == -6:
-            new_shape_list.append(-4)
-        else:
-            raise tvm.error.OpAttributeInvalid("Shape dimension %d is not supported" % num)
-    shape = tuple(new_shape_list)
+    old_shape = get_const_tuple(_infer_type(inputs[0]).checked_type.shape)
+    new_shape = []
     if reverse:
-        return _op.reverse_reshape(inputs[0], newshape=shape)
-    return _op.reshape(inputs[0], newshape=shape)
+        old_shape = old_shape[::-1]
+        shape_list = shape_list[::-1]
+    ptr = 0
+    unknown_axis = None
+    src_ptr = 0
+    while src_ptr < len(shape_list):
+        ele = shape_list[src_ptr]
+        src_ptr += 1
+        if ele > 0:
+            new_shape.append(ele)
+            ptr += 1
+        elif ele == -1:
+            new_shape.append(-1)
+            if unknown_axis is not None:
+                raise tvm.error.OpAttributeInvalid("Can only have one -1 in the input shape.")
+            unknown_axis = len(new_shape)
+            ptr += 1
+        elif ele == -2:
+            new_shape.append(old_shape[ptr])
+            ptr += 1
+        elif ele == -3:
+            if old_shape[ptr] != 1:
+                raise tvm.error.OpAttributeInvalid(
+                    "Dimension of the original shape "
+                    "that corresponds to -3 must be 1. Received"
+                    " {}".format(old_shape[ptr])
+                )
+            ptr += 1
+        elif ele == -4:
+            new_shape += old_shape[ptr:]
+            break
+        elif ele == -5:
+            new_shape.append(old_shape[ptr] * old_shape[ptr + 1])
+            ptr += 2
+        elif ele == -6:
+            # Split axis
+            lhs = shape_list[src_ptr]
+            rhs = shape_list[src_ptr + 1]
+            src_ptr += 2
+            if lhs == -1 and rhs == -1:
+                raise tvm.error.OpAttributeInvalid("The lhs and rhs can not both be -1.")
+            if lhs == -1:
+                if old_shape[ptr] % rhs != 0:
+                    raise tvm.error.OpAttributeInvalid(
+                        "When splitting the axis, "
+                        "the dimension of the split axis must "
+                        "be divisible by the splitted values."
+                    )
+                lhs = old_shape[ptr] // rhs
+            if rhs == -1:
+                if old_shape[ptr] % lhs != 0:
+                    raise tvm.error.OpAttributeInvalid(
+                        "When splitting the axis, "
+                        "the dimension of the split axis must "
+                        "be divisible by the splitted values."
+                    )
+                rhs = old_shape[ptr] // lhs
+            new_shape.append(lhs)
+            new_shape.append(rhs)
+            ptr += 1
+        else:
+            raise tvm.error.OpAttributeInvalid("Shape dimension %d is not supported" % ele)
+    if reverse:
+        new_shape = new_shape[::-1]
+    return _op.reshape(inputs[0], newshape=new_shape)
 
 
 def _mx_split_v2(inputs, attrs):
@@ -2346,12 +2432,21 @@ def _mx_split_v2(inputs, attrs):
 
 
 def _mx_npi_where_rscalar(inputs, attrs):
+    cond, dat = inputs
     scalar = attrs.get_float("scalar")
-    dtype = _infer_type(inputs[1]).checked_type.dtype
+    cond_shape = get_const_tuple(_infer_type(cond).checked_type.shape)
+    dat_shape = get_const_tuple(_infer_type(dat).checked_type.shape)
+    dtype = _infer_type(dat).checked_type.dtype
+    # Check for broadcasting
+    out_shape = np.broadcast(np.empty(cond_shape), np.empty(dat_shape)).shape
+    if out_shape != cond_shape:
+        cond = _op.broadcast_to(cond, out_shape)
+    if out_shape != dat_shape:
+        dat = _op.broadcast_to(dat, out_shape)
     scalar = _expr.const(scalar, dtype=dtype)
-    ones = _op.ones_like(inputs[1])
+    ones = _op.ones_like(dat)
     scalar = _op.multiply(ones, scalar)
-    return _op.where(inputs[0], inputs[1], scalar)
+    return _op.where(cond, dat, scalar)
 
 
 # Note: due to attribute conversion constraint
@@ -2372,13 +2467,13 @@ _identity_list = [
     "reshape_like",
     "zeros_like",
     "ones_like",
-    "where",
     "cos",
     "cosh",
     "sin",
     "sinh",
     "tan",
     "tanh",
+    "where",
 ]
 
 _convert_map = {
@@ -2410,6 +2505,7 @@ _convert_map = {
     "broadcast_logical_and": _mx_broadcast_logical(_op.logical_and),
     "broadcast_logical_xor": _mx_broadcast_logical(_op.logical_xor),
     "broadcast_to": _mx_broadcast_to,
+    "broadcast_like": _mx_broadcast_like,
     "logical_not": _mx_logical_not,
     "_equal": _mx_compare(_op.equal, _rename),
     "_not_equal": _mx_compare(_op.not_equal, _rename),
@@ -2598,16 +2694,21 @@ _convert_map = {
     "_npi_concatenate": _mx_npi_concatenate,
     "_npx_reshape": _mx_npx_reshape,
     "_np_copy": _rename(_op.copy),
+    "_npi_copy": _rename(_op.copy),
     "_npi_power": _rename(_op.power),
     "_npi_power_scalar": _binop_scalar(_op.power),
     "_npi_multiply": _rename(_op.multiply),
     "_npi_multiply_scalar": _binop_scalar(_op.multiply),
     "_npi_add": _rename(_op.add),
     "_npi_add_scalar": _binop_scalar(_op.add),
+    "_npi_subtract": _rename(_op.subtract),
+    "_npi_subtract_scalar": _binop_scalar(_op.subtract),
     "_npi_where_rscalar": _mx_npi_where_rscalar,
     "_npi_less": _rename(_op.less),
+    "_npi_less_equal": _mx_compare(_op.less_equal, _rename),
     "_npi_tanh": _rename(_op.tanh),
     "_npi_true_divide_scalar": _binop_scalar(_op.divide),
+    "_npi_stack": _mx_npi_stack,
 }
 
 # set identity list
@@ -2717,7 +2818,6 @@ def _from_mxnet_impl(symbol, shape_dict, dtype_info, params=None, mod=None):
             else:
                 raise RuntimeError("unexpected type %s" % type(res))
             node_map[nid] = res
-
     outputs = [node_map[e[0]][e[1]] for e in jgraph["heads"]]
     outputs = outputs[0] if len(outputs) == 1 else _expr.Tuple(outputs)
     func = _function.Function(analysis.free_vars(outputs), outputs)

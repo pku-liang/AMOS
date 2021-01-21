@@ -21,7 +21,7 @@ import tvm
 from tvm import te
 import tvm.autotvm as autotvm
 from .. import tag
-from ..util import traverse_inline, get_const_tuple
+from ..utils import traverse_inline, get_const_tuple
 from .tensor_intrin import (
     intrin_wmma_load_matrix_A,
     intrin_wmma_load_matrix_W,
@@ -199,6 +199,8 @@ def _schedule_dense_tensorcore(cfg, s, C):
     bb, bbii = s[CS].split(bb, factor=warp_row_tiles)
     oo, ooii = s[CS].split(oo, factor=warp_col_tiles)
     s[CS].reorder(bb, oo, bbii, ooii, bbi, ooi)
+    s[CS].bind(bb, thread_y)
+    s[CS].bind(oo, thread_z)
 
     # Schedule for wmma computation
     s[CF].compute_at(s[CS], oo)
@@ -243,6 +245,7 @@ def _schedule_dense_tensorcore(cfg, s, C):
     shared_shedule(BS, BS_align)
 
     shape = (wmma_m, wmma_n, wmma_k)
+    # TODO: add checking here, datatype casting may cause precision loss
     in_dtype = "float16"
     AL_gemm = te.placeholder((wmma_m, wmma_k), name="AL_gemm", dtype=in_dtype)
     BL_gemm = te.placeholder((wmma_n, wmma_k), name="BL_gemm", dtype=in_dtype)

@@ -154,7 +154,7 @@ class CCacheKey : public ObjectRef {
   const CCacheKeyNode* operator->() const { return static_cast<const CCacheKeyNode*>(get()); }
   // comparator
   inline bool operator==(const CCacheKey& other) const {
-    CHECK(defined() && other.defined());
+    ICHECK(defined() && other.defined());
     return (*this)->Equal(other.operator->());
   }
   using ContainerType = CCacheKeyNode;
@@ -242,6 +242,15 @@ class CompileEngine : public ObjectRef {
 };
 
 /*!
+ * \brief Create schedule for target.
+ * \param source_func The primitive function to be lowered.
+ * \param target The target we want to create schedule for.
+ * \return Pair of schedule and cache.
+ *  The funcs field in cache is not yet populated.
+ */
+CachedFunc CreateSchedule(const Function& source_func, const Target& target);
+
+/*!
  * \brief Check if the type is dynamic.
  * \param ty The type to be checked.
  * \return The result.
@@ -272,7 +281,7 @@ namespace std {
 template <>
 struct hash<::tvm::relay::CCacheKey> {
   size_t operator()(const ::tvm::relay::CCacheKey& key) const {
-    CHECK(key.defined());
+    ICHECK(key.defined());
     return key->Hash();
   }
 };

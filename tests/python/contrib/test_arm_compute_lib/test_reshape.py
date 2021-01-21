@@ -20,6 +20,7 @@ import numpy as np
 
 import tvm
 from tvm import relay
+from tvm import testing
 
 from .infrastructure import (
     skip_runtime_test,
@@ -49,7 +50,6 @@ def _get_expected_codegen(input_shape, output_shape, dtype):
             "newshape": [[str(s) for s in output_shape]],
             "shape": [[list(output_shape)]],
             "dtype": [[dtype]],
-            "reverse": [["0"]],
         },
     }
 
@@ -77,7 +77,7 @@ def test_reshape():
     ]:
         inputs = {"a": tvm.nd.array(np.random.uniform(low, high, (1, 1, 1, 1000)).astype(dtype))}
 
-        for new_shape in [(1, 1000), (10, 10, 10)]:
+        for new_shape in [(1, 1000), (10, 10, 10), (10, 100, 1), (1, 1000, 1)]:
             outputs = []
             func = _get_model(inputs["a"].shape, new_shape, dtype, iter(inputs))
             for acl in [False, True]:
@@ -98,7 +98,7 @@ def test_codegen_reshape():
     shape = (1, 1, 1, 1000)
     inputs = {"a"}
     for dtype in ["float32", "uint8"]:
-        for new_shape in [(1, 1000), (10, 10, 10)]:
+        for new_shape in [(1, 1000), (10, 10, 10), (10, 100, 1)]:
             args = (shape, new_shape, dtype)
             func = _get_model(*args, iter(inputs))
             exp_codegen = _get_expected_codegen(*args)

@@ -44,6 +44,7 @@ ALLOW_EXTENSION = {
     "pyd",
     "pyx",
     "cu",
+    "bat",
     # relay text format
     "rly",
     # configurations
@@ -124,6 +125,12 @@ ALLOW_SPECIFIC_FILE = {
     "docs/_static/img/tvm-logo-square.png",
     # pytest config
     "pytest.ini",
+    # Zephyr tests
+    "tests/micro/qemu/zephyr-runtime/prj.conf",
+    "tests/micro/qemu/zephyr-runtime/qemu-hack/qemu-system-i386",
+    # microTVM Virtual Machines
+    "apps/microtvm/reference-vm/zephyr/Vagrantfile",
+    "apps/microtvm/reference-vm/zephyr/base-box/Vagrantfile.packer-template",
 }
 
 
