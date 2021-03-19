@@ -1,15 +1,15 @@
 [submodule "dmlc-core"]
 	path = 3rdparty/dmlc-core
-	url = https://github.com/dmlc/dmlc-core
+	url = git@github.com:dmlc/dmlc-core.git
 [submodule "dlpack"]
 	path = 3rdparty/dlpack
-	url = https://github.com/dmlc/dlpack
+	url = git@github.com:dmlc/dlpack.git
 [submodule "3rdparty/rang"]
 	path = 3rdparty/rang
-	url = https://github.com/agauniyal/rang
+	url = git@github.com:agauniyal/rang.git
 [submodule "3rdparty/vta-hw"]
 	path = 3rdparty/vta-hw
-	url = https://github.com/apache/incubator-tvm-vta
+	url = git@github.com:apache/tvm-vta.git
 [submodule "3rdparty/CTPL"]
 	path = 3rdparty/CTPL
-	url = https://github.com/vit-vit/CTPL.git
+	url = git@github.com:vit-vit/CTPL.git
