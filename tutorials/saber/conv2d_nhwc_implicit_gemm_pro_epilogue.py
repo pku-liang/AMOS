@@ -1,7 +1,8 @@
 import tvm
 import time
 import numpy as np
-from ..utils import array_view
+from tvm import saber
+from tvm.saber.utils import array_view
 
 
 class Conv2dContext(object):
@@ -238,6 +239,8 @@ def conv2d_cuda_nhwc(image_prologues, kernel_prologues, epilogues,
     # sch[Output].reorder(iniio, imiio, iniii, imiii)
     # fused = sch[Output].fuse(iniio, imiio)
     # sch[Output].bind(iniio, thread_x)  # 32
+    sch[Output].unroll(ini)
+    sch[Output].unroll(imi)
 
     sch[C_matrix].compute_at(sch[Output], imii)
 
@@ -245,6 +248,11 @@ def conv2d_cuda_nhwc(image_prologues, kernel_prologues, epilogues,
     rko, rki, rkii, rkiii = sch[C_matrix].op.reduce_axis
     sch[C_matrix].reorder(imo, ino, rko, imi, ini, rki,
                           rkii, imii, inii, imiii, iniii, rkiii)
+    # sch[C_matrix].unroll(rko)
+    sch[C_matrix].unroll(rki)
+    sch[C_matrix].unroll(rkii)
+    sch[C_matrix].unroll(imiii)
+    sch[C_matrix].unroll(iniii)
     sch[A_matrix].set_scope("shared")
     sch[B_matrix].set_scope("shared")
     sch[C_matrix].set_scope("local")

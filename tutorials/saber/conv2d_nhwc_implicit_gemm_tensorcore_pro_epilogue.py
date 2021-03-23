@@ -2,7 +2,8 @@ import tvm
 import time
 import numpy as np
 from tvm import auto_tensorize as at
-from ..utils import array_view
+from tvm import saber
+from tvm.saber.utils import array_view
 
 
 class Conv2dTCContext(object):
