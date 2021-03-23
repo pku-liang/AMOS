@@ -225,6 +225,7 @@ file(GLOB_RECURSE COMPILER_SRCS
     src/driver/*.cc
     src/parser/*.cc
     src/printer/*.cc
+    src/saber/*.cc
     src/support/*.cc
     )
 

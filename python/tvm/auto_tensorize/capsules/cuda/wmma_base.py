@@ -79,7 +79,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="global", data_alignment=y, offset_factor=offset_factor
+                x.shape, x.dtype, scope="shared", data_alignment=y, offset_factor=offset_factor
             )
             for x, y in zip(outputs, data_alignments)
         ]

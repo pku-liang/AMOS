@@ -253,6 +253,25 @@ def numpyasarray(np_data):
     return arr, shape
 
 
+def view(nd_data, view_shape):
+    """Returns a new view of TVMArray."""
+    view_elems = 1
+    for s in view_shape:
+        view_elems = view_elems * int(s)
+    elems = 1
+    for s in nd_data.shape:
+        elems = elems * int(s)
+    assert view_elems == elems
+    arr = TVMArray()
+    arr.data = nd_data.data
+    arr.shape = c_array(tvm_shape_index_t, view_shape)
+    arr.strides = nd_data.strides
+    arr.dtype = nd_data.dtype
+    arr.ndim = len(view_shape)
+    arr.ctx = nd_data.ctx
+    return arr
+
+
 def empty(shape, dtype="float32", ctx=context(1, 0)):
     """Create an empty array given shape and device
 
