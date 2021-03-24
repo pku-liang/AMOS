@@ -27,8 +27,7 @@ def test1():
     """
     Hint:
     ----
-    bound inference gives a symbolic bound for C buffer,
-    which uses a variable that is not defined ahead of time
+    Parallel on a reduction axis
     """
     A = tvm.te.placeholder([4, 8], name="A")
     B = tvm.te.placeholder([8, 2], name="B")
