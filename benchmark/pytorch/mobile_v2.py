@@ -161,5 +161,5 @@ if __name__ == "__main__":
             total = start.elapsed_time(end)
             time_record.append(total)
         if i == repeats - 1:
-            print("Average inference latency for mobile_v1 fp16", np.mean(time_record))
+            print("Average inference latency for mobile_v2 fp16", np.mean(time_record))
     print("batch = ", batch_size)
