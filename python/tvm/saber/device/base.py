@@ -1,0 +1,4 @@
+
+
+class Operator(object):
+    pass

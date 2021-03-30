@@ -247,15 +247,31 @@ void BaseComputeOpNode::GatherBound(const Operation& self,
                                     const std::unordered_map<Tensor, TensorDom>& tensor_dom,
                                     std::unordered_map<IterVar, Range>* out_dom_map) const {
   ICHECK_EQ(self.operator->(), this);
-  const TensorDom& tdom = tensor_dom.at(self.output(0));
-  for (size_t i = 0; i < this->axis.size(); ++i) {
-    Range r = arith::Union(tdom.data.at(i)).CoverRange(this->axis[i]->dom);
-    ICHECK(!out_dom_map->count(this->axis[i]));
-    (*out_dom_map)[this->axis[i]] = r;
-  }
-  for (size_t i = 0; i < this->reduce_axis.size(); ++i) {
-    ICHECK(!out_dom_map->count(this->reduce_axis[i]));
-    (*out_dom_map)[this->reduce_axis[i]] = this->reduce_axis[i]->dom;
+  /*
+   * we modify the infer bound to ignore consumer
+   * pass up domain for root stages
+   */
+  if (tensor_dom.count(self.output(0))) {
+    const TensorDom& tdom = tensor_dom.at(self.output(0));
+    for (size_t i = 0; i < this->axis.size(); ++i) {
+      Range r = arith::Union(tdom.data.at(i)).CoverRange(this->axis[i]->dom);
+      ICHECK(!out_dom_map->count(this->axis[i]));
+      (*out_dom_map)[this->axis[i]] = r;
+    }
+    for (size_t i = 0; i < this->reduce_axis.size(); ++i) {
+      ICHECK(!out_dom_map->count(this->reduce_axis[i]));
+      (*out_dom_map)[this->reduce_axis[i]] = this->reduce_axis[i]->dom;
+    }
+  } else {
+    for (size_t i = 0; i < this->axis.size(); ++i) {
+      Range r = this->axis[i]->dom;
+      ICHECK(!out_dom_map->count(this->axis[i]));
+      (*out_dom_map)[this->axis[i]] = r;
+    }
+    for (size_t i = 0; i < this->reduce_axis.size(); ++i) {
+      ICHECK(!out_dom_map->count(this->reduce_axis[i]));
+      (*out_dom_map)[this->reduce_axis[i]] = this->reduce_axis[i]->dom;
+    }
   }
 }
 

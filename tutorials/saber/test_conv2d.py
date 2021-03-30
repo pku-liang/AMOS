@@ -409,13 +409,17 @@ def test5():
         (1, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
         (1, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
     ]
+    print("N,C,H,W,C,R,S,pad_h,pad_w,stride_h,stride_w,dilation_h,dilation_w,time(ms)")
     for shape in res18_shapes_b1:
         N, H, W, C, K, R, S = shape[0], shape[2], shape[3], shape[1], shape[4], shape[6], shape[7]
         pad, stride, dilation = shape[10], shape[9], shape[11]
         conv_op = Conv2d([R, S], pad, stride, dilation)
         conv_op.compile([], [], [])
         result = conv_op.test(N, H, W, C, K, min_repeat_ms=500)
-        print("Time cost of", str((N, H, W, C, K, R, S, pad, stride, dilation)), "is", "," + str(result))
+        print(",".join([str(x) for x in [
+            N, C, H, W, C, R, S,
+            pad, pad, stride, stride, dilation, dilation, result
+        ]]))
 
 
 @register_test
@@ -424,7 +428,7 @@ def test6():
     pad, stride, dilation = 1, 1, 1
     conv_op = Conv2dTC([R, S], pad, stride, dilation, target="cuda")
     conv_op.compile([], [], [])
-    result = conv_op.test(N, H, W, C, K, min_repeat_ms=500, verify=False)
+    result = conv_op.test(N, H, W, C, K, min_repeat_ms=500, verify=True)
     print("Time cost is", result, "ms")
 
 
@@ -445,13 +449,17 @@ def test7():
         (1, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
         (1, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
     ]
+    print("N,C,H,W,C,R,S,pad_h,pad_w,stride_h,stride_w,dilation_h,dilation_w,time(ms)")
     for shape in res18_shapes_b1:
         N, H, W, C, K, R, S = shape[0], shape[2], shape[3], shape[1], shape[4], shape[6], shape[7]
         pad, stride, dilation = shape[10], shape[9], shape[11]
         conv_op = Conv2dTC([R, S], pad, stride, dilation)
         conv_op.compile([], [], [])
         result = conv_op.test(N, H, W, C, K, min_repeat_ms=500)
-        print("Time cost of", str((N, H, W, C, K, R, S, pad, stride, dilation)), "is", "," + str(result))
+        print(",".join([str(x) for x in [
+            N, C, H, W, C, R, S,
+            pad, pad, stride, stride, dilation, dilation, result
+        ]]))
 
 
 if __name__ == "__main__":

@@ -254,7 +254,7 @@ class WMMABaseRecipe(CompilationRecipe):
         m, n, k = [int(x) for x in shape_key.split("x")]
         return [m, n, k]
 
-    def get_intrinsic(self, compute_key, shape_key, capsule_key):
+    def get_intrinsic(self, compute_key, shape_key, capsule_key, **kw_args):
         """
         ---
         Returns:
@@ -303,7 +303,11 @@ class WMMABaseRecipe(CompilationRecipe):
             )
         elif capsule_key == "store":
             ldm = m if tC else n
-            layout = "nvcuda::wmma::mem_col_major" if tB else "nvcuda::wmma::mem_row_major"
+            layout = "nvcuda::wmma::mem_col_major" if tC else "nvcuda::wmma::mem_row_major"
+            if "store_scope" in kw_args:
+                scope = kw_args["store_scope"]
+            else:
+                scope = "global"
             return capsule.get_intrinsic(
                 [C_shape],
                 [C_shape],
@@ -312,6 +316,7 @@ class WMMABaseRecipe(CompilationRecipe):
                 problem_size,
                 ldm,
                 layout,
+                scope=scope
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)

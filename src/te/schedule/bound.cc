@@ -147,7 +147,8 @@ void InferRootBound(const Stage& stage, const GraphContext& ctx,
         up_state[iv] = IntSet::SinglePoint(vrange->min);
       } else if (!NeedRelax(iv, found_attach, ctx.bind_map, scope)) {
         ICHECK(is_zero(vrange->min)) << "InferBound requires every leaf iter var's min equals 0, "
-                                     << " call schedule.normalize to achieve this. ";
+                                     << " call schedule.normalize to achieve this. "
+                                     << iv << ": " << vrange;
         if (ctx.bind_map.count(iv)) {
           up_state[iv] = IntSet::SinglePoint(ctx.bind_map.at(iv)->var);
         } else {
@@ -199,7 +200,13 @@ void InferRootBound(const Stage& stage, const GraphContext& ctx,
       }
       analyzer.Bind(iv->var, r, true);
     }
-    op->PropBoundToInputs(op, &analyzer, dom_map, &tmap);
+    /*
+     * we modify the infer bound to ignore consumer
+     * pass up domain for root stages
+     */
+    if (stage->attach_type != kGroupRoot) {
+      op->PropBoundToInputs(op, &analyzer, dom_map, &tmap);
+    }
   }
   stage->op->GatherBound(stage->op, tmap, rmap);
 }
