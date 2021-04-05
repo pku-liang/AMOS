@@ -1,4 +1,5 @@
 import tvm
+import math
 import numpy as np
 from tvm import saber
 from collections import OrderedDict
@@ -30,7 +31,7 @@ def test1():
     func = gemm.compile()
     cost = gemm.evaluate(func, 512, 64, 1024, new_process=False)
     print("Cost is", cost, "ms")
-    cost = gemm.evaluate(func, 512, 64, 1024, new_process=False)
+    cost = gemm.evaluate(func, 16, 1024, 32, new_process=False)
     print("Cost is", cost, "ms")
 
 
@@ -49,11 +50,65 @@ def test3():
         threadblock_problem_size=[16, 16, 128],
         warp_problem_size=[16, 16, 32],
         tensorcore_problem_size=[16, 16, 16],
-        split_K=2)
-    cost = gemm.try_with(512, 64, 1024, new_process=False)
+        split_K=4)
+    cost = gemm.try_with(512, 64, 1024, new_process=True)
     print("Cost is", cost, "ms")
     cost = gemm.try_with(512, 64, 1024, new_process=False)
     print("Cost is", cost, "ms")
+    cost = gemm.try_with(2, 64, 1024, new_process=False)
+    print("Cost is", cost, "ms")
+    cost = gemm.try_with(16, 512, 128, new_process=False)
+    print("Cost is", cost, "ms")
+
+
+def geomean(lst):
+    assert len(lst) > 0
+    val = 1
+    for v in lst:
+        val *= v
+    return math.pow(val, 1/(len(lst)))
+
+
+@register_test
+def test4():
+    def device_impl(params):
+        assert isinstance(params, saber.CUDAParams)
+        gemm = saber.GemmCUDATensorCore(
+            in_dtype="int8",
+            out_dtype="int32",
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            tensorcore_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        shapes = [
+            [16, 512, 128],
+            [1024, 16, 256],
+            [256, 1024, 256],
+            [512, 256, 16],
+            [1024, 1024, 1024]
+        ]
+        targets = [
+            0.025,
+            0.013,
+            0.029,
+            0.018,
+            0.103
+        ]
+        relative_lst = []
+        for shape, target in zip(shapes, targets):
+            cost = gemm.try_with(*shape, new_process=True)
+            relative = target / cost
+            relative_lst.append(relative)
+        return 1 / geomean(relative_lst)
+
+    generator = saber.CUDADeviceTensorCoreGenerator([16, 16, 16], arch=80)
+    saber.serial_minimize(
+        device_impl,
+        generator,
+        saber.MeasureOptions(target="cuda", number=10, min_repeat_ms=600),
+        trials=200
+        )
+    
 
 
 if __name__ == "__main__":

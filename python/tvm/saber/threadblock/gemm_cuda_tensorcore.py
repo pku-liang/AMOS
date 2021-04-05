@@ -196,6 +196,8 @@ def threadblock_gemm_tensorcore(
         sch[C].reorder(m1, n1, rk1, m2, n2, rk2, rk3, m3, n3, m4, n4, rk4)
         sch[C].unroll(rk2)
         sch[C].unroll(rk3)
+        sch[C].unroll(m3)
+        sch[C].unroll(n3)
         sch[C].tensorize(m4, mma)
 
         sch[AA].compute_at(sch[C], rk3)
@@ -204,8 +206,12 @@ def threadblock_gemm_tensorcore(
         sch[B_operand].compute_at(sch[C], rk1)
         m1, k1, m2, m3, k2, k3, m4, k4 = sch[AA].op.axis
         sch[AA].tensorize(m4, load_a)
+        sch[AA].unroll(m3)
+        sch[AA].unroll(k3)
         n1, k1, n2, n3, k2, k3, n4, k4 = sch[BB].op.axis
         sch[BB].tensorize(n4, load_b)
+        sch[BB].unroll(n3)
+        sch[BB].unroll(k3)
         m1, k1, m2, m3, k2, k3, m4, k4 = sch[A_operand].op.axis
         fused = sch[A_operand].fuse(m2, m3, k2, k3, m4, k4)
         fused, vec = sch[A_operand].split(fused, factor=A_vec_L)

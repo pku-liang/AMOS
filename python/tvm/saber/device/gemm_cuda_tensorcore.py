@@ -14,7 +14,7 @@ class GemmTensorCore(Operator):
                     warp_problem_size=[64, 64, 32],
                     tensorcore_problem_size=[16, 16, 16],
                     epilogues=[],
-                    split_K=None):
+                    split_K=1):
         super(GemmTensorCore, self).__init__()
         self.target = "cuda"
         self.in_dtype = in_dtype
@@ -24,7 +24,7 @@ class GemmTensorCore(Operator):
         self.tensorcore_problem_size = tensorcore_problem_size
         self.epilogues = []
         self.split_K = split_K
-        if self.split_K is not None:
+        if self.split_K > 1:
             self.get_context = lambda *_: kernel_gemm_cuda_tensorcore_split_K_perfect(
                                 self.threadblock_problem_size,
                                 self.warp_problem_size,
