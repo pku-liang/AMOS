@@ -10,6 +10,20 @@ from tvm.contrib import ndk
 from traceback import print_exc
 
 
+###################################
+# follow the steps to tune for Mali
+# 1. link phone to desktop
+# 2. `adb devices` to check if device is available
+# 3. `adb reverse tcp:9190 tcp:9190`
+# 4. `adb forward tcp:5001 tcp:5001`
+# 5. on the phone, set rpc paramters: address: 127.0.0.1, port: 9190, key: android
+# 6. enable rpc on the phone
+# 7. on the desktop, another shell, run tracker: python -m tvm.exec.rpc_tracker --host=0.0.0.0 --port=9190
+# 8. on the desktop, another shell, run query: python -m tvm.exec.query_rpc_tracker --host=0.0.0.0 --port=9190
+# 9. on the desktop, set TVM_NDK_CC=aarch64-linux-android26-clang++
+# 10. python <this_file>.py
+
+
 def depthwise_conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     assert(K % C == 0)
     pH = H + 2 * padding

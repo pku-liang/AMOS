@@ -1,11 +1,11 @@
 import tvm
-from .base import Operator
-from ..utils import ceil
-from ..kernel import (
+from ..base import Operator
+from ...utils import ceil
+from ...kernel import (
     kernel_conv2d_nchw_implicit_gemm_cuda_tensorcore_perfect,
     kernel_conv2d_nhwc_implicit_gemm_cuda_tensorcore_perfect
 )
-from .measure import MeasureOptions, evaluate_function, evaluate_schedule
+from ..measure import MeasureOptions, evaluate_function, evaluate_schedule
 
 
 class Conv2dTensorCore(Operator):

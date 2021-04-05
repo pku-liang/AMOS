@@ -1,8 +1,8 @@
 import tvm
-from ..threadblock import (
+from ...threadblock import (
     threadblock_gemm_cuda_tensorcore,
     threadblock_gemm_cuda_tensorcore_split_K)
-from ..utils import index
+from ...utils import index
 
 def kernel_gemm_tensorcore(
     threadblock_problem_size,

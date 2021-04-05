@@ -95,22 +95,27 @@ def evaluate_schedule_worker(dummy):
     dev_id = measure_opt.dev_id
     number = measure_opt.number
     min_repeat_ms = measure_opt.min_repeat_ms
-    ctx = tvm.context(target, dev_id)
+    use_rpc = measure_opt.key is not None
+    if use_rpc:
+        key = measure_opt.key
+        host = measure_opt.host
+        port = measure_opt.port
+        priority = measure_opt.priority
+        timeout = measure_opt.timeout
+        from tvm import auto_scheduler
+        remote = auto_scheduler.utils.request_remote(
+            key, host, port, priority, timeout)
+    ctx = (remote if use_rpc else tvm).context(target, dev_id)
     arrays = get_tvm_arrays(arg_values, ctx)
-    func = tvm.build(sch, args + vars, target=target)
-    if target == "opencl":
-        device_key = "android"
-        rpc_host = "0.0.0.0"
-        rpc_port = 9190
-        tracker = rpc.connect_tracker(rpc_host, rpc_port)
-        remote = tracker.request(device_key, session_timeout=20)
-        ctx = remote.context(target)
-        print("Uploading...")
-        fd, lib_file = mkstemp(suffix=".so", prefix="gemm")
+    func = tvm.build(sch, args + vars, target=target,
+                    target_host=measure_opt.target_host if use_rpc else None)
+    if use_rpc:
+        fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
         os.close(fd)
-        func.export_library(lib_file, ndk.create_shared)
-        remote.upload(lib_file)
-        func = remote.load_module(os.path.split(lib_file)[-1])
+        func.export_library(lib, ndk.create_shared)
+        remote.upload(lib)
+        func = remote.load_module(os.path.split(lib)[-1])
+        os.unlink(lib)
     evaluator = func.time_evaluator(
         func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
     ctx.sync()
@@ -133,6 +138,7 @@ def evaluate_schedule(sch, args, vars,
             port = measure_opt.port
             priority = measure_opt.priority
             timeout = measure_opt.timeout
+            from tvm import auto_scheduler
             remote = auto_scheduler.utils.request_remote(
                 key, host, port, priority, timeout)
         ctx = (remote if use_rpc else tvm).context(target, dev_id)
@@ -170,34 +176,41 @@ def evaluate_schedule(sch, args, vars,
                 except Exception as error:
                     print(".E", end="", flush=True)
                     results = MAX_FLOAT
+                    from tvm import auto_scheduler
+                    print(auto_scheduler.utils.make_traceback_info())
 
         return results
 
 
 def evaluate_function_worker(dummy):
     global EVALUTE_FUNCTION_INPUTS
-    print("Jel")
     func, args, var_values, measure_opt = EVALUTE_FUNCTION_INPUTS
     print(args, var_values)
     target = measure_opt.target
     dev_id = measure_opt.dev_id
     number = measure_opt.number
     min_repeat_ms = measure_opt.min_repeat_ms
-    ctx = tvm.context(target, dev_id)
-    arrays = get_tvm_arrays(args, ctx)
-    if target == "opencl":
-        device_key = "android"
-        rpc_host = "0.0.0.0"
-        rpc_port = 9190
-        tracker = rpc.connect_tracker(rpc_host, rpc_port)
-        remote = tracker.request(device_key, session_timeout=20)
-        ctx = remote.context(target)
-        print("Uploading...")
-        fd, lib_file = mkstemp(suffix=".so", prefix="gemm")
+    use_rpc = measure_opt.key is not None
+    if use_rpc:
+        key = measure_opt.key
+        host = measure_opt.host
+        port = measure_opt.port
+        priority = measure_opt.priority
+        timeout = measure_opt.timeout
+        from tvm import auto_scheduler
+        remote = auto_scheduler.utils.request_remote(
+            key, host, port, priority, timeout)
+    ctx = (remote if use_rpc else tvm).context(target, dev_id)
+    arrays = get_tvm_arrays(arg_values, ctx)
+    func = tvm.build(sch, args + vars, target=target,
+                    target_host=measure_opt.target_host if use_rpc else None)
+    if use_rpc:
+        fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
         os.close(fd)
-        func.export_library(lib_file, ndk.create_shared)
-        remote.upload(lib_file)
-        func = remote.load_module(os.path.split(lib_file)[-1])
+        func.export_library(lib, ndk.create_shared)
+        remote.upload(lib)
+        func = remote.load_module(os.path.split(lib)[-1])
+        os.unlink(lib)
     evaluator = func.time_evaluator(
         func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
     ctx.sync()
@@ -219,6 +232,7 @@ def evaluate_function(func, args, var_values, measure_opt, new_process=True):
             port = measure_opt.port
             priority = measure_opt.priority
             timeout = measure_opt.timeout
+            from tvm import auto_scheduler
             remote = auto_scheduler.utils.request_remote(
                 key, host, port, priority, timeout)
         ctx = (remote if use_rpc else tvm).context(target, dev_id)

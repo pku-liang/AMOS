@@ -1,45 +1,37 @@
 import tvm
-from .base import Operator
-from ..utils import ceil
-from ..kernel import (
-    kernel_gemm_cuda_tensorcore_perfect,
-    kernel_gemm_cuda_tensorcore_split_K_perfect
+from tvm.ir import transform
+from ..base import Operator
+from ...utils import ceil
+from ...kernel import (
+    kernel_gemm_mali_general_perfect
 )
-from .measure import MeasureOptions, evaluate_function, evaluate_schedule
+from ..measure import MeasureOptions, evaluate_function, evaluate_schedule
 
 
-class GemmTensorCore(Operator):
-    def __init__(self, in_dtype="float16", out_dtype="float32",
-                    threadblock_problem_size=[128, 128, 64],
-                    warp_problem_size=[64, 64, 32],
-                    tensorcore_problem_size=[16, 16, 16],
+class GemmGeneral(Operator):
+    def __init__(self, in_dtype="float32", out_dtype="float32",
+                    threadblock_problem_size=[32, 32, 32],
+                    warp_problem_size=[4, 4, 8],
+                    instruction_problem_size=[2, 2, 8],
                     epilogues=[],
                     split_K=1):
-        super(GemmTensorCore, self).__init__()
-        self.target = "cuda"
+        super(GemmGeneral, self).__init__()
+        self.target = "opencl"
+        self.target_host = "llvm -mtriple=aarch64-linux-android"
         self.in_dtype = in_dtype
         self.out_dtype = out_dtype
         self.threadblock_problem_size = threadblock_problem_size
         self.warp_problem_size = warp_problem_size
-        self.tensorcore_problem_size = tensorcore_problem_size
+        self.instruction_problem_size = instruction_problem_size
         self.epilogues = []
         self.split_K = split_K
         if self.split_K > 1:
-            self.get_context = lambda *_: kernel_gemm_cuda_tensorcore_split_K_perfect(
-                                self.threadblock_problem_size,
-                                self.warp_problem_size,
-                                self.tensorcore_problem_size,
-                                self.epilogues,
-                                A_dtype=self.in_dtype,
-                                B_dtype=self.in_dtype,
-                                C_dtype=self.out_dtype,
-                                split_K=self.split_K
-                            )
+            raise RuntimeError("Not support split_K > 1")
         else:
-            self.get_context = lambda *_: kernel_gemm_cuda_tensorcore_perfect(
+            self.get_context = lambda *_: kernel_gemm_mali_general_perfect(
                                 self.threadblock_problem_size,
                                 self.warp_problem_size,
-                                self.tensorcore_problem_size,
+                                self.instruction_problem_size,
                                 self.epilogues,
                                 A_dtype=self.in_dtype,
                                 B_dtype=self.in_dtype,
@@ -66,12 +58,22 @@ class GemmTensorCore(Operator):
             ))
 
         gemm_func = tvm.build(
-            sch, [A, B, Output, *Params, *Vars], target=self.target)
+            sch, [A, B, Output, *Params, *Vars],
+            target=self.target, target_host=self.target_host
+        )
 
         return gemm_func
 
     def evaluate(self, func, M, N, K, measure_opt=MeasureOptions(
-            target="cuda", min_repeat_ms=500), new_process=False):
+            target="opencl",
+            target_host="llvm -mtriple=aarch64-linux-android",
+            timeout=40, number=10,
+            min_repeat_ms=80,
+            build_func="ndk",
+            key="android",
+            host="0.0.0.0",
+            port=9190,
+            cooldown_interval=5), new_process=False):
         A = tvm.te.placeholder([M, K], dtype=self.in_dtype)
         B = tvm.te.placeholder([N, K], dtype=self.in_dtype)
         Output = tvm.te.placeholder([M, N], dtype=self.out_dtype)
@@ -87,7 +89,15 @@ class GemmTensorCore(Operator):
         )
 
     def try_with(self, M, N, K, measure_opt=MeasureOptions(
-            target="cuda", min_repeat_ms=500), new_process=False):
+            target="opencl",
+            target_host="llvm -mtriple=aarch64-linux-android",
+            timeout=40, number=10,
+            min_repeat_ms=80,
+            build_func="ndk",
+            key="android",
+            host="0.0.0.0",
+            port=9190,
+            cooldown_interval=5), new_process=False):
         (
             Output,
             (A, B),

@@ -1,6 +1,5 @@
 import tvm
-from tvm import auto_tensorize as at
-from ..utils import (
+from ...utils import (
     index,
     multi_index,
     multi_reduce_axis,
@@ -10,38 +9,10 @@ from ..utils import (
     )
 
 
-def get_tensorcore_recipe(in_dtypes, out_dtype):
-    assert len(in_dtypes) == 2 and in_dtypes[0] == in_dtypes[1]
-    if in_dtypes[0] == "float16":
-        if out_dtype == "float16":
-            return at.WMMAFp16Fp16()
-        elif out_dtype == "float32":
-            return at.WMMAFp16Fp32()
-    if in_dtypes[0] == "int1":
-        if out_dtype == "int32":
-            return at.WMMABin1Int32()
-    if in_dtypes[0] == "int4":
-        if out_dtype == "int32":
-            return at.WMMAInt4Int32()
-    if in_dtypes[0] == "int8":
-        if out_dtype == "int32":
-            return at.WMMAInt8Int32()
-    if in_dtypes[0] == "bfloat16":
-        if out_dtype == "float32":
-            return at.WMMABf16Fp32()
-    if in_dtypes[0] == "float32":
-        if out_dtype == "float32":
-            return at.WMMATf32Fp32()
-    if in_dtypes[0] == "float64":
-        if out_dtype == "float64":
-            return at.WMMAFp64Fp64()
-    raise RuntimeError("Invalid dtype for tensor core: input:" + in_dtypes[0] + ", output:" + out_dtype)
-
-
-def threadblock_gemm_tensorcore(
+def threadblock_gemm_general(
     threadblock_problem_size,
     warp_problem_size,
-    tensorize_problem_size,
+    instruction_problem_size,
     epilogues,
     A, B,
     C_dtype="float32"
@@ -59,7 +30,7 @@ def threadblock_gemm_tensorcore(
 
     M2, N2, K2 = threadblock_problem_size
     M3, N3, K3 = warp_problem_size
-    M4, N4, K4 = tensorize_problem_size
+    M4, N4, K4 = instruction_problem_size
     assert M2 % M3 == 0
     assert N2 % N3 == 0
     assert K2 % K3 == 0
@@ -82,13 +53,16 @@ def threadblock_gemm_tensorcore(
     def get_k(k1, k2, k3, k4):
         return k1 * K2 * K3 * K4 + k2 * K3 * K4 + k3 * K4 + k4
 
+    def get_ko(k1, k2, k3):
+        return k1 * K2 * K3 + k2 * K3 + k3
+
     A_operand = tvm.te.compute(
         [M1, K1, M2, M3, K2, K3, M4, K4],
         lambda m1, k1, m2, m3, k2, k3, m4, k4:
             tvm.tir.if_then_else(
                 tvm.tir.all(
                     get_m(m1, m2, m3, m4) < M,
-                    get_k(k1, k2, k3, k4) < K),
+                    get_ko(k1, k2, k3) < ceil(K, K4)),
                 A[get_m(m1, m2, m3, m4), get_k(k1, k2, k3, k4)],
                 tvm.tir.const(0, A.dtype)
             ),
@@ -100,7 +74,7 @@ def threadblock_gemm_tensorcore(
             tvm.tir.if_then_else(
                 tvm.tir.all(
                     get_n(n1, n2, n3, n4) < N,
-                    get_k(k1, k2, k3, k4) < K),
+                    get_ko(k1, k2, k3) < ceil(K, K4)),
                 B[get_n(n1, n2, n3, n4), get_k(k1, k2, k3, k4)],
                 tvm.tir.const(0, B.dtype)
             ),
@@ -169,70 +143,46 @@ def threadblock_gemm_tensorcore(
             sch[C].set_scope("local")
             for epi in Epilogues[:-1]:
                 sch[epi].compute_inline()
-        AA = sch.cache_read(A_operand, "local", [C])
-        BB = sch.cache_read(B_operand, "local", [C])
-        sch[A_operand].set_scope("shared")
-        sch[B_operand].set_scope("shared")
-
-        recipe = get_tensorcore_recipe([str(A.dtype), str(B.dtype)], C_dtype)
-        compute_key = "ntn"
-        shape_key = "x".join([str(x) for x in tensorize_problem_size])
-        load_a = recipe.get_intrinsic(compute_key, shape_key, "load_a")
-        load_b = recipe.get_intrinsic(compute_key, shape_key, "load_b")
-        store = recipe.get_intrinsic(compute_key, shape_key, "store", store_scope="global")
-        mma = recipe.get_intrinsic(compute_key, shape_key, "mma")
+        sch[A_operand].set_scope("local")
+        sch[B_operand].set_scope("local")
 
         m1, n1, m2, m3, n2, n3, m4, n4 = sch[Last].op.axis
         sch[Last].reorder(m1, n1, m2, n2, m3, n3, m4, n4)
         sch[Last].bind(m1, block_y())
         sch[Last].bind(n1, block_x())
-        sch[Last].bind(m2, thread_z())
-        sch[Last].bind(n2, thread_y())
-        sch[Last].tensorize(m4, store)
+        sch[Last].bind(m3, thread_z())
+        sch[Last].bind(n3, thread_y())
+        # fused = sch[Last].fuse(m3, n3)
+        # fused, threads = sch[Last].split(fused, factor=4)
+        sch[Last].bind(m4, thread_x())
+        # sch[Last].unroll(m4)
+        unroll, vec = sch[Last].split(n4, factor=C_vec_L)
+        # sch[Last].unroll(unroll)
+        sch[Last].vectorize(vec)
 
-        sch[C].compute_at(sch[Last], n2)
+        sch[C].compute_at(sch[Last], m4)
         m1, n1, m2, m3, n2, n3, m4, n4 = sch[C].op.axis
         rk1, rk2, rk3, rk4 = sch[C].op.reduce_axis
-        sch[C].reorder(m1, n1, rk1, m2, n2, rk2, rk3, m3, n3, m4, n4, rk4)
-        sch[C].unroll(rk2)
-        sch[C].unroll(rk3)
-        sch[C].unroll(m3)
-        sch[C].unroll(n3)
-        sch[C].tensorize(m4, mma)
+        sch[C].reorder(m1, n1, rk1, m2, n2, rk2, rk3, m3, n3, m4, rk4, n4)
+        # sch[C].unroll(rk2)
+        # sch[C].unroll(rk3)
+        # sch[C].unroll(rk4)
+        unroll, vec = sch[C].split(n4, factor=C_vec_L)
+        # sch[C].unroll(unroll)
+        sch[C].vectorize(vec)
 
-        sch[AA].compute_at(sch[C], rk3)
-        sch[BB].compute_at(sch[C], rk3)
-        sch[A_operand].compute_at(sch[C], rk1)
-        sch[B_operand].compute_at(sch[C], rk1)
-        m1, k1, m2, m3, k2, k3, m4, k4 = sch[AA].op.axis
-        sch[AA].tensorize(m4, load_a)
-        sch[AA].unroll(m3)
-        sch[AA].unroll(k3)
-        n1, k1, n2, n3, k2, k3, n4, k4 = sch[BB].op.axis
-        sch[BB].tensorize(n4, load_b)
-        sch[BB].unroll(n3)
-        sch[BB].unroll(k3)
+        sch[A_operand].compute_at(sch[C], n3)
+        sch[B_operand].compute_at(sch[C], n3)
+
         m1, k1, m2, m3, k2, k3, m4, k4 = sch[A_operand].op.axis
-        fused = sch[A_operand].fuse(m2, m3, k2, k3, m4, k4)
-        fused, vec = sch[A_operand].split(fused, factor=A_vec_L)
-        fused, tx = sch[A_operand].split(fused, factor=32)
-        fused, ty = sch[A_operand].split(fused, factor=N2)
-        fused, tz = sch[A_operand].split(fused, factor=M2)
+        unroll, vec = sch[A_operand].split(k4, factor=A_vec_L)
         sch[A_operand].vectorize(vec)
-        sch[A_operand].bind(tx, thread_x())
-        sch[A_operand].bind(ty, thread_y())
-        sch[A_operand].bind(tz, thread_z())
+        # sch[A_operand].unroll(unroll)
 
         n1, k1, n2, n3, k2, k3, n4, k4 = sch[B_operand].op.axis
-        fused = sch[B_operand].fuse(n2, n3, k2, k3, n4, k4)
-        fused, vec = sch[B_operand].split(fused, factor=B_vec_L)
-        fused, tx = sch[B_operand].split(fused, factor=32)
-        fused, ty = sch[B_operand].split(fused, factor=N2)
-        fused, tz = sch[B_operand].split(fused, factor=M2)
+        unroll, vec = sch[B_operand].split(k4, factor=B_vec_L)
         sch[B_operand].vectorize(vec)
-        sch[B_operand].bind(tx, thread_x())
-        sch[B_operand].bind(ty, thread_y())
-        sch[B_operand].bind(tz, thread_z())
+        # sch[B_operand].unroll(unroll)
 
 
     Vars = [M1, N1, K1]
@@ -244,10 +194,10 @@ def threadblock_gemm_tensorcore(
     )
 
 
-def threadblock_gemm_tensorcore_split_K(
+def threadblock_gemm_general_split_K(
     threadblock_problem_size,
     warp_problem_size,
-    tensorize_problem_size,
+    instruction_problem_size,
     epilogues,
     A, B,
     split_K = 8,
@@ -262,7 +212,7 @@ def threadblock_gemm_tensorcore_split_K(
 
     M2, N2, K2 = threadblock_problem_size
     M3, N3, K3 = warp_problem_size
-    M4, N4, K4 = tensorize_problem_size
+    M4, N4, K4 = instruction_problem_size
 
     assert M2 % M3 == 0
     assert N2 % N3 == 0
@@ -415,7 +365,7 @@ def threadblock_gemm_tensorcore_split_K(
 
         recipe = get_tensorcore_recipe([str(A.dtype), str(B.dtype)], C_dtype)
         compute_key = "ntn"
-        shape_key = "x".join([str(x) for x in tensorize_problem_size])
+        shape_key = "x".join([str(x) for x in instruction_problem_size])
         load_a = recipe.get_intrinsic(compute_key, shape_key, "load_a")
         load_b = recipe.get_intrinsic(compute_key, shape_key, "load_b")
         store = recipe.get_intrinsic(compute_key, shape_key, "store", store_scope="shared")
