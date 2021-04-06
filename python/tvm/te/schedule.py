@@ -230,6 +230,32 @@ class Stage(Object):
             outer, inner = _ffi_api.StageSplitByFactor(self, parent, factor)
         return outer, inner
 
+    def pred_split(self, parent, factor=None, nparts=None):
+        """Split the stage either by both inner outer scope
+
+        Parameters
+        ----------
+        parent : IterVar
+             The parent iter var.
+
+        factor : Expr, optional
+             The splitting factor
+
+        nparts : Expr, optional
+             The number of outer parts.
+
+        Returns
+        -------
+        outer : IterVar
+            The outer variable of iteration.
+
+        inner : IterVar
+            The inner variable of iteration.
+        """
+        assert nparts is not None and factor is not None
+        outer, inner = _ffi_api.StageSplitByFactorsNParts(self, parent, nparts, factor)
+        return outer, inner
+
     def fuse(self, *args):
         """Fuse multiple consecutive iteration variables into a single iteration variable.
 

@@ -144,6 +144,20 @@ class Stage : public ObjectRef {
    */
   TVM_DLL Stage& split_by_nparts(IterVar parent, PrimExpr nparts, IterVar* p_outer,
                                  IterVar* p_inner);  // NOLINT(*)
+
+  /*!
+   * \brief Split the iteration with given number of parts and factors.
+   *
+   * \param parent The parent domain.
+   * \param nparts The number of parts in the outer domain.
+   * \param factor The split factor of the loop.
+   * \param p_outer The result outer domain.
+   * \param p_inner The result inner domain.
+   * \return reference to self.
+   */
+  TVM_DLL Stage& split_by_factors_nparts(IterVar parent, PrimExpr nparts, PrimExpr factors, IterVar* p_outer,
+                                 IterVar* p_inner);  // NOLINT(*)
+
   /*!
    * \brief Fuse the inner outer domain to the target
    * \param outer The outer domain to be fused.
@@ -672,6 +686,46 @@ class Split : public IterVarRelation {
   TVM_DLL Split(IterVar parent, IterVar outer, IterVar inner, PrimExpr factor, PrimExpr nparts);
 
   TVM_DEFINE_OBJECT_REF_METHODS(Split, IterVarRelation, SplitNode);
+};
+
+/*!
+ * \brief Predicated Split the parent domain into product of
+ *  outer and iter.
+ */
+class PredSplitNode : public IterVarRelationNode {
+ public:
+  /*! \brief The parent domain */
+  IterVar parent;
+  /*! \brief The outer domain */
+  IterVar outer;
+  /*! \brief The inner domain */
+  IterVar inner;
+  /*! \brief The split factor */
+  PrimExpr factor;
+  /*! \brief Number of parts, only factor or nparts can be given */
+  PrimExpr nparts;
+
+  void VisitAttrs(AttrVisitor* v) {
+    v->Visit("parent", &parent);
+    v->Visit("outer", &outer);
+    v->Visit("inner", &inner);
+    v->Visit("factor", &factor);
+    v->Visit("nparts", &nparts);
+  }
+
+  static constexpr const char* _type_key = "PredSplit";
+  TVM_DECLARE_FINAL_OBJECT_INFO(PredSplitNode, IterVarRelationNode);
+};
+
+/*!
+ * \brief Managed reference to PredSplitNode
+ * \sa PredSplitNode
+ */
+class PredSplit : public IterVarRelation {
+ public:
+  TVM_DLL PredSplit(IterVar parent, IterVar outer, IterVar inner, PrimExpr factor, PrimExpr nparts);
+
+  TVM_DEFINE_OBJECT_REF_METHODS(PredSplit, IterVarRelation, PredSplitNode);
 };
 
 /*!

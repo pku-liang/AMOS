@@ -79,7 +79,11 @@ void SplitHelper(StageNode* self, IterVar parent, PrimExpr factor, PrimExpr npar
   Array<IterVar>& all_vars = self->all_iter_vars;
   Array<IterVar>& leaf_vars = self->leaf_iter_vars;
   size_t pos = FindLeafVar(all_vars.GetArrayNode(), leaf_vars.GetArrayNode(), parent);
-  self->relations.push_back(Split(parent, outer, inner, factor, nparts));
+  if (factor.defined() && nparts.defined()) {
+    self->relations.push_back(PredSplit(parent, outer, inner, factor, nparts));
+  } else {
+    self->relations.push_back(Split(parent, outer, inner, factor, nparts));
+  }
   // add vars to all vars
   all_vars.push_back(outer);
   all_vars.push_back(inner);
@@ -223,6 +227,12 @@ Stage& Stage::split(IterVar parent, PrimExpr factor, IterVar* p_outer,
 Stage& Stage::split_by_nparts(IterVar parent, PrimExpr nparts, IterVar* p_outer,
                               IterVar* p_inner) {  // NOLINT(*)
   SplitHelper(operator->(), parent, PrimExpr(), nparts, p_outer, p_inner);
+  return *this;
+}
+
+Stage& Stage::split_by_factors_nparts(IterVar parent, PrimExpr nparts, PrimExpr factors,
+                              IterVar* p_outer, IterVar* p_inner) {  // NOLINT(*)
+  SplitHelper(operator->(), parent, factors, nparts, p_outer, p_inner);
   return *this;
 }
 
@@ -683,6 +693,16 @@ Split::Split(IterVar parent, IterVar outer, IterVar inner, PrimExpr factor, Prim
   data_ = std::move(n);
 }
 
+PredSplit::PredSplit(IterVar parent, IterVar outer, IterVar inner, PrimExpr factor, PrimExpr nparts) {
+  auto n = make_object<PredSplitNode>();
+  n->parent = parent;
+  n->outer = outer;
+  n->inner = inner;
+  n->factor = factor;
+  n->nparts = nparts;
+  data_ = std::move(n);
+}
+
 Fuse::Fuse(IterVar outer, IterVar inner, IterVar fused) {
   auto n = make_object<FuseNode>();
   n->outer = outer;
@@ -750,6 +770,7 @@ class SpecializedCondition::Internal {
 TVM_REGISTER_NODE_TYPE(StageNode);
 TVM_REGISTER_NODE_TYPE(IterVarAttrNode);
 TVM_REGISTER_NODE_TYPE(SplitNode);
+TVM_REGISTER_NODE_TYPE(PredSplitNode);
 TVM_REGISTER_NODE_TYPE(FuseNode);
 TVM_REGISTER_NODE_TYPE(RebaseNode);
 TVM_REGISTER_NODE_TYPE(SingletonNode);
@@ -773,6 +794,16 @@ TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
     .set_dispatch<SplitNode>([](const ObjectRef& node, ReprPrinter* p) {
       auto* op = static_cast<const SplitNode*>(node.get());
       p->stream << "split(parent=";
+      p->Print(op->parent);
+      p->stream << ", outer=";
+      p->Print(op->outer);
+      p->stream << ", inner=";
+      p->Print(op->inner);
+      p->stream << ')';
+    })
+    .set_dispatch<PredSplitNode>([](const ObjectRef& node, ReprPrinter* p) {
+      auto* op = static_cast<const PredSplitNode*>(node.get());
+      p->stream << "pred_split(parent=";
       p->Print(op->parent);
       p->stream << ", outer=";
       p->Print(op->outer);
@@ -834,6 +865,13 @@ TVM_REGISTER_GLOBAL("te.StageSplitByNParts")
     .set_body_typed([](Stage stage, IterVar parent, PrimExpr nparts) {
       IterVar outer, inner;
       stage.split_by_nparts(parent, nparts, &outer, &inner);
+      return Array<IterVar>({outer, inner});
+    });
+
+TVM_REGISTER_GLOBAL("te.StageSplitByFactorsNParts")
+    .set_body_typed([](Stage stage, IterVar parent, PrimExpr nparts, PrimExpr factors) {
+      IterVar outer, inner;
+      stage.split_by_factors_nparts(parent, nparts, factors, &outer, &inner);
       return Array<IterVar>({outer, inner});
     });
 

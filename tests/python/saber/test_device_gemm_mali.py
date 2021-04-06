@@ -1,5 +1,8 @@
 import tvm
+import os
 import math
+import tempfile
+from tvm.contrib import tar, ndk
 import numpy as np
 from tvm import saber
 from collections import OrderedDict
@@ -27,13 +30,50 @@ def register_test(func):
 
 @register_test
 def test1():
-    gemm = saber.GemmMaliGeneral()
+    gemm = saber.GemmMaliGeneral(
+        threadblock_problem_size=[8, 8, 8],
+        warp_problem_size=[8, 8, 8],
+        instruction_problem_size=[4, 4, 4]
+    )
     func = gemm.compile(dump=True)
     cost = gemm.evaluate(func, 512, 64, 1024, new_process=False)
     print("Cost is", cost, "ms")
     cost = gemm.evaluate(func, 16, 1024, 32, new_process=False)
     print("Cost is", cost, "ms")
 
+    M, N, K = 512, 128, 128
+
+    A = np.random.uniform(-1, 1, [M, K]).astype("float32")
+    B = np.random.uniform(-1, 1, [N, K]).astype("float32")
+    C = np.zeros([M, N]).astype("float32")
+
+    key = "android"
+    host = "0.0.0.0"
+    port = 9190
+    priority = 1
+    timeout = 10
+    from tvm import auto_scheduler
+    remote = auto_scheduler.utils.request_remote(
+        key, host, port, priority, timeout)
+    ctx = remote.context("opencl")
+    A_tvm = tvm.nd.array(A, ctx)
+    B_tvm = tvm.nd.array(B, ctx)
+    C_tvm = tvm.nd.array(C, ctx)
+    fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
+    os.close(fd)
+    func.export_library(lib, ndk.create_shared)
+    remote.upload(lib)
+    func = remote.load_module(os.path.split(lib)[-1])
+    os.unlink(lib)
+    gemm.calculate(func, A_tvm, B_tvm, C_tvm)
+
+    import torch
+    A_torch = torch.tensor(A).cuda()
+    B_torch = torch.tensor(B).cuda()
+    C_torch = torch.mm(A_torch, B_torch.permute(1, 0))
+    from tvm import testing
+    testing.assert_allclose(C_torch.cpu().numpy(), C_tvm.asnumpy(), atol=1e-1, rtol=1e-1)
+    print("Compute result correct!")
 
 @register_test
 def test2():
@@ -99,8 +139,8 @@ def test4():
         saber.MeasureOptions(
             target="opencl",
             target_host="llvm -mtriple=aarch64-linux-android",
-            timeout=10, number=10,
-            min_repeat_ms=80,
+            timeout=10, number=20,
+            min_repeat_ms=600,
             build_func="ndk",
             key="android",
             host="0.0.0.0",

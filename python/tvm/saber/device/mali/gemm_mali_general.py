@@ -11,8 +11,8 @@ from ..measure import MeasureOptions, evaluate_function, evaluate_schedule
 class GemmGeneral(Operator):
     def __init__(self, in_dtype="float32", out_dtype="float32",
                     threadblock_problem_size=[32, 32, 32],
-                    warp_problem_size=[4, 4, 8],
-                    instruction_problem_size=[2, 2, 8],
+                    warp_problem_size=[32, 32, 8],
+                    instruction_problem_size=[4, 4, 8],
                     epilogues=[],
                     split_K=1):
         super(GemmGeneral, self).__init__()
@@ -48,8 +48,9 @@ class GemmGeneral(Operator):
             Vars
         ) = self.get_context()
         sch = tvm.te.create_schedule(Output.op)
+        ctx = {}
         for func in schedule_func:
-            func(sch)
+            ctx = func(sch, ctx=ctx)
 
         if dump:
             print(tvm.lower(
@@ -67,8 +68,8 @@ class GemmGeneral(Operator):
     def evaluate(self, func, M, N, K, measure_opt=MeasureOptions(
             target="opencl",
             target_host="llvm -mtriple=aarch64-linux-android",
-            timeout=40, number=10,
-            min_repeat_ms=80,
+            timeout=40, number=20,
+            min_repeat_ms=600,
             build_func="ndk",
             key="android",
             host="0.0.0.0",
@@ -88,11 +89,22 @@ class GemmGeneral(Operator):
             func, args, var_values, measure_opt, new_process=new_process
         )
 
+    def calculate(self, func, A, B, C):
+        M, K = A.shape
+        N, _ = B.shape
+        var_values = [
+            M, N, K,
+            ceil(M, self.threadblock_problem_size[0]),
+            ceil(N, self.threadblock_problem_size[1]),
+            ceil(K, self.threadblock_problem_size[2])
+        ]
+        func(A, B, C, *var_values)
+
     def try_with(self, M, N, K, measure_opt=MeasureOptions(
             target="opencl",
             target_host="llvm -mtriple=aarch64-linux-android",
-            timeout=40, number=10,
-            min_repeat_ms=80,
+            timeout=40, number=20,
+            min_repeat_ms=600,
             build_func="ndk",
             key="android",
             host="0.0.0.0",

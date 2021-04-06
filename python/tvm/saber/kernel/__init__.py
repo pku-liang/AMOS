@@ -11,6 +11,5 @@ from .cuda.conv2d_cuda_tensorcore import (
 )
 
 from .mali.gemm_mali_general import (
-    kernel_gemm_general as kernel_gemm_mali_general,
     kernel_gemm_general_perfect as kernel_gemm_mali_general_perfect
 )
