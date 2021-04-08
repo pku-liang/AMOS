@@ -68,8 +68,8 @@ class GemmGeneral(Operator):
     def evaluate(self, func, M, N, K, measure_opt=MeasureOptions(
             target="opencl",
             target_host="llvm -mtriple=aarch64-linux-android",
-            timeout=40, number=20,
-            min_repeat_ms=600,
+            timeout=40, number=200,
+            min_repeat_ms=80,
             build_func="ndk",
             key="android",
             host="0.0.0.0",
@@ -78,6 +78,28 @@ class GemmGeneral(Operator):
         A = tvm.te.placeholder([M, K], dtype=self.in_dtype)
         B = tvm.te.placeholder([N, K], dtype=self.in_dtype)
         Output = tvm.te.placeholder([M, N], dtype=self.out_dtype)
+        # Output = tvm.te.placeholder(
+        #     # [
+        #     #     (M + self.threadblock_problem_size[0] - 1) // self.threadblock_problem_size[0],
+        #     #     (N + self.threadblock_problem_size[1] - 1) // self.threadblock_problem_size[1],
+        #     #     self.threadblock_problem_size[0] // self.warp_problem_size[0],
+        #     #     self.threadblock_problem_size[1] // self.warp_problem_size[1],
+        #     #     self.warp_problem_size[0] // self.instruction_problem_size[0],
+        #     #     self.warp_problem_size[1] // self.instruction_problem_size[1],
+        #     #     self.instruction_problem_size[0],
+        #     #     self.instruction_problem_size[1]
+        #     # ],
+        #     [
+        #         (M + self.threadblock_problem_size[0] - 1) // self.threadblock_problem_size[0],
+        #         self.threadblock_problem_size[0] // self.warp_problem_size[0],
+        #         self.warp_problem_size[0] // self.instruction_problem_size[0],
+        #         self.instruction_problem_size[0],
+        #         (N + self.threadblock_problem_size[1] - 1) // self.threadblock_problem_size[1],
+        #         self.threadblock_problem_size[1] // self.warp_problem_size[1],
+        #         self.warp_problem_size[1] // self.instruction_problem_size[1],
+        #         self.instruction_problem_size[1]
+        #     ],
+        #     dtype=self.out_dtype)
         args = [A, B, Output]
         var_values = [
             M, N, K,
@@ -103,13 +125,13 @@ class GemmGeneral(Operator):
     def try_with(self, M, N, K, measure_opt=MeasureOptions(
             target="opencl",
             target_host="llvm -mtriple=aarch64-linux-android",
-            timeout=40, number=20,
-            min_repeat_ms=600,
+            timeout=40, number=100,
+            min_repeat_ms=80,
             build_func="ndk",
             key="android",
             host="0.0.0.0",
             port=9190,
-            cooldown_interval=5), new_process=False):
+            cooldown_interval=5), new_process=False, dump=False):
         (
             Output,
             (A, B),
@@ -124,6 +146,28 @@ class GemmGeneral(Operator):
         A = tvm.te.placeholder([M, K], dtype=self.in_dtype)
         B = tvm.te.placeholder([N, K], dtype=self.in_dtype)
         Output = tvm.te.placeholder([M, N], dtype=self.out_dtype)
+        # Output = tvm.te.placeholder(
+        #     # [
+        #     #     (M + self.threadblock_problem_size[0] - 1) // self.threadblock_problem_size[0],
+        #     #     (N + self.threadblock_problem_size[1] - 1) // self.threadblock_problem_size[1],
+        #     #     self.threadblock_problem_size[0] // self.warp_problem_size[0],
+        #     #     self.threadblock_problem_size[1] // self.warp_problem_size[1],
+        #     #     self.warp_problem_size[0] // self.instruction_problem_size[0],
+        #     #     self.warp_problem_size[1] // self.instruction_problem_size[1],
+        #     #     self.instruction_problem_size[0],
+        #     #     self.instruction_problem_size[1]
+        #     # ],
+        #     [
+        #         (M + self.threadblock_problem_size[0] - 1) // self.threadblock_problem_size[0],
+        #         self.threadblock_problem_size[0] // self.warp_problem_size[0],
+        #         self.warp_problem_size[0] // self.instruction_problem_size[0],
+        #         self.instruction_problem_size[0],
+        #         (N + self.threadblock_problem_size[1] - 1) // self.threadblock_problem_size[1],
+        #         self.threadblock_problem_size[1] // self.warp_problem_size[1],
+        #         self.warp_problem_size[1] // self.instruction_problem_size[1],
+        #         self.instruction_problem_size[1]
+        #     ],
+        #     dtype=self.out_dtype)
         arg_values = [A, B, Output]
         var_values = [
             M, N, K,
@@ -131,5 +175,8 @@ class GemmGeneral(Operator):
             ceil(N, self.threadblock_problem_size[1]),
             ceil(K, self.threadblock_problem_size[2])
         ]
+
+        if dump:
+            print(tvm.lower(sch, [*args, *Vars], simple_mode=True))
         return evaluate_schedule(
             sch, args, list(Params) + list(Vars), arg_values, var_values, measure_opt, new_process=new_process)

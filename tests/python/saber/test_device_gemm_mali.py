@@ -1,6 +1,7 @@
 import tvm
 import os
 import math
+import time
 import tempfile
 from tvm.contrib import tar, ndk
 import numpy as np
@@ -28,18 +29,48 @@ def register_test(func):
         print("Can't convert to number", name[len(prefix):])
 
 
+gemm_shapes = [
+    # M, N, K
+    (128, 128, 128),
+    (128, 256, 128),
+    (128, 128, 256),
+    (128, 256, 256),
+    (256, 128, 128),
+    (256, 256, 128),
+    (256, 128, 256),
+    (256, 256, 256),
+    (512, 512, 512),
+    (1024, 1024, 1024),
+    (2048, 2048, 2048),
+    (4096, 4096, 4096)
+]
+
+
 @register_test
 def test1():
     gemm = saber.GemmMaliGeneral(
-        threadblock_problem_size=[8, 8, 8],
-        warp_problem_size=[8, 8, 8],
-        instruction_problem_size=[4, 4, 4]
+        threadblock_problem_size=[64, 16, 8],
+        warp_problem_size=[32, 8, 8],
+        instruction_problem_size=[4, 1, 4]
+        # threadblock_problem_size=[32, 32, 32],
+        # warp_problem_size=[32, 32, 32],
+        # instruction_problem_size=[4, 4, 4]
     )
     func = gemm.compile(dump=True)
-    cost = gemm.evaluate(func, 512, 64, 1024, new_process=False)
+    cost = gemm.evaluate(func, 128, 128, 128, new_process=False)
     print("Cost is", cost, "ms")
-    cost = gemm.evaluate(func, 16, 1024, 32, new_process=False)
-    print("Cost is", cost, "ms")
+    beg = 0
+    end = 0
+    # print("M,N,K,cost(ms)")
+    # for i, shape in enumerate(gemm_shapes):
+    #     M, N, K = shape
+    #     if i >= beg and i < end:
+    #         cost = gemm.evaluate(func, M, N, K, new_process=False)
+    #         time.sleep(3)
+    #     else:
+    #         cost = -1
+    #     # print("%d,%d,%d,%f" % (M, N, K, cost))
+    #     print(cost)
 
     M, N, K = 512, 128, 128
 
@@ -87,17 +118,17 @@ def test2():
 @register_test
 def test3():
     gemm = saber.GemmMaliGeneral(
-        threadblock_problem_size=[32, 32, 32],
-        warp_problem_size=[8, 8, 16],
-        instruction_problem_size=[4, 4, 8])
-    cost = gemm.try_with(512, 64, 1024, new_process=True)
+        threadblock_problem_size=[16, 16, 64],
+        warp_problem_size=[16, 16, 64],
+        instruction_problem_size=[4, 4, 2])
+    cost = gemm.try_with(1024, 16, 128, new_process=True, dump=True)
     print("Cost is", cost, "ms")
-    cost = gemm.try_with(512, 64, 1024, new_process=False)
-    print("Cost is", cost, "ms")
-    cost = gemm.try_with(2, 64, 1024, new_process=False)
-    print("Cost is", cost, "ms")
-    cost = gemm.try_with(16, 512, 128, new_process=False)
-    print("Cost is", cost, "ms")
+    # cost = gemm.try_with(512, 64, 1024, new_process=False)
+    # print("Cost is", cost, "ms")
+    # cost = gemm.try_with(2, 64, 1024, new_process=False)
+    # print("Cost is", cost, "ms")
+    # cost = gemm.try_with(16, 512, 128, new_process=False)
+    # print("Cost is", cost, "ms")
 
 
 def geomean(lst):
@@ -120,17 +151,19 @@ def test4():
             instruction_problem_size=params.instruction_problem_size[0],
             split_K=params.split_K[0][0])
         shapes = [
-            [128, 128, 128],
+            [256, 256, 256],
         ]
-        targets = [
-            0.13752,
-        ]
-        relative_lst = []
-        for shape, target in zip(shapes, targets):
-            cost = gemm.try_with(*shape, new_process=True)
-            relative = target / cost
-            relative_lst.append(relative)
-        return 1 / geomean(relative_lst)
+        # targets = [
+        #     0.2521,
+        # ]
+        # relative_lst = []
+        # for shape, target in zip(shapes, targets):
+        #     cost = gemm.try_with(*shape, new_process=True)
+        #     relative = target / cost
+        #     relative_lst.append(relative)
+        # return 1 / geomean(relative_lst)
+        cost = gemm.try_with(*shapes[0], new_process=True)
+        return cost
 
     generator = saber.MaliDeviceGeneralGenerator(arch="g76")
     saber.serial_minimize(
@@ -139,14 +172,14 @@ def test4():
         saber.MeasureOptions(
             target="opencl",
             target_host="llvm -mtriple=aarch64-linux-android",
-            timeout=10, number=20,
-            min_repeat_ms=600,
+            timeout=10, number=10,
+            min_repeat_ms=80,
             build_func="ndk",
             key="android",
             host="0.0.0.0",
             port=9190,
             cooldown_interval=5),
-        trials=200
+        trials=1000
         )
     
 

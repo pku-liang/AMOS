@@ -5,6 +5,7 @@ from .cuda.tune_cuda import (
     CUDAParams
 )
 
+from .mali.conv2d_mali_general import Conv2dGeneral as Conv2dMaliGeneral
 from .mali.gemm_mali_general import GemmGeneral as GemmMaliGeneral
 from .mali.tune_mali import (
     MaliDeviceGeneralGenerator,

@@ -107,8 +107,9 @@ class LoopUnroller : public StmtExprMutator {
         auto_unroll && (value * step_count_ <= auto_max_step_ || value <= auto_max_extent_);
 
     if (op->kind == ForKind::kUnrolled) {
-      ICHECK_GE(value, 0) << "Cannot unroll non-constant loop";
-      auto_unroll = true;
+      // ICHECK_GE(value, 0) << "Cannot unroll non-constant loop";
+      if (value > 0)
+        auto_unroll = true;
     }
 
     if (auto_unroll) {

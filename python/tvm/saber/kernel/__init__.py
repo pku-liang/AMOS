@@ -13,3 +13,7 @@ from .cuda.conv2d_cuda_tensorcore import (
 from .mali.gemm_mali_general import (
     kernel_gemm_general_perfect as kernel_gemm_mali_general_perfect
 )
+
+from .mali.conv2d_mali_general import (
+    kernel_conv2d_nchw_implicit_gemm_general_perfect as kernel_conv2d_nchw_implicit_gemm_mali_general_perfect
+)

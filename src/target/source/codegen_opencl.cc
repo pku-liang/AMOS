@@ -316,6 +316,15 @@ void CodeGenOpenCL::VisitExpr_(const FloatImmNode* op, std::ostream& os) {  // N
   }
 }
 
+void CodeGenOpenCL::VisitStmt_(const ForNode* op) {
+  ICHECK(is_const_int(op->min, 0));
+  if (op->kind == tir::ForKind::kUnrolled) {
+    PrintIndent();
+    stream << "#pragma unroll\n";
+  }
+  CodeGenC::VisitStmt_(op);
+}
+
 runtime::Module BuildOpenCL(IRModule mod, Target target) {
   using tvm::runtime::Registry;
   bool output_ssa = false;

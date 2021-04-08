@@ -92,12 +92,15 @@ def kernel_conv2d_nchw_implicit_gemm_tensorcore_perfect(
         name="Conv2d"
     )
 
-    def schedule_pro(sch):
+    def schedule_pro(sch, ctx=None):
+        ctx = {} if ctx is None else ctx
         sch[padded].compute_inline()
         sch[A_M].compute_inline()
         sch[B_M].compute_inline()
+        return ctx
 
-    def schedule_epi(sch):
+    def schedule_epi(sch, ctx=None):
+        ctx = {} if ctx is None else ctx
         # sch[C_M].compute_inline()
         n, k, p, q = sch[Conv2d].op.axis
         fused = sch[Conv2d].fuse(n, k, p, q)
@@ -108,6 +111,7 @@ def kernel_conv2d_nchw_implicit_gemm_tensorcore_perfect(
         fused, threads = sch[Conv2d].split(fused, factor=num_threads)
         sch[Conv2d].bind(fused, tvm.te.thread_axis("blockIdx.x"))
         sch[Conv2d].bind(threads, tvm.te.thread_axis("threadIdx.x"))
+        return ctx
 
     return (
         Conv2d,
