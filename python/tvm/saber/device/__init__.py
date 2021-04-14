@@ -1,5 +1,6 @@
 from .cuda.conv2d_cuda_tensorcore import Conv2dTensorCore as Conv2dCUDATensorCore
 from .cuda.gemm_cuda_tensorcore import GemmTensorCore as GemmCUDATensorCore
+from .cuda.gemm_cuda_general import GemmGeneral as GemmCUDAGeneral
 from .cuda.tune_cuda import (
     CUDADeviceTensorCoreGenerator,
     CUDAParams

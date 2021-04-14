@@ -5,6 +5,10 @@ from .cuda.gemm_cuda_tensorcore import (
     kernel_gemm_tensorcore_split_K_perfect as kernel_gemm_cuda_tensorcore_split_K_perfect
 )
 
+from .cuda.gemm_cuda_general import (
+    kernel_gemm_general_perfect as kernel_gemm_cuda_general_perfect
+)
+
 from .cuda.conv2d_cuda_tensorcore import (
     kernel_conv2d_nchw_implicit_gemm_tensorcore_perfect as kernel_conv2d_nchw_implicit_gemm_cuda_tensorcore_perfect,
     kernel_conv2d_nhwc_implicit_gemm_tensorcore_perfect as kernel_conv2d_nhwc_implicit_gemm_cuda_tensorcore_perfect,

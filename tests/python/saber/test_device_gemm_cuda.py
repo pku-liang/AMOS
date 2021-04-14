@@ -107,8 +107,22 @@ def test4():
         generator,
         saber.MeasureOptions(target="cuda", number=10, min_repeat_ms=600),
         trials=200
-        )
-    
+    )
+
+
+@register_test
+def test5():
+    gemm = saber.GemmCUDAGeneral(
+        threadblock_problem_size=[128, 128, 8],
+        warp_problem_size=[128, 128, 8],
+        instruction_problem_size=[8, 8, 8])
+    first = True
+    for m in (128, 256, 512):
+        for n in (128, 256, 512):
+            for k in (128, 256):
+                cost = gemm.try_with(m, n, k, new_process=first)
+                first = False
+                print(f"Cost of ({m}, {n}, {k}) is {cost} ms")
 
 
 if __name__ == "__main__":
