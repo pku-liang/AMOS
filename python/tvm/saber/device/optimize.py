@@ -1,5 +1,14 @@
 import time
-from .measure import MAX_FLOAT
+import multiprocessing as multi
+from pebble import concurrent
+from concurrent.futures import TimeoutError
+from pebble import ProcessPool, ProcessExpired
+from .measure import (
+    MAX_FLOAT,
+    pebble_local_builder_build_shape_oblivious,
+    pebble_local_runner_run_shape_oblivious,
+    pebble_rpc_runner_run_shape_oblivious
+)
 
 
 def serial_minimize(
@@ -46,3 +55,77 @@ def serial_minimize(
     toc = time.time()
     print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
+
+
+def parallel_maximize(
+    compile_impl,
+    evaluate_impl,
+    agg_func,
+    generator_lst,
+    measure_opt,
+    checker,
+    iterations=200,
+    walk_length_per_iter=10,
+    report_period=10,
+    builder=pebble_local_builder_build_shape_oblivious,
+    build_parallel=1,
+    runner=pebble_local_runner_run_shape_oblivious,
+    verbose=False,
+    homogenerous=True,
+):
+    # sch_impl, args, vars, tensor_lst, var_value_lst, agg_func = device_impl()
+    if measure_opt.use_rpc:
+        runner = pebble_rpc_runner_run_shape_oblivious
+    print("Total search iteraions:", iterations, flush=True)
+    tic = time.time()
+    for it in range(iterations):
+        gen_ctx = []
+        for i, gen in enumerate(generator_lst):
+            gen.refresh()
+            for j in range(walk_length_per_iter):
+                params = gen.get_next()
+                gen_ctx.append(params)
+        build_results = builder(
+            compile_impl, gen_ctx, measure_opt, checker, n_parallel=build_parallel)
+        run_results = runner(
+            build_results, gen_ctx, evaluate_impl, measure_opt)
+        for i, gen in enumerate(generator_lst):
+            for params, res in zip(
+                gen_ctx[i*walk_length_per_iter:(i+1)*walk_length_per_iter],
+                run_results[i*walk_length_per_iter:(i+1)*walk_length_per_iter]):
+                if verbose:
+                    print(res.costs)
+                feedback = agg_func([x.value for x in res.costs])
+                # genenrator use max heap
+                if homogenerous:
+                    # share information among generators
+                    for g in generator_lst:
+                        g.feedback(params, feedback)
+                else:
+                    gen.feedback(params, feedback)
+        if (it + 1) % report_period == 0:
+            top1 = None
+            top1_value = -MAX_FLOAT
+            for gen in generator_lst:
+                gtop1 = gen.topk(k=1)[0]
+                best_value = gtop1.value
+                best_params = gtop1.record
+                if best_value > top1_value:
+                    top1_value = best_value
+                    top1 = best_params
+            print("Round", it + 1, flush=True)
+            print("Current best result:", top1_value, flush=True)
+            print("Best params:", top1, flush=True)
+
+    toc = time.time()
+    print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
+    top1 = None
+    top1_value = -MAX_FLOAT
+    for gen in generator_lst:
+        gtop1 = gen.topk(k=1)[0]
+        best_value = gtop1.value
+        best_params = gtop1.record
+        if best_value > top1_value:
+            top1_value = best_value
+            top1 = best_params
+    return top1_value, top1

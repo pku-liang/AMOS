@@ -39,13 +39,23 @@ def test1():
         padding=1,
         stride=2)
     func = conv2d.compile(dump=True)
-    cost = conv2d.evaluate(func, 1, 16, 112, 112, 96, 3, 3, new_process=False)
+    measure_opt=saber.MeasureOptions(
+                target="opencl",
+                target_host="llvm -mtriple=aarch64-linux-gnu",
+                timeout=10, number=10,
+                min_repeat_ms=80,
+                build_func="default",
+                key="hikey960",
+                host="0.0.0.0",
+                port=9190,
+                cooldown_interval=5)
+    cost = conv2d.evaluate(func, 1, 16, 112, 112, 96, 3, 3, new_process=False, measure_opt=measure_opt)
     print("Cost is", cost, "ms")
-    cost = conv2d.evaluate(func, 1, 24, 56, 56, 114, 3, 3, new_process=False)
+    cost = conv2d.evaluate(func, 1, 24, 56, 56, 114, 3, 3, new_process=False, measure_opt=measure_opt)
     print("Cost is", cost, "ms")
-    cost = conv2d.evaluate(func, 1, 32, 28, 28, 192, 3, 3, new_process=False)
+    cost = conv2d.evaluate(func, 1, 32, 28, 28, 192, 3, 3, new_process=False, measure_opt=measure_opt)
     print("Cost is", cost, "ms")
-    cost = conv2d.evaluate(func, 1, 96, 14, 14, 576, 3, 3, new_process=False)
+    cost = conv2d.evaluate(func, 1, 96, 14, 14, 576, 3, 3, new_process=False, measure_opt=measure_opt)
     print("Cost is", cost, "ms")
 
 

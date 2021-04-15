@@ -69,10 +69,14 @@ TVM_REGISTER_GLOBAL("auto_tensorize.get_buffer_size").set_body_typed(
 void ThreadExtentCollector::VisitStmt_(const tir::AttrStmtNode* op) {
     if (op->attr_key == tir::attr::thread_extent) {
         const tir::IterVarNode* iter_var_node = op->node.as<tir::IterVarNode>();
-        CHECK(iter_var_node);
-        const tir::IntImmNode* int_value = op->value.as<tir::IntImmNode>();
-        CHECK(int_value);
-        record_.Set(iter_var_node->thread_tag, IntImm(DataType::Int(64), int_value->value));
+        if (iter_var_node->thread_tag == "threadIdx.x" ||
+            iter_var_node->thread_tag == "threadIdx.y" ||
+            iter_var_node->thread_tag == "threadIdx.z") {
+            CHECK(iter_var_node);
+            const tir::IntImmNode* int_value = op->value.as<tir::IntImmNode>();
+            CHECK(int_value);
+            record_.Set(iter_var_node->thread_tag, IntImm(DataType::Int(64), int_value->value));
+        }
     }
     tir::StmtVisitor::VisitStmt_(op);
 }

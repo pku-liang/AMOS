@@ -1,10 +1,10 @@
 import tvm
-from ...threadblock import (
-    threadblock_gemm_mali_general)
+from ...threadblock_implementation_route import (
+    get_gemm_implementation_mali)
 from ...utils import index
 
 
-def kernel_conv2d_nchw_implicit_gemm_general_perfect(
+def kernel_conv2d_nchw_implicit_gemm_general_perfect_bifrost_g71(
     threadblock_problem_size,
     warp_problem_size,
     instruction_problem_size,
@@ -15,6 +15,7 @@ def kernel_conv2d_nchw_implicit_gemm_general_perfect(
     stride=1,
     padding=0,
     dilation=1,
+    tag="single_buffer"
 ):
     N = index("N")
     C = index("C")
@@ -102,7 +103,7 @@ def kernel_conv2d_nchw_implicit_gemm_general_perfect(
         Output,
         schedule_func,
         parse_func
-    ) = threadblock_gemm_mali_general(
+    ) = get_gemm_implementation_mali("general", "bifrost", "g71", tag)(
         [M1, N1, K1],
         threadblock_problem_size,
         warp_problem_size,

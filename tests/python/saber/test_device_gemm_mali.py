@@ -7,6 +7,7 @@ from tvm.contrib import tar, ndk
 import numpy as np
 from tvm import saber
 from collections import OrderedDict
+from tvm import auto_tensorize as at
 
 
 TEST_CASES = OrderedDict()
@@ -32,67 +33,111 @@ def register_test(func):
 gemm_shapes = [
     # M, N, K
     (128, 128, 128),
-    (128, 256, 128),
-    (128, 128, 256),
-    (128, 256, 256),
-    (256, 128, 128),
-    (256, 256, 128),
-    (256, 128, 256),
+    # (128, 256, 128),
+    # (128, 128, 256),
+    # (128, 256, 256),
+    # (256, 128, 128),
+    # (256, 256, 128),
+    # (256, 128, 256),
     (256, 256, 256),
     (512, 512, 512),
     (1024, 1024, 1024),
-    (2048, 2048, 2048),
-    (4096, 4096, 4096)
+    # (2048, 2048, 2048),
+    # (4096, 4096, 4096)
 ]
 
 
 @register_test
 def test1():
     gemm = saber.GemmMaliGeneral(
-        threadblock_problem_size=[64, 16, 8],
-        warp_problem_size=[32, 8, 8],
-        instruction_problem_size=[4, 1, 4]
-        # threadblock_problem_size=[32, 32, 32],
-        # warp_problem_size=[32, 32, 32],
-        # instruction_problem_size=[4, 4, 4]
+        # threadblock_problem_size=[64, 16, 8],
+        # warp_problem_size=[32, 8, 8],
+        # instruction_problem_size=[4, 1, 4],
+
+        # threadblock_problem_size=[32, 128, 4],
+        # warp_problem_size=[32, 128, 4],
+        # instruction_problem_size=[4, 4, 4],
+
+        threadblock_problem_size=[32, 32, 32],
+        warp_problem_size=[32, 32, 32],
+        instruction_problem_size=[4, 4, 4],
+
+        # threadblock_problem_size=[128, 32, 16],
+        # warp_problem_size=[64, 16, 16],
+        # instruction_problem_size=[4, 1, 4],
+        code="g71",
+        tag="single_buffer"
     )
-    func = gemm.compile(dump=True)
-    cost = gemm.evaluate(func, 128, 128, 128, new_process=False)
+    func = gemm.compile(dump=False)
+    print(func.imported_modules[0].get_source())
+    measure_opt_hikey = saber.MeasureOptions(
+                target="opencl",
+                target_host="llvm -mtriple=aarch64-linux-gnu",
+                timeout=10, number=10,
+                min_repeat_ms=80,
+                build_func="default",
+                key="hikey960",
+                host="0.0.0.0",
+                port=9190,
+                cooldown_interval=5)
+    measure_opt_android = saber.MeasureOptions(
+                target="opencl",
+                target_host="llvm -mtriple=aarch64-linux-android",
+                timeout=10, number=10,
+                min_repeat_ms=80,
+                build_func="ndk",
+                key="android",
+                host="0.0.0.0",
+                port=9190,
+                cooldown_interval=5)
+    measure_opt = measure_opt_hikey
+    cost = gemm.evaluate(func, 256, 256, 256, new_process=False,
+                            measure_opt=measure_opt
+                        )
     print("Cost is", cost, "ms")
     beg = 0
-    end = 0
-    # print("M,N,K,cost(ms)")
-    # for i, shape in enumerate(gemm_shapes):
-    #     M, N, K = shape
-    #     if i >= beg and i < end:
-    #         cost = gemm.evaluate(func, M, N, K, new_process=False)
-    #         time.sleep(3)
-    #     else:
-    #         cost = -1
-    #     # print("%d,%d,%d,%f" % (M, N, K, cost))
-    #     print(cost)
+    end = 4
+    print("M,N,K,cost(ms)")
+    for i, shape in enumerate(gemm_shapes):
+        M, N, K = shape
+        if i >= beg and i < end:
+            cost = gemm.evaluate(func, M, N, K, new_process=False, measure_opt=measure_opt)
+            time.sleep(3)
+        else:
+            cost = -1
+        # print("%d,%d,%d,%f" % (M, N, K, cost))
+        print(cost)
 
-    M, N, K = 512, 128, 128
+    M, N, K = 128, 128, 128
 
     A = np.random.uniform(-1, 1, [M, K]).astype("float32")
     B = np.random.uniform(-1, 1, [N, K]).astype("float32")
     C = np.zeros([M, N]).astype("float32")
 
-    key = "android"
-    host = "0.0.0.0"
-    port = 9190
-    priority = 1
-    timeout = 10
+    key = measure_opt.key
+    host = measure_opt.host
+    port = measure_opt.port
+    priority = measure_opt.priority
+    timeout = measure_opt.timeout
     from tvm import auto_scheduler
     remote = auto_scheduler.utils.request_remote(
         key, host, port, priority, timeout)
-    ctx = remote.context("opencl")
+    ctx = remote.context(measure_opt.target)
     A_tvm = tvm.nd.array(A, ctx)
     B_tvm = tvm.nd.array(B, ctx)
     C_tvm = tvm.nd.array(C, ctx)
-    fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
-    os.close(fd)
-    func.export_library(lib, ndk.create_shared)
+
+    build_func = measure_opt.build_func
+    if build_func == "default":
+        fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".tar")
+        os.close(fd)
+        func.export_library(lib, tar.tar)
+    elif build_func == "ndk":
+        fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
+        os.close(fd)
+        func.export_library(lib, ndk.create_shared)
+    else:
+        raise ValueError()
     remote.upload(lib)
     func = remote.load_module(os.path.split(lib)[-1])
     os.unlink(lib)
@@ -180,6 +225,80 @@ def test4():
             port=9190,
             cooldown_interval=5),
         trials=1000
+        )
+
+
+@register_test
+def test5():
+    def compile_impl(params):
+        assert isinstance(params, saber.MaliParams)
+        gemm = saber.GemmMaliGeneral(
+            in_dtype="float32",
+            out_dtype="float32",
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            instruction_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        return gemm.expose_compile_context()
+
+    def evaluate_impl(params):
+        assert isinstance(params, saber.MaliParams)
+        gemm = saber.GemmMaliGeneral(
+            in_dtype="float32",
+            out_dtype="float32",
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            instruction_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        shapes = [
+            [256, 256, 256],
+        ]
+        
+        tensor_lst = []
+        var_value_lst = []
+        for shape in shapes:
+            args, vars = gemm.expose_evaluate_context(*shape)
+            tensor_lst.append(args)
+            var_value_lst.append(vars)
+        return tensor_lst, var_value_lst
+
+    targets = [
+        1
+    ]
+
+    def relative_perf_geo(lst):
+        rel = []
+        for cost, target in zip(lst, targets):
+            rel.append(target / cost)
+        return geomean(rel)
+
+    class Checker(object):
+        def check(self, *args, **kwargs):
+            return True
+
+    generator = saber.MaliDeviceGeneralGenerator(arch="g76")
+    saber.parallel_maximize(
+        compile_impl,
+        evaluate_impl,
+        relative_perf_geo,
+        [generator],
+        saber.MeasureOptions(
+            use_rpc=True,
+            target="opencl",
+            target_host="llvm -mtriple=aarch64-linux-gnu",
+            timeout=10, number=10,
+            min_repeat_ms=80,
+            build_func="default",
+            key="hikey960",
+            host="0.0.0.0",
+            port=9190,
+            cooldown_interval=5),
+        # at.search.MaliProgramChecker(arch="g76"),
+        Checker(),
+        iterations=1000,
+        verbose=True,
+        build_parallel=4,
+        report_period=1
         )
     
 

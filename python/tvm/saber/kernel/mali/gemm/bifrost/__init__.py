@@ -1,0 +1,2 @@
+from .g71 import kernel_gemm_general_perfect_bifrost_g71
+from .g76 import kernel_gemm_general_perfect_bifrost_g76

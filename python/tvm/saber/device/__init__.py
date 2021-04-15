@@ -14,4 +14,4 @@ from .mali.tune_mali import (
 )
 
 from .measure import MeasureOptions
-from .optimize import serial_minimize
+from .optimize import serial_minimize, parallel_maximize

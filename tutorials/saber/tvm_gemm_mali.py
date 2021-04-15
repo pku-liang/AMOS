@@ -175,7 +175,7 @@ def build_shape_specific(M, N, K, params):
     return func
 
 def run(shape_oblivious=True):
-    M, N, K = 512, 512, 512
+    M, N, K = 256, 256, 256
 
     A = np.random.uniform(-1, 1, [M, K]).astype("float32")
     B = np.random.uniform(-1, 1, [N, K]).astype("float32")
@@ -186,13 +186,13 @@ def run(shape_oblivious=True):
     port = 9190
     priority = 1
     timeout = 10
-    from tvm import auto_scheduler
-    remote = auto_scheduler.utils.request_remote(
-        key, host, port, priority, timeout)
-    ctx = remote.context("opencl")
-    A_tvm = tvm.nd.array(A, ctx)
-    B_tvm = tvm.nd.array(B, ctx)
-    C_tvm = tvm.nd.array(C, ctx)
+    # from tvm import auto_scheduler
+    # remote = auto_scheduler.utils.request_remote(
+    #     key, host, port, priority, timeout)
+    # ctx = remote.context("opencl")
+    # A_tvm = tvm.nd.array(A, ctx)
+    # B_tvm = tvm.nd.array(B, ctx)
+    # C_tvm = tvm.nd.array(C, ctx)
 
     params = Params(
         threadblock_problem_size=[32, 32, 32],
@@ -205,21 +205,21 @@ def run(shape_oblivious=True):
 
     if shape_oblivious:
         func = build_shape_oblivious(params)
-        args = [A_tvm, B_tvm, C_tvm, M, N, K]
+        # args = [A_tvm, B_tvm, C_tvm, M, N, K]
     else:
         func = build_shape_specific(M, N, K, params)
-        args = [A_tvm, B_tvm, C_tvm]
+        # args = [A_tvm, B_tvm, C_tvm]
     
-    fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
-    os.close(fd)
-    func.export_library(lib, ndk.create_shared)
-    remote.upload(lib)
-    func = remote.load_module(os.path.split(lib)[-1])
-    os.unlink(lib)
-    ctx.sync()
-    time_evaluator = func.time_evaluator(func.entry_name, ctx, number=100, min_repeat_ms=20)
-    cost = time_evaluator(*args).mean * 1e3
-    print("Cost is", cost, "ms")
+    # fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
+    # os.close(fd)
+    # func.export_library(lib, ndk.create_shared)
+    # remote.upload(lib)
+    # func = remote.load_module(os.path.split(lib)[-1])
+    # os.unlink(lib)
+    # ctx.sync()
+    # time_evaluator = func.time_evaluator(func.entry_name, ctx, number=100, min_repeat_ms=20)
+    # cost = time_evaluator(*args).mean * 1e3
+    # print("Cost is", cost, "ms")
 
 
 if __name__ == "__main__":

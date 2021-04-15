@@ -2,7 +2,7 @@ import tvm
 from ..base import Operator
 from ...utils import ceil
 from ...kernel import (
-    kernel_conv2d_nchw_implicit_gemm_mali_general_perfect
+    get_conv2d_implementation_mali
 )
 from ..measure import MeasureOptions, evaluate_function, evaluate_schedule
 
@@ -17,7 +17,10 @@ class Conv2dGeneral(Operator):
                     stride=1,
                     padding=0,
                     dilation=1,
-                    split_K=None):
+                    split_K=None,
+                    arch="bifrost",
+                    code="g71",
+                    tag="single_buffer"):
         super(Conv2dGeneral, self).__init__()
         self.target = "opencl"
         self.target_host = "llvm -mtriple=aarch64-linux-android"
@@ -33,7 +36,7 @@ class Conv2dGeneral(Operator):
         self.dilation = dilation
         self.split_K = split_K
         if self.layout == "nchw":
-            self.get_context = lambda *_: kernel_conv2d_nchw_implicit_gemm_mali_general_perfect(
+            self.get_context = lambda *_: get_conv2d_implementation_mali("general", arch, code, tag)(
                                 self.threadblock_problem_size,
                                 self.warp_problem_size,
                                 self.instruction_problem_size,

@@ -1,0 +1,1 @@
+from .g71 import kernel_conv2d_nchw_implicit_gemm_general_perfect_bifrost_g71

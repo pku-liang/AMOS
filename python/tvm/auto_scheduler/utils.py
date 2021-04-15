@@ -157,7 +157,7 @@ def kill_child_processes(parent_pid, sig=signal.SIGTERM):
 
 
 # The maximum length of traceback information
-MAX_TRACEBACK_INFO_LEN = 512
+MAX_TRACEBACK_INFO_LEN = 512**2
 
 
 def make_traceback_info():
