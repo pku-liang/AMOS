@@ -987,6 +987,7 @@ void CodeGenC::VisitStmt_(const AttrStmtNode* op) {
     const StringImmNode* value = op->value.as<StringImmNode>();
     ICHECK(value != nullptr);
     decl_stream << value->value;
+  } else if (op->attr_key == tir::attr::double_buffer_write) {
   } else {
     const VarNode* v = op->node.as<VarNode>();
     CHECK(v);
