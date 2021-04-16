@@ -63,7 +63,7 @@ class GemmGeneral(Operator):
         return gemm_func
 
     def evaluate(self, func, M, N, K, measure_opt=MeasureOptions(
-            target="cuda", number=10,
+            target="cuda", number=100,
             min_repeat_ms=500), new_process=False):
         A = tvm.te.placeholder([K, M], dtype=self.in_dtype)
         B = tvm.te.placeholder([K, N], dtype=self.in_dtype)
