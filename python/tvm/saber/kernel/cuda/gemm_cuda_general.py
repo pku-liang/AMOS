@@ -44,10 +44,11 @@ def kernel_gemm_general_perfect(
 
     def block(x): return te.thread_axis(f"blockIdx.{x}")
     def thread(x): return te.thread_axis(f"threadIdx.{x}")
+    def vthread(): return te.thread_axis("vthread")
 
     Params = [M, N, K]
-    A = te.placeholder([M, K], dtype=A_dtype, name="A")
-    B = te.placeholder([N, K], dtype=B_dtype, name="B")
+    A = te.placeholder([K, M], dtype=A_dtype, name="A")
+    B = te.placeholder([K, N], dtype=B_dtype, name="B")
     (
         Output,
         schedule_func,
@@ -83,12 +84,16 @@ def kernel_gemm_general_perfect(
         sch[Last].reorder(m1, n1, m2, n2, m3, n3, m4, n4)
         sch[Last].bind(m1, block("y"))
         sch[Last].bind(n1, block("x"))
-        sch[Last].bind(m3, thread("y"))
-        sch[Last].bind(n3, thread("x"))
+        sch[Last].bind(m2, thread("z"))
+        sch[Last].bind(n2, thread("y"))
+        sch[Last].bind(m3, vthread())
+        sch[Last].bind(n3, vthread())
+        warp = sch[Last].fuse(m4, n4)
+        sch[Last].bind(warp, thread("x"))
 
-        unroll, vec = sch[Last].split(n4, factor=C_vec_L)
-        sch[Last].unroll(unroll)
-        sch[Last].vectorize(vec)
+        # unroll, vec = sch[Last].split(n4, factor=C_vec_L)
+        # sch[Last].unroll(unroll)
+        # sch[Last].vectorize(vec)
 
     return (
         Gemm,

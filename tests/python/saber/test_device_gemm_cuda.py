@@ -114,15 +114,17 @@ def test4():
 def test5():
     gemm = saber.GemmCUDAGeneral(
         threadblock_problem_size=[128, 128, 8],
-        warp_problem_size=[128, 128, 8],
-        instruction_problem_size=[8, 8, 8])
+        warp_problem_size=[32, 64, 8],
+        instruction_problem_size=[4, 8, 8])
     first = True
-    for m in (128, 256, 512):
-        for n in (128, 256, 512):
-            for k in (128, 256):
-                cost = gemm.try_with(m, n, k, new_process=first)
-                first = False
-                print(f"Cost of ({m}, {n}, {k}) is {cost} ms")
+    DIMS = (256, 512, 1024)
+    SHAPES = [(M, N, K) for M in DIMS for N in DIMS for K in DIMS]
+    with open("./saber-cuda-general-col-row-gemm.csv", "w") as fp:
+        print("M,N,K,cost(ms)", file=fp, flush=True)
+        for M, N, K in SHAPES:
+            cost = gemm.try_with(M, N, K, new_process=first)
+            first = False
+            print(f"{M},{N},{K},{cost}", file=fp, flush=True)
 
 
 if __name__ == "__main__":

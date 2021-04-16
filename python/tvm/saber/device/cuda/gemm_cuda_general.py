@@ -65,8 +65,8 @@ class GemmGeneral(Operator):
     def evaluate(self, func, M, N, K, measure_opt=MeasureOptions(
             target="cuda", number=10,
             min_repeat_ms=500), new_process=False):
-        A = tvm.te.placeholder([M, K], dtype=self.in_dtype)
-        B = tvm.te.placeholder([N, K], dtype=self.in_dtype)
+        A = tvm.te.placeholder([K, M], dtype=self.in_dtype)
+        B = tvm.te.placeholder([K, N], dtype=self.in_dtype)
         Output = tvm.te.placeholder([M, N], dtype=self.out_dtype)
         args = [A, B, Output]
         var_values = [
@@ -80,8 +80,8 @@ class GemmGeneral(Operator):
         )
 
     def calculate(self, func, A, B, C):
-        M, K = A.shape
-        N, _ = B.shape
+        K, M = A.shape
+        _, N = B.shape
         var_values = [
             M, N, K,
             ceil(M, self.threadblock_problem_size[0]),
@@ -104,8 +104,8 @@ class GemmGeneral(Operator):
         args = [A, B, Output]
         for func in schedule_func:
             func(sch)
-        A = tvm.te.placeholder([M, K], dtype=self.in_dtype)
-        B = tvm.te.placeholder([N, K], dtype=self.in_dtype)
+        A = tvm.te.placeholder([K, M], dtype=self.in_dtype)
+        B = tvm.te.placeholder([K, N], dtype=self.in_dtype)
         Output = tvm.te.placeholder([M, N], dtype=self.out_dtype)
         arg_values = [A, B, Output]
         var_values = [
