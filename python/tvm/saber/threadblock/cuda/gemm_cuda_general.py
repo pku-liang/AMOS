@@ -166,8 +166,40 @@ def threadblock_gemm_general(
         by, bx = (block(x) for x in "yx")
         tz, ty, tx = (thread(x) for x in "zyx")
 
+        def bind_shared_read(XX, BY, BX):
+            if BX <= n_threads_per_warp:
+                assert n_threads_per_warp % BX == 0
+                y0, y1, y2, y3, x0, x1, x2, x3 = s[XX].op.axis
+                y = s[XX].fuse(y1, y2, y3)
+                x = s[XX].fuse(x1, x2, x3)
+                yv, y = s[XX].split(y, nparts=(BY * BX) // n_threads_per_block)
+                yo, yi = s[XX].split(y, nparts=(BM // WM))
+                yi, yw = s[XX].split(yi, nparts=(BN // WN))
+                s[XX].reorder(y0, x0, yv, yo, yi, yw, x)
+                ywx = s[XX].fuse(yw, x)
+                s[XX].bind(yv, vthread())
+                s[XX].bind(yo, tz)
+                s[XX].bind(yi, ty)
+                s[XX].bind(ywx, tx)
+                return y0, x0, yv, yo, yi, ywx
+            else:
+                assert BX % n_threads_per_warp == 0
+                y0, y1, y2, y3, x0, x1, x2, x3 = s[XX].op.axis
+                y = s[XX].fuse(y1, y2, y3)
+                x = s[XX].fuse(x1, x2, x3)
+                yv, y = s[XX].split(y, nparts=(BY * BX) // n_threads_per_block)
+                xo, xi = s[XX].split(x, factor=n_threads_per_warp)
+                s[XX].reorder(y0, x0, yv, y, xo, xi)
+                yxo = s[XX].fuse(y, xo)
+                y, xo = s[XX].split(yxo, nparts=(BM // WM))
+                s[XX].bind(yv, vthread())
+                s[XX].bind(y, tz)
+                s[XX].bind(xo, ty)
+                s[XX].bind(xi, tx)
+                return y0, x0, yv, y, xo, xi
+
         m1, m2, m3, m4, n1, n2, n3, n4 = s[Last].op.axis
-        s[Last].reorder(m1, n2, m2, n2, m3, n3, m4, n4)
+        s[Last].reorder(m1, n1, m2, n2, m3, n3, m4, n4)
         s[Last].bind(m1, by)
         s[Last].bind(n1, bx)
         s[Last].bind(m2, tz)
@@ -190,37 +222,13 @@ def threadblock_gemm_general(
         s[BL].compute_at(s[CL], k2)
         s[BL].double_buffer()
 
-        def handle_shared(XX, BX):
-            s[XX].compute_at(s[CL], k1)
-            if BX <= n_threads_per_warp:
-                assert n_threads_per_warp % BX == 0
-                k0, k, x0, x = s[XX].op.axis
-                kv, k = s[XX].split(k, nparts=(BK * BX) // n_threads_per_block)
-                ko, ki = s[XX].split(k, nparts=(BM // WM))
-                ki, kw = s[XX].split(ki, nparts=(BN // WN))
-                s[XX].reorder(k0, x0, kv, ko, ki, kw, x)
-                kwx = s[XX].fuse(kw, x)
-                s[XX].bind(kv, vthread())
-                s[XX].bind(ko, tz)
-                s[XX].bind(ki, ty)
-                s[XX].bind(kwx, tx)
-                s[XX].double_buffer()
-            else:
-                assert BX % n_threads_per_warp == 0
-                k0, k, x0, x = s[XX].op.axis
-                kv, k = s[XX].split(k, nparts=(BK * BX) // n_threads_per_block)
-                xo, xi = s[XX].split(x, factor=n_threads_per_warp)
-                s[XX].reorder(k0, x0, kv, k, xo, xi)
-                kxo = s[XX].fuse(k, xo)
-                k, xo = s[XX].split(kxo, nparts=(BM // WM))
-                s[XX].bind(kv, vthread())
-                s[XX].bind(k, tz)
-                s[XX].bind(xo, ty)
-                s[XX].bind(xi, tx)
-                s[XX].double_buffer()
+        s[AA].compute_at(s[CL], k1)
+        bind_shared_read(AA, BK, BM)
+        s[AA].double_buffer()
 
-        handle_shared(AA, BM)
-        handle_shared(BB, BN)
+        s[BB].compute_at(s[CL], k1)
+        bind_shared_read(BB, BK, BN)
+        s[BB].double_buffer()
 
     return (
         Epi,
