@@ -1,13 +1,30 @@
 import time
+import math
 import multiprocessing as multi
 from pebble import concurrent
 from concurrent.futures import TimeoutError
 from pebble import ProcessPool, ProcessExpired
 from .measure import (
     MAX_FLOAT,
+    MeasureOptions,
     pebble_local_builder_build_shape_oblivious,
     pebble_local_runner_run_shape_oblivious,
     pebble_rpc_runner_run_shape_oblivious
+)
+
+from .cuda.conv2d_cuda_tensorcore import Conv2dTensorCore as Conv2dCUDATensorCore
+from .cuda.gemm_cuda_tensorcore import GemmTensorCore as GemmCUDATensorCore
+from .cuda.gemm_cuda_general import GemmGeneral as GemmCUDAGeneral
+from .cuda.tune_cuda import (
+    CUDADeviceTensorCoreGenerator,
+    CUDAParams
+)
+
+from .mali.conv2d_mali_general import Conv2dGeneral as Conv2dMaliGeneral
+from .mali.gemm_mali_general import GemmGeneral as GemmMaliGeneral
+from .mali.tune_mali import (
+    MaliDeviceGeneralGenerator,
+    MaliParams
 )
 
 
@@ -118,7 +135,7 @@ def parallel_maximize(
             print("Best params:", top1, flush=True)
 
     toc = time.time()
-    print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
+    print("Search %d trials costs %f seconds" % (iterations, toc - tic), flush=True)
     top1 = None
     top1_value = -MAX_FLOAT
     for gen in generator_lst:
@@ -129,3 +146,122 @@ def parallel_maximize(
             top1_value = best_value
             top1 = best_params
     return top1_value, top1
+
+
+DEVICE_IMPL = {
+    "gemm": {
+        "cuda": {
+            "general": GemmCUDAGeneral,
+            "tensorcore": GemmCUDATensorCore
+        },
+        "mali": {
+            "general": GemmMaliGeneral
+        }
+    },
+    "conv2d": {
+        "cuda": {
+            "tensorcore": Conv2dCUDATensorCore
+        },
+        "mali": {
+            "general": Conv2dMaliGeneral
+        }
+    }
+}
+
+
+DEVICE_PARAMS = {
+    "cuda": CUDAParams,
+    "mali": MaliParams
+}
+
+
+DEVICE_GENERATOR = {
+    "cuda": {
+        "tensorcore": CUDADeviceTensorCoreGenerator
+    },
+    "mali": {
+        "general": MaliDeviceGeneralGenerator
+    }
+}
+
+
+def optimize_device_implementation(
+        shapes, targets, measure_opt, num_generators=4,
+        iterations=300, build_parallel=4,
+        verbose=False, report_period=1,
+        op_name="gemm", device_name="cuda",
+        in_dtype="float32", out_dtype="float32",
+        type_name="general", arch="ampere", code="sm80", tag="double_buffer"):
+    """
+    shapes: [[xx, xx, xx]...]
+    targets: [xxx(ms), xxx, ....]
+    """
+    op_cls = DEVICE_IMPL[op_name][device_name][type_name]
+    param_cls = DEVICE_PARAMS[device_name]
+    gen_cls = DEVICE_GENERATOR[device_name][type_name]
+
+    def compile_impl(params):
+        assert isinstance(params, param_cls)
+        op = op_cls(
+            arch=arch,
+            code=code,
+            tag=tag,
+            in_dtype=in_dtype,
+            out_dtype=out_dtype,
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            instruction_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        return op.expose_compile_context()
+
+    def evaluate_impl(params):
+        assert isinstance(params, param_cls)
+        op = op_cls(
+            arch=arch,
+            code=code,
+            tag=tag,
+            in_dtype=in_dtype,
+            out_dtype=out_dtype,
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            instruction_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        
+        tensor_lst = []
+        var_value_lst = []
+        for shape in shapes:
+            args, vars = op.expose_evaluate_context(*shape)
+            tensor_lst.append(args)
+            var_value_lst.append(vars)
+        return tensor_lst, var_value_lst
+
+    def geomean(lst):
+        assert len(lst) > 0
+        val = 1
+        for v in lst:
+            val *= v
+        return math.pow(val, 1/(len(lst)))
+
+    def relative_perf_geo(lst):
+        rel = []
+        for cost, target in zip(lst, targets):
+            rel.append(target / cost)
+        return geomean(rel)
+
+    class Checker(object):
+        def check(self, *args, **kwargs):
+            return True
+
+    parallel_maximize(
+        compile_impl,
+        evaluate_impl,
+        relative_perf_geo,
+        [gen_cls(arch=arch) for _ in range(num_generators)],
+        measure_opt,
+        # at.search.MaliProgramChecker(arch="g76"),
+        Checker(),
+        iterations=iterations,
+        verbose=verbose,
+        build_parallel=build_parallel,
+        report_period=report_period
+        )

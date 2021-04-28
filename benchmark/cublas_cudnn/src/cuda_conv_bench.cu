@@ -231,7 +231,7 @@ int main(int argc, char **argv) {
 
     int pad_kernels_count = 0;
 
-    int batch = 1;
+    int batch = 32;
 
     for (const auto &problem : res18_v1) {
       // Filter parameters

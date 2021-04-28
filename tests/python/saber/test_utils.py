@@ -34,6 +34,17 @@ def test1():
     print(view_data.asnumpy()[0, 0, 0, 0])
 
 
+@register_test
+def test2():
+    data = np.random.uniform(-1, 1, [100, 10])
+    max_val = np.max(data, axis=0)
+    min_val = np.min(data, axis=0)
+    data = data - min_val
+    print(np.all(data <= 0))
+    data = data / (max_val - min_val)
+    print(np.all(0 <= data) and np.all(data <= 1))
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()

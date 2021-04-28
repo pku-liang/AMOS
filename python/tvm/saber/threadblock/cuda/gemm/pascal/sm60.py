@@ -1,0 +1,4 @@
+from ..common import general
+
+
+threadblock_gemm_general_pascal_sm60_double_buffer = general.threadblock_gemm_general_common_common_double_buffer

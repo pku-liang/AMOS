@@ -1,0 +1,1 @@
+from .sm60 import kernel_gemm_general_perfect_pascal_sm60

@@ -41,6 +41,7 @@ from . import densenet
 from . import yolo_detection
 from . import temp_op_attr
 from . import synthetic
+from . import conv2d
 
 from .init import create_workload, create_workload_with_label
 from .nat import count, make_nat_value, make_nat_expr

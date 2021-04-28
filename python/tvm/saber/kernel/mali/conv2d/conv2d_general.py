@@ -13,5 +13,5 @@ def get_implementation(arch, code, tag):
     try:
         return kernel_implementations[arch][code](tag)
     except Exception as e:
-        print("Can't find implementation for Mali Gemm General.")
         print(e)
+        raise RuntimeError("Can't find implementation for Mali Conv2d General.")

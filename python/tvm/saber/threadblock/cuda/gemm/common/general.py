@@ -10,7 +10,7 @@ from ...utils import (
 )
 
 
-def threadblock_gemm_general(
+def threadblock_gemm_general_common_common_double_buffer(
     Vars,
     threadblock_problem_size,
     warp_problem_size,

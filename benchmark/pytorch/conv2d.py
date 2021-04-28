@@ -1,17 +1,17 @@
 import torch
 import numpy as np
 
-def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
+def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, groups, dtype, allow_tf32=True):
   A_np = np.random.uniform(-10, 10, [N, C, H, W]).astype("float32")
-  B_np = np.random.uniform(-10, 10, [K, C, R, S]).astype("float32")
+  B_np = np.random.uniform(-10, 10, [K, C//groups, R, S]).astype("float32")
 
   # What's supported by NVIDIA? Refer to https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html
 
   # What's supported by pytorch? I don't know
   # Please sudo nvprof them!
 
-  torch.backends.cuda.matmul.allow_tf32 = False
-  torch.backends.cudnn.allow_tf32 = False
+  torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+  torch.backends.cudnn.allow_tf32 = allow_tf32
 
   if dtype == "FP16": # HMMA-16, torch.float16 or torch.half
     A_torch = torch.tensor(A_np).type(torch.float16).cuda()
@@ -47,24 +47,21 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
 
   for i in range(repeats):
       time_record = []
+      torch.cuda.synchronize()
+      start = torch.cuda.Event(enable_timing=True)
+      end = torch.cuda.Event(enable_timing=True)
+      start.record()
       for j in range(number):
-          torch.cuda.synchronize()
-          start = torch.cuda.Event(enable_timing=True)
-          end = torch.cuda.Event(enable_timing=True)
-          start.record()
-
           C_torch = torch.nn.functional.conv2d(A_torch, B_torch, bias=None, stride=stride, 
-            padding=padding, dilation=dilation)
-
-          end.record()
-          torch.cuda.synchronize()
-          total = start.elapsed_time(end)
-          time_record.append(total)
+            padding=padding, dilation=dilation, groups=groups)
+      end.record()
+      torch.cuda.synchronize()
+      total = start.elapsed_time(end)
+      time_record.append(total / number)
       if i == repeats - 1:
         mean_cost = np.mean(time_record)
   #print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
-  print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation, dtype, mean_cost])))
-
+  return mean_cost
 
 
 res18_shapes_b1 = [
@@ -90,12 +87,13 @@ if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
     num = len(res18_shapes_b1)
-    print("N, C, H, W, K, R, S, stride, padding, dilation, type, cost")
+    print("N, C, H, W, K, R, S, stride, padding, dilation, group, type, cost")
     for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
       for batch in batches:
           costs = []
           for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
-              (_, C, H, W, K, _, R, S, _, stride, padding, dilation, _) = shape
+              (_, C, H, W, K, _, R, S, _, stride, padding, dilation, groups) = shape
               N = batch
-              conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype)
+              mean_cost = conv2d(N, C, H, W, K, R, S, stride, padding, dilation, groups, dtype)
+              print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation, groups, dtype, mean_cost])))
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
