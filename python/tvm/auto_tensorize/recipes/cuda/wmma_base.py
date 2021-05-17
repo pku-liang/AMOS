@@ -254,7 +254,7 @@ class WMMABaseRecipe(CompilationRecipe):
         m, n, k = [int(x) for x in shape_key.split("x")]
         return [m, n, k]
 
-    def get_intrinsic(self, compute_key, shape_key, capsule_key):
+    def get_intrinsic(self, compute_key, shape_key, capsule_key, **kwargs):
         """
         ---
         Returns:
@@ -279,6 +279,7 @@ class WMMABaseRecipe(CompilationRecipe):
                 problem_size,
                 ldm,
                 layout,
+                **kwargs
             )
         elif capsule_key == "load_b":
             ldm = k if tB else n
@@ -291,6 +292,7 @@ class WMMABaseRecipe(CompilationRecipe):
                 problem_size,
                 ldm,
                 layout,
+                **kwargs
             )
         elif capsule_key == "mma":
             return capsule.get_intrinsic(
@@ -300,6 +302,7 @@ class WMMABaseRecipe(CompilationRecipe):
                 trans_A=tA,
                 trans_B=tB,
                 trans_C=tC,
+                **kwargs
             )
         elif capsule_key == "store":
             ldm = m if tC else n
@@ -312,6 +315,7 @@ class WMMABaseRecipe(CompilationRecipe):
                 problem_size,
                 ldm,
                 layout,
+                **kwargs
             )
         else:
             raise RuntimeError("Unknown capsule key: %s" % capsule_key)

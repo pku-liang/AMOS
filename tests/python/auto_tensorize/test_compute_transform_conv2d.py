@@ -126,8 +126,8 @@ def test2():
     new_target_dag = new_state.target_dag
     new_inputs = new_target_dag.get_inputs()
     sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
-    # print(tvm.lower(
-    #     sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
+    print(tvm.lower(
+        sch, new_inputs + list(new_target_dag.tensors), simple_mode=True))
     func = tvm.build(sch, new_inputs + list(new_target_dag.tensors), "llvm")
     outputs_arrays = get_tvm_arrays(list(new_target_dag.tensors), ctx)
     func(*inputs_arrays, *outputs_arrays)

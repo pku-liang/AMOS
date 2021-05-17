@@ -268,7 +268,7 @@ class CompilationRecipe(object):
         """
         raise NotImplementedError()
 
-    def get_intrinsic(self, compute_key, shape_key, capsule_key):
+    def get_intrinsic(self, compute_key, shape_key, capsule_key, **kwargs):
         """
         ---
         Returns:

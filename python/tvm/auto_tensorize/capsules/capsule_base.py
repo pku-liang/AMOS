@@ -85,7 +85,7 @@ class CompilationCapsule(object):
         """
         raise NotImplementedError()
 
-    def get_intrinsic(self, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size):
+    def get_intrinsic(self, input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size, **kwargs):
         """
         input_shapes: list of tuple/list of int
         output_shapes: list of tuple/list of int

@@ -38,6 +38,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         ldm,
         layout,
         transpose=False,
+        output_scope="global"
     ):
         """
         input_shapes: list of tuple/list of int
@@ -79,7 +80,7 @@ class WMMAStoreMatrixSync(MemoryCapsule):
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
-                x.shape, x.dtype, scope="global", data_alignment=y, offset_factor=offset_factor
+                x.shape, x.dtype, scope=output_scope, data_alignment=y, offset_factor=offset_factor
             )
             for x, y in zip(outputs, data_alignments)
         ]

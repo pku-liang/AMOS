@@ -112,6 +112,54 @@ class UnrollStepGenerator(CDParamGenerator):
         return len(self.length_map)
 
 
+class InlineGenerator(CDParamGenerator):
+    def __init__(self):
+        self.choices = [0, 1]
+        self.directions = [1, -1]
+        self.init_Q_table()
+
+    def move_towards_direction(self, init, d):
+        des = init + d
+        return des
+
+    def valid(self, init):
+        return 0 <= init <= 1
+
+    def map_to_hidden(self, choice):
+        return choice
+
+    def map_from_hidden(self, init):
+        return init
+
+    def diameter(self):
+        return 2
+
+
+class SplitKGenerator(CDParamGenerator):
+    def __init__(self, steps):
+        self.steps = steps
+        self.choices = list(range(len(self.steps)))
+        self.length_map = {x: y for x, y in zip(self.choices, self.steps)}
+        self.reverse_map = {y: x for x, y in zip(self.choices, self.steps)}
+        self.directions = [1, -1]
+        self.init_Q_table()
+
+    def move_towards_direction(self, init, d):
+        des = init + d
+        return des
+
+    def valid(self, init):
+        return 0 <= init < len(self.steps)
+
+    def map_to_hidden(self, length):
+        return self.reverse_map[length]
+
+    def map_from_hidden(self, init):
+        return self.length_map[init]
+
+    def diameter(self):
+        return len(self.length_map)
+
 
 #####################################################
 # Target specific schedule generator and applier
