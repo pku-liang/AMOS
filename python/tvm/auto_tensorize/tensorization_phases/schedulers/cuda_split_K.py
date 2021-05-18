@@ -860,8 +860,6 @@ class CUDAScheduleApplierSplitK(object):
                     reserve_reduce_axis.append(iv)
                 else:
                     split_reduce_axis.append(iv)
-            reserve_reduce_num = len(reserve_reduce_axis)
-            print(all_reduce_axis)
             
             # TODO: how to support more general scenarios?
             assert len(split_reduce_axis) == 1 and len(reserve_reduce_axis) == 1
@@ -925,8 +923,7 @@ class CUDAScheduleApplierSplitK(object):
             assert len(rk_lst) > 0
             rki = rk_lst[-1]
             rk_lst = rk_lst[:-1]
-            print("################3")
-            print(rk_lst)
+            
             sch[LL].reorder(*split_spatial_axis, *rk_lst, *reserve_spatial_axis, rki)
             intrin = self.recipe.get_intrinsic(
                 self.compute_key, self.shape_key, self.recipe_stage.capsule_key[self.main_op])
