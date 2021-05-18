@@ -172,6 +172,24 @@ class UnfoldChoiceGenerator(CDParamGenerator):
     def valid(self, init):
         return 0 <= init < len(self.choices)
 
+    # def get_random_direction(self, init):
+    #     one_choice = None
+    #     zero_choice = None
+    #     neg_one_choice = None
+    #     for d, (des, q_value) in self.Q_table[self.to_hashable(init)].items():
+    #         if d == 0:
+    #             zero_choice = (d, des)
+    #         elif d == 1:
+    #             one_choice = (d, des)
+    #         elif d == -1:
+    #             neg_one_choice = (d, des)
+    #     random = np.random.random()
+    #     if random < 0.2:
+    #         return one_choice if one_choice is not None else zero_choice
+    #     if random > 0.8:
+    #         return neg_one_choice if neg_one_choice is not None else zero_choice
+    #     return zero_choice
+
 
 class Record(object):
     def __init__(self, unfold_choice):

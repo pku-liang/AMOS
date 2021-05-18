@@ -153,7 +153,7 @@ class SAEntryGenerator(EntryGenerator):
         self.steps = steps
         self.log_file = log_file
         self.allow_repeat = allow_repeat
-        self.topk = topk
+        self.topk_num = topk
         self.init_logger()
         self.last_choice = None
         self.last_value = 0.0
@@ -212,7 +212,7 @@ class SAEntryGenerator(EntryGenerator):
                 record = self.get_record(policy="random")
             elif policy == "q":
                 if self.greedy(i+1):
-                    entry = self.sa_select_entry(max_num=self.topk)
+                    entry = self.sa_select_entry(max_num=self.topk_num)
                     record = self.get_record(entry=entry, policy="q")
                 else:
                     record = self.get_record(policy="random")
@@ -320,7 +320,7 @@ class SAEntryGenerator(EntryGenerator):
                 yield self.get(repeat=repeat)
             else:
                 if self.greedy(count):
-                    entry = self.sa_select_entry(max_num=self.topk)
+                    entry = self.sa_select_entry(max_num=self.topk_num)
                     record = entry.record
                     self.last_value = entry.value
                     # select one generator

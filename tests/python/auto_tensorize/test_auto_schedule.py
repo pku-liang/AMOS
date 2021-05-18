@@ -39,7 +39,7 @@ def register_test(func):
         print("Can't convert to number", name[len(prefix):])
 
 
-def conv2d(N, C, H, W, K, R, S, stride, padding):
+def conv2d(N, C, H, W, K, R, S, stride, padding, with_bias=True):
     H = H + 2 * padding
     W = W + 2 * padding
     A = tvm.te.placeholder([N, C, H, W], dtype="float16", name="A")
@@ -57,6 +57,8 @@ def conv2d(N, C, H, W, K, R, S, stride, padding):
                         ).astype("float32"), axis=[rc, rr, rs]),
         name="Conv"
     )
+    if not with_bias:
+        return [A, B, Conv]
     bias = tvm.te.placeholder([N, K, P, Q], dtype="float32", name="bias")
     E = tvm.te.compute(
         [N, K, P, Q],
@@ -662,6 +664,7 @@ def pebble_local_build_worker(index):
 
         try:
             sch = sch_app.apply(sch, params)
+            print(tvm.lower(sch, args, simple_mode=True))
         # pylint: disable=broad-except
         except Exception:
             error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
@@ -1257,6 +1260,135 @@ def test4():
             timeout=timeout,
             build_func=build_func,
             verbose=verbose)
+
+        for r in build_results:
+            print(r)
+        
+        number = 1
+        repeat = 1
+        min_repeat_ms = 150
+        cooldown_interval = 1
+        enable_cpu_cache_flush = 1
+
+        run_results = pebble_local_runner_run(
+            recipe.target,
+            0,
+            build_results,
+            timeout,
+            number,
+            repeat,
+            min_repeat_ms,
+            cooldown_interval,
+            enable_cpu_cache_flush,
+            verbose
+        )
+
+        for r in run_results:
+            print(r)
+
+        gen.feedback(record, np.random.random())
+    end = time.time()
+    print("Pass %f seconds." % (end - beg))
+    print("Pass!\n")
+
+
+@register_test
+def test5():
+    print("##########################")
+    print("Test 5")
+    recipe = at.WMMAFp16Fp32()
+    compute_key = "nnn"
+    shape_key = "16x16x16"
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    A, B, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1, with_bias=False)
+    target_dag = at.compute_dag_from_tensors([E])
+
+    # inputs_ref = target_dag.get_inputs()
+    sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    print(tvm.lower(sch_ref, [A, B, E], simple_mode=True))
+    # func_ref = tvm.build(sch_ref, inputs_ref +
+    #                      list(target_dag.tensors), "llvm")
+    # ctx = tvm.cpu()
+    # inputs_np_arrays = get_np_arrays(inputs_ref)
+    # inputs_arrays = get_tvm_arrays_from_np_arrays(inputs_np_arrays, ctx)
+    # outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
+    # func_ref(*inputs_arrays, *outputs_arrays_ref)
+
+    main_op_map = {
+        intrin_dag.op_lst[0]: target_dag.op_lst[0]
+    }
+    elem_op_map = {
+    }
+    ii, jj = intrin_dag.op_lst[0].axis
+    kk, = intrin_dag.op_lst[0].reduce_axis
+    n, k, p, q = target_dag.op_lst[0].axis
+    rc, rr, rs = target_dag.op_lst[0].reduce_axis
+    axis_map = {
+        ii: [n, n, n, p, p, q, q],
+        jj: [k, k, k, k, k, k, k],
+        kk: [rc, rr, rs, rc, rs, rc, rr]
+    }
+    match_result = at.IntrinMatchResult(
+        recipe, compute_key, shape_key,
+        main_op_map, elem_op_map,
+        axis_map, target_dag, intrin_dag
+    )
+
+    gen = at.TransformGenerator(match_result)
+    beg = time.time()
+    for i in range(1):
+        record = gen.get(policy="random")
+        record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+ 
+        print("transform decision:")
+        for k, v in record.to_json().items():
+            print(k, "=", v)
+
+        app = at.TransformApplier(match_result)
+        new_state = app.apply(record)
+
+        schedule_gen = at.CUDAScheduleGeneratorSplitK(match_result, new_state)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = at.CUDAScheduleApplierSplitK(match_result, sc_info)
+        params_lst = []
+        trials = 1
+        print("trials=", trials)
+        for j in range(trials):
+            params = schedule_gen.get(policy="random")
+            my_params = {
+                'split_K': (4, 0),
+                'inline': (0, 1),
+                'vectorize': (1, 1),
+                'spatial_factors': [([1, 1, 1], (0, 0)), ([4, 1, 1], (-1, 1)), ([14, 1, 1], (-1, -1))],
+                'reduce_factors': [([3, 3, 4], (1, 1)), ([1, 1, 3], (0, -1))],
+                'last_factors': [([-1, 32], (-1,))],
+                'output_unroll_step': (64, -1),
+                'last_unroll_step': (512, 1)}
+            params.from_json(my_params)
+            params_lst.append(params)
+
+        build_func = "default"
+        target_host = "llvm"
+        timeout = 150
+        verbose = 1
+
+        # build_results = tg_parallel_builder_build(
+        #     schedule_app,
+        #     params_lst,
+        #     recipe.target,
+        #     target_host,
+        #     timeout=timeout,
+        #     build_func=build_func,
+        #     verbose=verbose)
+
+        build_results = pebble_local_builder_build(
+            schedule_app,
+            params_lst,
+            recipe.target,
+            target_host,
+            timeout,
+            1,
+            build_func=build_func)
 
         for r in build_results:
             print(r)

@@ -5,7 +5,10 @@ import tvm
 import tvm._ffi
 from .search import pebble_local_builder_build, pebble_local_runner_run
 from .tensorization_phases import get_match_results, TransformGenerator, TransformApplier
-from .tensorization_phases import CUDAScheduleGenerator, CUDAScheduleApplier, CUDAScheduleGeneratorV2, CUDAScheduleApplierV2
+from .tensorization_phases import (
+    CUDAScheduleGenerator, CUDAScheduleApplier,
+    CUDAScheduleGeneratorV2, CUDAScheduleApplierV2,
+    CUDAScheduleGeneratorSplitK, CUDAScheduleApplierSplitK)
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
     CUDAScheduleApplierMultiReduce
 from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
@@ -84,16 +87,25 @@ def auto_tensorize_schedule(target_dag, target,
                             builder=pebble_local_builder_build,
                             runner=pebble_local_runner_run,
                             verbose=False,
-                            search_batch=16):
+                            search_batch=16,
+                            enable_split_K=False):
     if match_result is None or new_state is None:
         return AutoTensorizeResult(None, None, None, None)
     if str(target) == "cuda":
-        schedule_gen = CUDAScheduleGenerator(
-            match_result, new_state, log_file=log_file)
-        if os.path.exists(log_file) and os.path.isfile(log_file):
-            schedule_gen.load_from_file(log_file)
-        sc_info = schedule_gen.get_schedule_compute_info()
-        schedule_app = CUDAScheduleApplier(match_result, sc_info)
+        if enable_split_K:
+            schedule_gen = CUDAScheduleGeneratorSplitK(
+                match_result, new_state, log_file=log_file)
+            if os.path.exists(log_file) and os.path.isfile(log_file):
+                schedule_gen.load_from_file(log_file)
+            sc_info = schedule_gen.get_schedule_compute_info()
+            schedule_app = CUDAScheduleApplierSplitK(match_result, sc_info)
+        else:
+            schedule_gen = CUDAScheduleGenerator(
+                match_result, new_state, log_file=log_file)
+            if os.path.exists(log_file) and os.path.isfile(log_file):
+                schedule_gen.load_from_file(log_file)
+            sc_info = schedule_gen.get_schedule_compute_info()
+            schedule_app = CUDAScheduleApplier(match_result, sc_info)
         checker = CUDAProgramChecker(
             arch=get_cuda_compute_version(measure_opt.dev_id))
     elif str(target) == "opencl":
@@ -140,7 +152,8 @@ def auto_tensorize(target_dag, target,
                    verbose=False,
                    transform_dump=False,
                    transform_policy="all_fit",
-                   search_batch=16):
+                   search_batch=16,
+                   enable_split_K=False):
     match_result, new_state = auto_tensorize_compute(
         target_dag,
         target,
@@ -161,7 +174,8 @@ def auto_tensorize(target_dag, target,
         builder,
         runner,
         verbose,
-        search_batch
+        search_batch,
+        enable_split_K
     )
 
 
@@ -268,7 +282,8 @@ def auto_tensorize_v3(
         transform_dump=False,
         search_batch=5,
         desired_compute_key=None,
-        desired_shape_key=None):
+        desired_shape_key=None,
+        enable_split_K=False):
 
     measure_opt.target = target
     match_results = get_match_results(target_dag, target)
@@ -290,7 +305,8 @@ def auto_tensorize_v3(
     else:
         compute_key_match_results = match_results
     if len(compute_key_match_results) == 0:
-        print("No match result matches desired compute key:", desired_compute_key, flush=True)
+        print("No match result matches desired compute key:",
+              desired_compute_key, flush=True)
         return None, None
     shape_key_match_results = []
     if desired_shape_key is not None:
@@ -300,7 +316,8 @@ def auto_tensorize_v3(
     else:
         shape_key_match_results = compute_key_match_results
     if len(shape_key_match_results) == 0:
-        print("No match result matches desired shape key:", desired_shape_key, flush=True)
+        print("No match result matches desired shape key:",
+              desired_shape_key, flush=True)
         return None, None
 
     match_result = shape_key_match_results[0]
@@ -309,7 +326,7 @@ def auto_tensorize_v3(
         print("Axis map:", flush=True)
         for k, v in match_result.axis_map.items():
             print(k, ":", v, flush=True)
-    
+
     gen = TransformGenerator(
         match_result, log_file=transform_log_file, allow_repeat=True)
     if os.path.exists(transform_log_file) and os.path.isfile(transform_log_file):
@@ -357,12 +374,20 @@ def auto_tensorize_v3(
         else:
             current_log_file = str(record_key) + "_" + schedule_log_file
             if str(target) == "cuda":
-                schedule_gen = CUDAScheduleGeneratorV2(
-                match_result, new_state, log_file=current_log_file)
-                if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
-                    schedule_gen.load_from_file(current_log_file)
-                sc_info = schedule_gen.get_schedule_compute_info()
-                schedule_app = CUDAScheduleApplierV2(match_result, sc_info)
+                if not enable_split_K:
+                    schedule_gen = CUDAScheduleGeneratorV2(
+                        match_result, new_state, log_file=current_log_file)
+                    if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        schedule_gen.load_from_file(current_log_file)
+                    sc_info = schedule_gen.get_schedule_compute_info()
+                    schedule_app = CUDAScheduleApplierV2(match_result, sc_info)
+                else:
+                    schedule_gen = CUDAScheduleGeneratorSplitK(
+                    match_result, new_state, log_file=current_log_file)
+                    if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        schedule_gen.load_from_file(current_log_file)
+                    sc_info = schedule_gen.get_schedule_compute_info()
+                    schedule_app = CUDAScheduleApplierSplitK(match_result, sc_info)
                 checker = CUDAProgramChecker(
                     arch=get_cuda_compute_version(measure_opt.dev_id))
             elif str(target) == "opencl":
@@ -413,7 +438,8 @@ def auto_tensorize_v3(
             best_ctx = sch_ctx
             best_params = params
 
-        print(f"Iteration: {it+1}: {value}/{best_value}, {str(record)}, {str(params)}", flush=True)
+        print(
+            f"Iteration: {it+1}: {value}/{best_value}, {str(record)}, {str(params)}", flush=True)
 
         if (it + 1) % 10 == 0:
             print("Show transformation explore summary:", flush=True)
