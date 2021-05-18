@@ -103,75 +103,53 @@ def transform_main_op(init, request):
     return n
 
 
-# class UnfoldChoiceGenerator(CDParamGenerator):
-#     def __init__(self, num_choices):
-#         self.choices = bi_product(num_choices)
-#         self.directions = []
-#         # d = [0 for _ in range(num_choices)]
-#         # self.directions.append(d)
-#         for i in range(num_choices):
-#             d = [0 for _ in range(num_choices)]
-#             d[i] = 1
-#             self.directions.append(d)
-#         self.init_Q_table()
-
-#     def map_to_hidden(self, factors):
-#         return factors
-
-#     def map_from_hidden(self, init):
-#         return init
-
-#     def move_towards_direction(self, init, d):
-#         ret = []
-#         for a, b in zip(init, d):
-#             ret.append((a + b) % 2)
-#         return ret
-
-#     def valid(self, init):
-#         return reduce(lambda x, y: x + y, init, 0) > 0
-
-
 class UnfoldChoiceGenerator(CDParamGenerator):
-    def __init__(self, axis_map):
-        self.unfolds = []
-        # value_map = {}
-        # value = 1
-        # k_value = 1
+    def __init__(self, axis_map, unify=True):
         num_items = 0
+        keys = []
+        values = []
         for k, lst in axis_map.items():
             tmp_num_items = len(lst)
             if num_items:
                 assert num_items == tmp_num_items
             num_items = tmp_num_items
-            # for l in lst:
-            #     if l not in value_map:
-            #         value_map[l] = value
-            #         value *= 2
-            # if k not in value_map:
-            #     value_map[k] = k_value
-            #     k_value *= 3
-        # choices = bi_product(num_items)
-        # visited = set()
-        # for bit_vec in choices:
-        #     tmp_set = {}
-        #     for ind, v in enumerate(bit_vec):
-        #         if v:
-        #             for k, lst in axis_map.items():
-        #                 if k not in tmp_set:
-        #                     tmp_set[k] = set()
-        #                 tmp_set[k].add(lst[ind])
-        #     if tmp_set:
-        #         unique_value = 0
-        #         for k, s in tmp_set.items():
-        #             tmp_value = 0
-        #             for v in s:
-        #                 tmp_value += value_map[v]
-        #             unique_value += tmp_value * value_map[k]
-        #         if unique_value not in visited:
-        #             visited.add(unique_value)
-        #             self.unfolds.append(bit_vec)
+            keys.append(k)
+            values.append(lst)
+        if unify:
+            tuples = list(zip(*values))
 
-        self.unfolds = bi_product(num_items)
+            def unify_helper(bit_vec, tuples, visited, results):
+                super_tuple = []
+                num_key = len(tuples[0])
+                for i, bit in enumerate(bit_vec):
+                    if bit:
+                        super_tuple.append(tuples[i])
+                if not super_tuple:
+                    return
+                merged_tuple = []
+                for i in range(num_key):
+                    tmp = set()
+                    for v in super_tuple:
+                        tmp.add(str(v[i].var.name))
+                    merged_tuple.append(tuple(sorted(list(tmp))))
+                merged_tuple = tuple(merged_tuple)
+
+                if merged_tuple in visited:
+                    return
+                else:
+                    visited.add(merged_tuple)
+                    results.append(bit_vec)
+
+            unfolds = bi_product(num_items)
+            visited = set()
+            unified_unfolds = []
+            for bit_vec in unfolds:
+                unify_helper(bit_vec, tuples, visited, unified_unfolds)
+
+            self.unfolds = unified_unfolds
+        else:
+            self.unfolds = bi_product(num_items)
+        print(f"Totally {len(self.unfolds)} different choices for layout transformation", flush=True)
         # self.unfolds = [[1 for _ in range(num_items)]]
         self.choices = list(range(len(self.unfolds)))
         self.reverse_map = {self.to_hashable(

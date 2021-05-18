@@ -1,4 +1,5 @@
 import os
+from .utils import bi_product
 from .search.measure import MAX_FLOAT
 import tvm
 import tvm._ffi

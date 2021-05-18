@@ -84,8 +84,20 @@ def intrinsic_match(target: te.Tensor, intrin: te.Tensor, main_capsule: te.Tenso
     flattened = _ffi_api.MatchIntrinsic(target, intrin, main_capsule)
     # Map<Operation, Array<Map<IterVar, IterVar>>>
     results = dict(zip(flattened[0], flattened[1]))
+
+    def key_helper(x):
+        s = set()
+        for axis in x[0]:
+            s.add(axis.var.name)
+        return str(list(sorted(tuple(s))))
+
+    new_results = {}
+    for op, itervarmaps in results.items():
+        sorted_maps = list(sorted(itervarmaps, key=lambda x: key_helper(x)))
+        new_results[op] = sorted_maps
+
     results = {
-        op: [dict(zip(m[0], m[1])) for m in itervarmaps] for op, itervarmaps in results.items()
+        op: [dict(zip(m[0], m[1])) for m in itervarmaps] for op, itervarmaps in new_results.items()
     }
     return results
 
@@ -140,6 +152,7 @@ def get_match_result_with_recipe(target_dag, recipe, compute_key, shape_key):
         axis_map = {
             iiv : [] for iiv in list(intrin_axis) + list(intrin_reduce_axis)
         }
+        unsorted_tuples = []
         for point in match_points:
             for tiv, iiv in point.items():
                 axis_map[iiv].append(tiv)
