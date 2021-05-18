@@ -1,5 +1,5 @@
 import os
-from .utils import bi_product
+import time
 from .search.measure import MAX_FLOAT
 import tvm
 import tvm._ffi
@@ -338,6 +338,7 @@ def auto_tensorize_v3(
         schedule_trials = 0
         pure_test = True
         print("Pure testing mode...", flush=True)
+    beg = time.time()
     for it in range(iterations):
         if not pure_test:
             record = gen.get_next(policy="random")
@@ -350,11 +351,11 @@ def auto_tensorize_v3(
         print(f"Choose transform: {record}", flush=True)
         new_state = app.apply(record)
 
-        record_key = str(record)
+        record_key = record.as_key()
         if record_key in schedule_context_cache:
             sch_ctx = schedule_context_cache[record_key]
         else:
-            current_log_file = record_key + "_" + schedule_log_file
+            current_log_file = str(record_key) + "_" + schedule_log_file
             if str(target) == "cuda":
                 schedule_gen = CUDAScheduleGeneratorV2(
                 match_result, new_state, log_file=current_log_file)
@@ -419,6 +420,8 @@ def auto_tensorize_v3(
             for k, v in schedule_context_cache.items():
                 print(f"{str(k)}: {v.schedule_gen.num_entries()}", flush=True)
 
+    end = time.time()
+    print(f"Tensorize use time {(end - beg)} s.", flush=True)
     return AutoTensorizeResult(
         best_ctx.schedule_gen,
         best_ctx.schedule_app,

@@ -181,6 +181,9 @@ class Record(object):
     def to_json(self):
         return {"unfold": self.unfold_choice}
 
+    def as_key(self):
+        return tuple(self.unfold_choice[0])
+
     def __str__(self):
         return json.dumps(self.to_json())
 
