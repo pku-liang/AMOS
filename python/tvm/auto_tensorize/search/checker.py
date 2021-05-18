@@ -35,6 +35,11 @@ class CUDACheckScope(object):
     kThread = 3
 
 
+class EmptyChecker(Checker):
+    def check(self, ir_module):
+        pass
+
+
 class CUDAProgramChecker(Checker):
     def __init__(
         self,

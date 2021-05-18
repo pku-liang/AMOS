@@ -12,7 +12,10 @@ from .tensorization_phases import (
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
     CUDAScheduleApplierMultiReduce
 from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
-from .search import CUDAProgramChecker, MaliProgramChecker, find_optimized_parameters, find_optimized_parameters_v2
+from .search import (
+    EmptyChecker, CUDAProgramChecker,
+    MaliProgramChecker,
+    find_optimized_parameters, find_optimized_parameters_v2)
 from .target import get_cuda_compute_version
 from .policy import first_fit, best_fit, all_fit
 
@@ -99,6 +102,8 @@ def auto_tensorize_schedule(target_dag, target,
                 schedule_gen.load_from_file(log_file)
             sc_info = schedule_gen.get_schedule_compute_info()
             schedule_app = CUDAScheduleApplierSplitK(match_result, sc_info)
+            # relaxed checker for split K
+            checker = EmptyChecker()
         else:
             schedule_gen = CUDAScheduleGenerator(
                 match_result, new_state, log_file=log_file)
@@ -106,8 +111,8 @@ def auto_tensorize_schedule(target_dag, target,
                 schedule_gen.load_from_file(log_file)
             sc_info = schedule_gen.get_schedule_compute_info()
             schedule_app = CUDAScheduleApplier(match_result, sc_info)
-        checker = CUDAProgramChecker(
-            arch=get_cuda_compute_version(measure_opt.dev_id))
+            checker = CUDAProgramChecker(
+                arch=get_cuda_compute_version(measure_opt.dev_id))
     elif str(target) == "opencl":
         schedule_gen = MaliScheduleGenerator(
             match_result, new_state, log_file=log_file)

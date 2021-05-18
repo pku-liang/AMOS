@@ -222,7 +222,7 @@ class CUDAScheduleGeneratorSplitK(AcceleratorScheduleGenerator):
         self.last_splits = [
             SplitFactorGenerator((last_total_extent + self.warp_size - 1) // self.warp_size,
                                  self.last_op_tiling_parts)]
-        self.split_K = SplitKGenerator([1, 2, 4, 8])
+        self.split_K = SplitKGenerator([1, 4, 4, 8, 8, 16, 16])
         self.inline = InlineGenerator()
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)
@@ -930,6 +930,7 @@ class CUDAScheduleApplierSplitK(object):
             sch[LL].tensorize(reserve_spatial_axis[0], intrin)
 
             self.state.main_op_reduce_axis = [[x] for x in rk_lst]
+
             self.main_op = LL.op
         elif op == self.output_op:
             axis = sch[X(op)].op.axis

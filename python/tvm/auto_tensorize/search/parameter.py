@@ -384,6 +384,25 @@ def find_optimized_parameters(
             if b * batch_size + i < trials:
                 # params = schedule_gen.get(policy=policy)
                 params = schedule_gen.get_next(policy=policy)
+                # my_params = {
+                #     'split_K': (4, 0),
+                #     'inline': (0, 1),
+                #     'vectorize': (2, 1),
+                #     'spatial_factors': [([2, 1, 1, 2], (0, 0)), ([4, 1, 1, 2], (-1, 1)), ([14, 1, 1, 1], (-1, -1))],
+                #     'reduce_factors': [([3, 2, 2], (1, 1)), ([1, 1, 3], (0, -1))],
+                #     'last_factors': [([-1, 32], (-1,))],
+                #     'output_unroll_step': (64, -1),
+                #     'last_unroll_step': (512, 1)}
+                # my_params = {
+                #     'split_K': (4, 0),
+                #     'inline': (0, 1),
+                #     'vectorize': (4, 1),
+                #     'spatial_factors': [([5, 1, 1, 1], (0, 0)), ([4, 1, 1, 2], (-1, 1)), ([14, 1, 1, 1], (-1, -1))],
+                #     'reduce_factors': [([3, 2, 2], (1, 1)), ([1, 1, 3], (0, -1))],
+                #     'last_factors': [([-1, 32], (-1,))],
+                #     'output_unroll_step': (64, -1),
+                #     'last_unroll_step': (512, 1)}
+                # params.from_json(my_params)
                 # print(str(params))
                 params_lst.append(params)
         assert params_lst
