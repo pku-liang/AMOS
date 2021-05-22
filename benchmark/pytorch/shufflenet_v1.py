@@ -117,7 +117,7 @@ class ShuffleNet(nn.Module):
 if __name__ == "__main__":
     # The following code is used for profiling with dummy data input on CUDA 0
     print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = False
+    torch.backends.cudnn.enabled = True
     batch_size = 16
 
     model = ShuffleNet().cuda().half()
