@@ -160,39 +160,50 @@ class TGAutoScheduleContext(object):
     print(self.subgraph.tag, flush=True)
     print("Autoscheduling %s by %d trials..." % (self.log_name, trials), flush=True)
     self.total_trials += trials
+    batch_size = 10
+    iterations = (trials + batch_size - 1) // batch_size
     beg = time.time()
-    for i in range(trials):
-      # this one is get new schedule
-      self.result = self.get_new_schedule()
-      # measure current result
-      sch = self.result.schedule
-      args = self.result.tensors
-      timecost = at.evaluate_schedule(
-        sch, args, self.measure_option, new_process=True)
-      # timecost = 1.0
-      perf = 1.0 / (timecost + 1e-10)
-      if perf > self.best_perf:
-        self.best_perf = perf
-        self.best_result = self.result
-        entity = tg.multi_schedule_entity_to_string(self.result.schedule_entities)
-        log = {"entity": entity, "perf": perf}
-        print(
-          json.dumps(log),
-          file=self.logger, flush=True)
-        print(".B", end="", flush=True)
-      elif timecost != at.MAX_FLOAT:
-        print(".N", end="", flush=True)
-      self.count()
-      # this one is feedback
-      tg.get_schedule_result(
-        self.name, self.subgraph, self.target,
-        self.measure_option.dev_id, self.measure_option.timeout,
-        perf, True, self.result)
+    for i in range(iterations):
+      schs = []
+      args_lst = []
+      results = []
+      for j in range(batch_size):
+        # this one is get new schedule
+        result = self.get_new_schedule()
+        # measure current result
+        results.append(result)
+        sch = result.schedule
+        args = result.tensors
+        schs.append(sch)
+        args_lst.append(args)
+      
+      timecosts = at.evaluate_schedules(
+        schs, args_lst, self.measure_option)
+      
+      for result, timecost in zip(results, timecosts):
+        # timecost = 1.0
+        perf = 1.0 / (timecost + 1e-10)
+        if perf > self.best_perf:
+          self.best_perf = perf
+          self.best_result = result
+          entity = tg.multi_schedule_entity_to_string(result.schedule_entities)
+          log = {"entity": entity, "perf": perf}
+          print(
+            json.dumps(log),
+            file=self.logger, flush=True)
+          print(".B", end="", flush=True)
+        elif timecost != at.MAX_FLOAT:
+          print(".N", end="", flush=True)
+        self.count()
+        # this one is feedback
+        tg.get_schedule_result(
+          self.name, self.subgraph, self.target,
+          self.measure_option.dev_id, self.measure_option.timeout,
+          perf, True, result)
     end = time.time()
     print("Schedule cost %f seconds" % (end - beg))
 
-    sch = self.result.schedule
-    args = self.result.tensors
+    sch, args, perf = self.get_best_schedule()
     return sch, args
 
   def get_best_schedule(self):
@@ -329,12 +340,12 @@ class AutoTensorizeContext(object):
     assert self.new_state is not None
 
     if str(self.measure_option.target) == "cuda":
-      self.schedule_gen = at.CUDAScheduleGenerator(
+      self.schedule_gen = at.CUDAScheduleGeneratorV2(
           self.match_result, self.new_state, log_file=self.log_name)
       if os.path.exists(self.log_name) and os.path.isfile(self.log_name):
         self.schedule_gen.load_from_file(self.log_name)
       sc_info = self.schedule_gen.get_schedule_compute_info()
-      self.schedule_app = at.CUDAScheduleApplier(self.match_result, sc_info)
+      self.schedule_app = at.CUDAScheduleApplierV2(self.match_result, sc_info)
       self.checker = at.CUDAProgramChecker(
         arch=at.get_cuda_compute_version(self.measure_option.dev_id))
     else:
@@ -374,6 +385,238 @@ class AutoTensorizeContext(object):
     return self.measure_option
 
 
+class AutoTensorizeContextV2(object):
+  @classmethod
+  def can_use(cls, name, subgraph, measure_option):
+    target_dag = at.compute_dag_from_tensors(
+      [x.output(0) for x in subgraph.root_ops])
+    measure_option = measure_option
+    match_results = at.get_match_results(target_dag, measure_option.target)
+    return len(match_results) > 0
+
+  def __init__(self, name, subgraph, measure_option):
+    self.name = name
+    self.subgraph = subgraph
+    self.target_dag = at.compute_dag_from_tensors(
+      [x.output(0) for x in subgraph.root_ops])
+    self.measure_option = measure_option
+    task_name = name
+    self.log_name = "at:" + task_name + ":transform" + ".log"
+    match_results = at.get_match_results(self.target_dag, measure_option.target)
+
+    self.total_trials = 0
+
+    assert len(match_results) > 0
+    self.match_result = match_results[0]
+
+    self.gen = at.TransformGenerator(
+        self.match_result, log_file=self.log_name, allow_repeat=True)
+    if os.path.exists(self.log_name) and os.path.isfile(self.log_name):
+        self.gen.load_from_file(self.log_name)
+    self.app = at.TransformApplier(self.match_result, verbose=True)
+
+    class ScheduleContext:
+        def __init__(self, schedule_gen, schedule_app, sc_info, checker, generate_schedule):
+            self.schedule_gen = schedule_gen
+            self.schedule_app = schedule_app
+            self.sc_info = sc_info
+            self.checker = checker
+            self.generate_schedule = generate_schedule
+
+    self.schedule_ctx_cls = ScheduleContext
+
+    self.schedule_context_cache = {}
+    self.best_value = 1 / at.MAX_FLOAT
+    self.best_ctx = None
+    self.best_params = None
+    self.pure_test = False
+    self.drop_output = False
+    self.enable_split_K = False
+    self.use_shared_store = False
+
+    self.builder = at.pebble_local_builder_build
+    self.runner = at.pebble_local_runner_run
+
+  def auto_schedule(self, trials):
+    print("#############################################", flush=True)
+    print(self.subgraph.tag, flush=True)
+    print("Autoscheduling %s..." % self.log_name, flush=True)
+    self.total_trials += trials
+    schedule_trials = 20
+    iterations = trials // schedule_trials
+
+    if iterations == 0:
+        iterations = 1
+        schedule_trials = 0
+        self.pure_test = True
+        print("Pure testing mode...", flush=True)
+    beg = time.time()
+    for it in range(iterations):
+        if not self.pure_test:
+            record = self.gen.get_next(policy="random")
+        else:
+            try:
+                entry = self.gen.get_best_entry()
+                record = entry.record
+            except Exception as e:
+                raise RuntimeError("Can't get previous results for test mode.")
+        print(f"Choose transform: {record}", flush=True)
+        new_state = self.app.apply(record, drop_output=self.drop_output)
+
+        record_key = record.as_key()
+        if record_key in self.schedule_context_cache:
+            sch_ctx = self.schedule_context_cache[record_key]
+        else:
+            current_log_file = "at:" + ":".join(self.log_name.split(":")[1:3]) + ":schedule:" + str(record_key) + ".log"
+            if str(self.measure_option.target) == "cuda":
+                if not self.enable_split_K:
+                    if self.use_shared_store:
+                        schedule_gen = at.CUDAScheduleGeneratorV3(
+                            self.match_result, new_state, log_file=current_log_file)
+                        if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                            schedule_gen.load_from_file(current_log_file)
+                        sc_info = schedule_gen.get_schedule_compute_info()
+                        schedule_app = at.CUDAScheduleApplierV3(self.match_result, sc_info)
+                    else:
+                        schedule_gen = at.CUDAScheduleGeneratorV2(
+                            self.match_result, new_state, log_file=current_log_file)
+                        if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                            schedule_gen.load_from_file(current_log_file)
+                        sc_info = schedule_gen.get_schedule_compute_info()
+                        schedule_app = at.CUDAScheduleApplierV2(self.match_result, sc_info)
+                else:
+                    schedule_gen = at.CUDAScheduleGeneratorSplitK(
+                    self.match_result, new_state, log_file=current_log_file)
+                    if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        schedule_gen.load_from_file(current_log_file)
+                    sc_info = schedule_gen.get_schedule_compute_info()
+                    schedule_app = at.CUDAScheduleApplierSplitK(self.match_result, sc_info)
+                checker = at.CUDAProgramChecker(
+                    arch=at.get_cuda_compute_version(self.measure_option.dev_id))
+            elif str(self.measure_option.target) == "opencl":
+                schedule_gen = at.MaliScheduleGenerator(
+                    self.match_result, new_state, log_file=current_log_file)
+                if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                    schedule_gen.load_from_file(current_log_file)
+                sc_info = schedule_gen.get_schedule_compute_info()
+                schedule_app = at.MaliScheduleApplier(self.match_result, sc_info)
+                # TODO: write a checker for MALI GPU
+                checker = at.MaliProgramChecker(arch="g76")
+            else:
+                raise RuntimeError("Do not support target: %s" % self.measure_option.target)
+
+            # use tuning to find params
+            if schedule_trials:
+                generate_schedule = at.find_optimized_parameters_v2(
+                    self.match_result, schedule_gen, schedule_app,
+                    self.measure_option, checker, schedule_trials,  # policy="random",
+                    builder=self.builder,
+                    runner=self.runner,
+                    verbose=False,
+                    batch_size=10)
+            else:
+                generate_schedule = None
+
+            sch_ctx = self.schedule_ctx_cls(
+                schedule_gen, schedule_app, sc_info, checker, generate_schedule
+            )
+            self.schedule_context_cache[record_key] = sch_ctx
+
+        if sch_ctx.generate_schedule is not None:
+            value, params = next(sch_ctx.generate_schedule)
+        try:
+            entry = sch_ctx.schedule_gen.get_best_entry()
+            # we store 1/time_cost in file
+            params, value = entry.record, entry.value
+            # print("Evaluation only:", params, value, flush=True)
+            if not self.pure_test:
+                self.gen.feedback(record, value)
+        except Exception as e:
+            params = None
+            value = 1 / at.MAX_FLOAT
+
+        # record the best
+        if value > self.best_value:
+            self.best_value = value
+            self.best_ctx = sch_ctx
+            self.best_params = params
+
+        print(
+            f"Iteration: {it+1}: {value}/{self.best_value}, {str(record)}, {str(params)}", flush=True)
+
+        if (it + 1) % 10 == 0:
+            print("Show transformation explore summary:", flush=True)
+            for k, v in self.schedule_context_cache.items():
+                print(f"{str(k)}: {v.schedule_gen.num_entries()}", flush=True)
+
+    end = time.time()
+    print(f"Tensorize use time {(end - beg)} s.", flush=True)
+    sch, args, perf = self.get_best_schedule()
+    return sch, args
+
+  def get_best_schedule(self):
+    if self.gen.has_entry():
+      best_transform = self.gen.get_best_entry()
+      transform = best_transform.record
+      transform_key = transform.as_key()
+      best_log_file = "at:" + ":".join(self.log_name.split(":")[1:3]) + ":schedule:" + str(transform_key) + ".log"
+      if transform_key in self.schedule_context_cache:
+        schedule_gen = self.schedule_context_cache[transform_key].schedule_gen
+        schedule_app = self.schedule_context_cache[transform_key].schedule_app
+      else:
+        new_state = self.app.apply(transform, drop_output=self.drop_output)
+        if str(self.measure_option.target) == "cuda":
+          if not self.enable_split_K:
+              if self.use_shared_store:
+                  schedule_gen = at.CUDAScheduleGeneratorV3(
+                      self.match_result, new_state, log_file=best_log_file)
+                  if os.path.exists(best_log_file) and os.path.isfile(best_log_file):
+                      schedule_gen.load_from_file(best_log_file)
+                  sc_info = schedule_gen.get_schedule_compute_info()
+                  schedule_app = at.CUDAScheduleApplierV3(self.match_result, sc_info)
+              else:
+                  schedule_gen = at.CUDAScheduleGeneratorV2(
+                      self.match_result, new_state, log_file=best_log_file)
+                  if os.path.exists(best_log_file) and os.path.isfile(best_log_file):
+                      schedule_gen.load_from_file(best_log_file)
+                  sc_info = schedule_gen.get_schedule_compute_info()
+                  schedule_app = at.CUDAScheduleApplierV2(self.match_result, sc_info)
+          else:
+              schedule_gen = at.CUDAScheduleGeneratorSplitK(
+              self.match_result, new_state, log_file=best_log_file)
+              if os.path.exists(best_log_file) and os.path.isfile(best_log_file):
+                  schedule_gen.load_from_file(best_log_file)
+              sc_info = schedule_gen.get_schedule_compute_info()
+              schedule_app = at.CUDAScheduleApplierSplitK(self.match_result, sc_info)
+          checker = at.CUDAProgramChecker(
+              arch=at.get_cuda_compute_version(self.measure_option.dev_id))
+        elif str(self.measure_option.target) == "opencl":
+          schedule_gen = at.MaliScheduleGenerator(
+              self.match_result, new_state, log_file=best_log_file)
+          if os.path.exists(best_log_file) and os.path.isfile(best_log_file):
+              schedule_gen.load_from_file(best_log_file)
+          sc_info = schedule_gen.get_schedule_compute_info()
+          schedule_app = at.MaliScheduleApplier(self.match_result, sc_info)
+          # TODO: write a checker for MALI GPU
+          checker = at.MaliProgramChecker(arch="g76")
+        else:
+          raise RuntimeError("Do not support target: %s" % self.measure_option.target)
+
+      if schedule_gen.has_entry():
+        entry = schedule_gen.get_best_entry()
+        # we store 1/time_cost in file
+        params = entry.record
+        sch, args = at.get_schedule(schedule_app, params)
+        return sch, args, 1 / entry.value * 1e3
+      else:
+        return None, None, at.MAX_FLOAT
+    else:
+      return None, None, at.MAX_FLOAT
+
+  def get_measure_opt(self):
+    return self.measure_option
+
+
 class AutoScheduleGraphDispatch(object):
   working_set = {}
   results = {}
@@ -383,8 +626,8 @@ class AutoScheduleGraphDispatch(object):
     scheduler_option="auto_tensorize"):
     next_id = len(AutoScheduleGraphDispatch.working_set)
     if scheduler_option == "auto_tensorize":
-      if AutoTensorizeContext.can_use(name, subgraph, measure_option):
-        ctx = AutoTensorizeContext(name, subgraph, measure_option)
+      if AutoTensorizeContextV2.can_use(name, subgraph, measure_option):
+        ctx = AutoTensorizeContextV2(name, subgraph, measure_option)
       else:
         # fallback to TG
         print("Fallback to TG")
@@ -417,6 +660,7 @@ class AutoScheduleGraphDispatch(object):
         continue
       if tid in AutoScheduleGraphDispatch.working_set:
         ctx = AutoScheduleGraphDispatch.working_set[tid]
+        # if isinstance(ctx, TGAutoScheduleContext):
         ctx.auto_schedule(trials)
         sch, args, perf = ctx.get_best_schedule()
         # if sch is not None:

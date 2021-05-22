@@ -53,8 +53,8 @@ class MobileNetv1(nn.Module):
 if __name__ == "__main__":
     # The following code is used for profiling with dummy data input on CUDA 0
     print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = True
-    batch_size = 1
+    torch.backends.cudnn.enabled = False
+    batch_size = 16
 
     model = MobileNetv1().cuda().half()
     model.eval()

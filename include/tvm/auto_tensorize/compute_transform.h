@@ -104,6 +104,8 @@ class TransformRequestNode : public Object {
   Array<te::IterVar> time_loops;
   /*! \brief Padding info */
   bool need_padding;
+  /*! \brief Drop output op */
+  bool drop_output;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("name", &name);
@@ -112,6 +114,7 @@ class TransformRequestNode : public Object {
     v->Visit("space_loops", &space_loops);
     v->Visit("time_loops", &time_loops);
     v->Visit("need_padding", &need_padding);
+    v->Visit("drop_output", &drop_output);
   }
 
   static constexpr const char* _type_key = "auto_tensorize.TransformRequest";
@@ -128,7 +131,7 @@ class TransformRequest : public ObjectRef {
   TVM_DLL TransformRequest(String name, Map<te::IterVar, PrimExpr> axis_map,
                            Map<te::IterVar, PrimExpr> reverse_axis_map,
                            Array<te::IterVar> space_loops, Array<te::IterVar> time_loops,
-                           bool need_padding);
+                           bool need_padding, bool drop_output);
 
   TVM_DEFINE_OBJECT_REF_METHODS(TransformRequest, ObjectRef, TransformRequestNode);
   TVM_DEFINE_OBJECT_REF_COW_METHOD(TransformRequestNode);

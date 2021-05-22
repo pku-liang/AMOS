@@ -62,40 +62,81 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
           time_record.append(total)
       if i == repeats - 1:
         mean_cost = np.mean(time_record)
-  #print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
-  print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation, dtype, mean_cost])))
+  # print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
+  # print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation, dtype, mean_cost])))
+  print(mean_cost)
 
+
+def mixed_precision_conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
+  torch.cuda.amp.autocast()
+  A_np = np.random.uniform(-10, 10, [N, C, H, W]).astype("float32")
+  B_np = np.random.uniform(-10, 10, [K, C, R, S]).astype("float32")
+
+  if dtype == "FP16": # HMMA-16, torch.float16 or torch.half
+    A_torch = torch.tensor(A_np).type(torch.float32).cuda()
+    B_torch = torch.tensor(B_np).type(torch.float32).cuda()
+  else:
+    assert False, "wrong type: " + dtype
+
+  number = 10
+  repeats = 10
+
+  for i in range(repeats):
+      time_record = []
+      with torch.cuda.amp.autocast():
+        for j in range(number):
+            torch.cuda.synchronize()
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+
+            C_torch = torch.nn.functional.conv2d(A_torch, B_torch, bias=None, stride=stride, 
+              padding=padding, dilation=dilation)
+
+            end.record()
+            torch.cuda.synchronize()
+            total = start.elapsed_time(end)
+            time_record.append(total)
+        if i == repeats - 1:
+          mean_cost = np.mean(time_record)
+  # print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
+  # print(",".join(map(str, [N, C, H, W, K, R, S, stride, padding, dilation, dtype, mean_cost])))
+  print(mean_cost)
 
 
 res18_shapes_b1 = [
     # resnet-18
-    (1, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
-    (1, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
-    (1, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
-    (1, 64, 56, 56, 128, 64, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
-    (1, 64, 56, 56, 128, 64, 1, 1, 1, 2, 0, 1, 1),  # conv5   4
-    (1, 128, 28, 28, 128, 128, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
-    (1, 128, 28, 28, 256, 128, 3, 3, 1, 2, 1, 1, 1),  # conv7   6
-    (1, 128, 28, 28, 256, 128, 1, 1, 1, 2, 0, 1, 1),  # conv8   7
-    (1, 256, 14, 14, 256, 256, 3, 3, 1, 1, 1, 1, 1),  # conv9   8
-    (1, 256, 14, 14, 512, 256, 3, 3, 1, 2, 1, 1, 1),  # conv10  9
-    (1, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
+    # (1, 256, 14, 14, 512, 256, 3, 3, 1, 1, 1, 1, 1),
+    # (1, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
+    # (1, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
+    # (1, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
+    # (1, 64, 56, 56, 128, 64, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
+    # (1, 64, 56, 56, 128, 64, 1, 1, 1, 2, 0, 1, 1),  # conv5   4
+    # (1, 128, 28, 28, 128, 128, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
+    # (1, 128, 28, 28, 256, 128, 3, 3, 1, 2, 1, 1, 1),  # conv7   6
+    # (1, 128, 28, 28, 256, 128, 1, 1, 1, 2, 0, 1, 1),  # conv8   7
+    # (1, 256, 14, 14, 256, 256, 3, 3, 1, 1, 1, 1, 1),  # conv9   8
+    # (1, 256, 14, 14, 512, 256, 3, 3, 1, 2, 1, 1, 1),  # conv10  9
+    # (1, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
     (1, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
 ]
 
 
 if __name__ == "__main__":
     assert torch.backends.cudnn.is_available()
-    torch.backends.cudnn.enabled = True
-    batches = [2**i for i in range(1)]
+    torch.backends.cudnn.enabled = False
+    batches = [256]
     beg = 0
     num = len(res18_shapes_b1)
     print("N, C, H, W, K, R, S, stride, padding, dilation, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
+    # dtypes = ["FP16", "FP32", "TF32", "FP64", "BF16"]
+    dtypes = ["FP16"]
+    for dtype in dtypes: # "INT8", "BOOL"
       for batch in batches:
           costs = []
           for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
               (_, C, H, W, K, _, R, S, _, stride, padding, dilation, _) = shape
               N = batch
               conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype)
+              # mixed_precision_conv2d(N, C, H, W, K, R, S, stride, padding, dilation, dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

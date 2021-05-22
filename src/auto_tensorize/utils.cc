@@ -47,7 +47,7 @@ void BufferSizeCollector::VisitStmt_(const tir::AllocateNode* op) {
         int64_t cap = 1;
         for (auto e : op->extents) {
         const tir::IntImmNode* as_int = e.as<tir::IntImmNode>();
-        CHECK(as_int) << as_int << " is not int const";
+        CHECK(as_int) << e << " is not int const";
         cap *= as_int->value;
         cap *= (int)op->dtype.bytes();
       }

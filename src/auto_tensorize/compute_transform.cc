@@ -55,7 +55,8 @@ TransformRequest::TransformRequest(
       Map<te::IterVar, PrimExpr> reverse_axis_map,
       Array<te::IterVar> space_loops,
       Array<te::IterVar> time_loops,
-      bool need_padding) {
+      bool need_padding,
+      bool drop_output) {
     auto node = make_object<TransformRequestNode>();
     node->name = name;
     node->axis_map = axis_map;
@@ -63,6 +64,7 @@ TransformRequest::TransformRequest(
     node->space_loops = space_loops;
     node->time_loops = time_loops;
     node->need_padding = need_padding;
+    node->drop_output = drop_output;
     data_ = node;
 }
 
@@ -555,18 +557,23 @@ TransformState MainOpTransformer::transform(
       );
       new_op_lst.push_back(new_op);
       // transform output
-      te::Operation new_output_op = transform_output(
-        intrin_cop,
-        target_cop,
-        new_op.output(0),
-        init,
-        request,
-        next
-      );
-      new_op_lst.push_back(new_output_op);
-      // the original main op is remapped
-      old_to_new.Set(op, new_output_op);
+      if (request->drop_output) {
+        old_to_new.Set(op, new_op);
+      } else {
+        te::Operation new_output_op = transform_output(
+          intrin_cop,
+          target_cop,
+          new_op.output(0),
+          init,
+          request,
+          next
+        );
+        new_op_lst.push_back(new_output_op);
+        // the original main op is remapped
+        old_to_new.Set(op, new_output_op);
+      }
     } else {
+      CHECK(!request->drop_output);
       const te::ComputeOpNode* cop = op.as<te::ComputeOpNode>();
       Map<te::Tensor, te::Tensor> inputs_map;
       for (auto inp : cop->InputTensors()) {
@@ -652,7 +659,8 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
         Map<te::IterVar, PrimExpr> reverse_axis_map,
         Array<te::IterVar> space_loops,
         Array<te::IterVar> time_loops,
-        bool need_padding
+        bool need_padding,
+        bool drop_output
     ) {
   return TransformRequest(
       name,
@@ -660,7 +668,8 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
       reverse_axis_map,
       space_loops,
       time_loops,
-      need_padding
+      need_padding,
+      drop_output
   );
 });
 

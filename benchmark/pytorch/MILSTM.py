@@ -96,7 +96,7 @@ class MILSTM(nn.Module):
 if __name__ == "__main__":
     print(torch.backends.cudnn.is_available())
     torch.backends.cudnn.enabled = True
-    batch_size = 1
+    batch_size = 16
     input_size = 512
 
     model = MILSTM(input_size=input_size).cuda().half()

@@ -41,7 +41,7 @@ class TransformRequest(Object):
     time_loops:
     """
 
-    def __init__(self, name, axis_map, reverse_axis_map, space_loops, time_loops, padding=False):
+    def __init__(self, name, axis_map, reverse_axis_map, space_loops, time_loops, padding=False, drop_output=False):
         self.__init_handle_by_constructor__(
             _ffi_api.TransformRequest,
             name,
@@ -50,6 +50,7 @@ class TransformRequest(Object):
             space_loops,
             time_loops,
             padding,
+            drop_output
         )
 
     def __str__(self):
@@ -65,7 +66,9 @@ class TransformRequest(Object):
             "\n\t\t".join([str(x) for x in self.space_loops])
         ret += "\n\tTime Loops:\n\t\t" + \
             "\n\t\t".join([str(x) for x in self.time_loops])
-        ret += "\n\tPadding: " + str(self.need_padding) + ")\n"
+        ret += "\n\tPadding: " + str(self.need_padding)
+        ret += "\n\tDrop Output " + str(self.drop_output)
+        ret += ")\n"
         return ret
 
 
@@ -115,30 +118,33 @@ class UnfoldChoiceGenerator(CDParamGenerator):
             num_items = tmp_num_items
             keys.append(k)
             values.append(lst)
-        if unify:
-            tuples = list(zip(*values))
 
-            def unify_helper(bit_vec, tuples, visited, results):
-                super_tuple = []
-                num_key = len(tuples[0])
-                for i, bit in enumerate(bit_vec):
-                    if bit:
-                        super_tuple.append(tuples[i])
-                if not super_tuple:
-                    return
-                merged_tuple = []
-                for i in range(num_key):
-                    tmp = set()
-                    for v in super_tuple:
-                        tmp.add(str(v[i].var.name))
-                    merged_tuple.append(tuple(sorted(list(tmp))))
-                merged_tuple = tuple(merged_tuple)
+        tuples = list(zip(*values))
 
-                if merged_tuple in visited:
-                    return
-                else:
-                    visited.add(merged_tuple)
-                    results.append(bit_vec)
+        def unify_helper(bit_vec, tuples, visited, results):
+            super_tuple = []
+            num_key = len(tuples[0])
+            for i, bit in enumerate(bit_vec):
+                if bit:
+                    super_tuple.append(tuples[i])
+            if not super_tuple:
+                return
+            merged_tuple = []
+            for i in range(num_key):
+                tmp = set()
+                for v in super_tuple:
+                    tmp.add(str(v[i].var.name))
+                merged_tuple.append(tuple(sorted(list(tmp))))
+            merged_tuple = tuple(merged_tuple)
+
+            if merged_tuple in visited:
+                return
+            else:
+                visited.add(merged_tuple)
+                results.append(bit_vec)
+
+        if unify and num_items <= 10:
+            # when just a few choices
 
             unfolds = bi_product(num_items)
             visited = set()
@@ -146,6 +152,31 @@ class UnfoldChoiceGenerator(CDParamGenerator):
             for bit_vec in unfolds:
                 unify_helper(bit_vec, tuples, visited, unified_unfolds)
 
+            self.unfolds = unified_unfolds
+        elif unify:
+            # when too many choices
+            # we mainly consider two kinds of choices:
+            # 1. single item choice
+            # 2. all items
+
+            unfolds = []
+            for i, item in enumerate(tuples):
+                choose = True
+                for a, b in zip(item, keys):
+                    if int(a.dom.extent) != int(b.dom.extent):
+                        choose = False
+                        break
+                if choose:
+                    unfolds.append([1 if j == i else 0 for j in range(num_items)])
+            if not unfolds:
+                unfolds = [
+                    [1 if j == i else 0 for j in range(num_items)]
+                        for i in range(num_items)]
+            unfolds.append([1 for i in range(num_items)])
+            visited = set()
+            unified_unfolds = []
+            for bit_vec in unfolds:
+                unify_helper(bit_vec, tuples, visited, unified_unfolds)
             self.unfolds = unified_unfolds
         else:
             self.unfolds = bi_product(num_items)
@@ -285,7 +316,7 @@ class TransformApplier(object):
         )
         self.verbose = verbose
 
-    def apply_unfold(self, record, state):
+    def apply_unfold(self, record, state, drop_output=False):
         # unfold
         intrin_main_op = None
         target_main_op = None
@@ -366,13 +397,13 @@ class TransformApplier(object):
                 time_loops.append(axis)
 
         request = TransformRequest(
-            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops)
+            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, drop_output=drop_output)
         if self.verbose:
             print(str(request), flush=True)
         unfold_state = transform_main_op(state, request)
         return unfold_state
 
-    def apply_fold(self, record, state):
+    def apply_fold(self, record, state, drop_output=False):
         # fold
         intrin_main_op = None
         target_main_op = None
@@ -427,14 +458,14 @@ class TransformApplier(object):
                 time_loops.append(axis)
 
         request = TransformRequest(
-            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, padding=need_padding
+            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, padding=need_padding, drop_output=drop_output
         )
         if self.verbose:
             print(str(request), flush=True)
         fold_state = transform_main_op(state, request)
         return fold_state
 
-    def apply(self, record):
-        state = self.apply_unfold(record, self.init_state)
-        state = self.apply_fold(record, state)
+    def apply(self, record, drop_output=False):
+        state = self.apply_unfold(record, self.init_state, drop_output)
+        state = self.apply_fold(record, state, drop_output)
         return state

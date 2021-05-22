@@ -49,6 +49,7 @@ class MeasureOptions(object):
 GRAPH_EVALUATE_INPUTS = None
 EVALUTE_INPUTS = None
 EVALUTE_SCHEDULE_INPUTS = None
+EVALUTE_SCHEDULES_INPUTS = None
 GLOBAL_BUILD_INPUTS = None
 GLOBAL_RUN_INPUTS = None
 GLOBAL_RPC_BUILD_INPUTS = None
@@ -214,6 +215,63 @@ def evaluate_schedule(sch, args, measure_opt, new_process=False):
                     results = MAX_FLOAT
 
         return results
+
+
+def evaluate_schedules_worker(idx):
+    global EVALUTE_SCHEDULES_INPUTS
+    schs, args_lst, measure_opt = EVALUTE_SCHEDULES_INPUTS
+    sch = schs[idx]
+    args = args_lst[idx]
+    target = measure_opt.target
+    dev_id = measure_opt.dev_id
+    number = measure_opt.number
+    min_repeat_ms = measure_opt.min_repeat_ms
+    ctx = tvm.context(target, dev_id)
+    arrays = get_tvm_arrays(args, ctx)
+    func = tvm.build(sch, args, target=target)
+    if target == "opencl":
+        device_key = "android"
+        rpc_host = "0.0.0.0"
+        rpc_port = 9190
+        tracker = rpc.connect_tracker(rpc_host, rpc_port)
+        remote = tracker.request(device_key, session_timeout=20)
+        ctx = remote.context(target)
+        print("Uploading...")
+        fd, lib_file = mkstemp(suffix=".so", prefix="gemm")
+        os.close(fd)
+        func.export_library(lib_file, ndk.create_shared)
+        remote.upload(lib_file)
+        func = remote.load_module(os.path.split(lib_file)[-1])
+    evaluator = func.time_evaluator(
+        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
+    ctx.sync()
+    cost = evaluator(*arrays).mean * 1e3
+    return cost
+
+
+def evaluate_schedules(schs, args_lst, measure_opt):
+    global EVALUTE_SCHEDULES_INPUTS
+    EVALUTE_SCHEDULES_INPUTS = (schs, args_lst, measure_opt)
+    with ProcessPool(1) as pool:
+        future = pool.map(evaluate_schedules_worker, range(len(schs)), timeout=100)
+        iterator = future.result()
+        results = []
+        while True:
+            try:
+                result = next(iterator)
+                print(".Y", end="", flush=True)
+            except StopIteration:
+                break
+            except TimeoutError as error:
+                print(".T", end="", flush=True)
+                result = MAX_FLOAT
+            except Exception as error:
+                print(".E", end="", flush=True)
+                # print(error)
+                result = MAX_FLOAT
+            results.append(result)
+
+    return results
 
 
 def evaluate_params_worker(dump):
@@ -479,6 +537,7 @@ def pebble_local_run_worker(index):
             costs = (MAX_FLOAT,)
             error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
             error_msg = auto_scheduler.measure.make_error_msg()
+            # print(error_msg)
 
         if error_no == 0:
             try:
@@ -499,6 +558,7 @@ def pebble_local_run_worker(index):
                 costs = (MAX_FLOAT,)
                 error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
                 error_msg = auto_scheduler.measure.make_error_msg()
+                # print(error_msg)
 
         shutil.rmtree(os.path.dirname(build_res.filename))
         toc = time.time()

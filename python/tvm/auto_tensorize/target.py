@@ -57,27 +57,28 @@ class CUDA(AcceleratorTarget):
         self.arch = arch
 
     def get_shared_memory_bytes(self):
+        relaxed = 8 # greatly relaxed
         if self.arch < 60:
-            return 48 * 2**12
+            return 48 * 2**12 * relaxed
         if self.arch <= 60:
-            return 64 * 2**12
+            return 64 * 2**12 * relaxed
         elif self.arch <= 70:
-            return 96 * 2**12
+            return 96 * 2**12 * relaxed
         elif self.arch <= 75:
-            return 64 * 2**12
+            return 64 * 2**12 * relaxed
         elif self.arch <= 80:
-            return 163 * 2**12
+            return 163 * 2**12 * relaxed
         elif self.arch <= 86:
-            return 100 * 2**12
+            return 100 * 2**12 * relaxed
         else:
             # fallback
-            return 48 * 2**12
+            return 48 * 2**12 * relaxed
 
     def get_warp_size(self):
         return 32
 
     def get_register_bytes_per_thread(self):
-        return 255
+        return 255 * 32 # greatly relaxed
 
     def max_threads(self):
         return 1024

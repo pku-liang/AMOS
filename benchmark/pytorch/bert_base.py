@@ -697,7 +697,7 @@ class BertModel(nn.Module):
 if __name__ == "__main__":
     print(torch.backends.cudnn.is_available())
     torch.backends.cudnn.enabled = True
-    batch = 1
+    batch = 16
 
     config = BertConfig.from_dict(BERT_BASE_UNCASED_CONFIG)
     model = BertModel(config, add_pooling_layer=False).cuda().half()
