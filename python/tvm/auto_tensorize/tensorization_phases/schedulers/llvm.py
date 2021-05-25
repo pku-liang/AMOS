@@ -6,7 +6,7 @@ from ...recipes import OperationRole, RecipeStage, InstructionScope
 from ..schedule_base import *
 
 
-class CUDAStateV2(object):
+class LLVMState(object):
     def __init__(
             self, inlined, main_op_reduce_axis,
             output_op_axis, last_op_axis, tensorize_iter):
@@ -15,23 +15,27 @@ class CUDAStateV2(object):
         self.output_op_axis = output_op_axis
         self.last_op_axis = last_op_axis
         self.tensorize_iter = tensorize_iter
+        self.transformed_main_op = None
 
 
-def empty_cuda_state_v2():
-    return CUDAStateV2(set(), [], [], [], {})
+def empty_llvm_state():
+    return LLVMState(set(), [], [], [], {})
 
 
-class CUDAParamsV2(object):
+class LLVMParams(object):
     def __init__(
             self, inline, vectorize, spatial_factors, reduce_factors,
-            last_factors, output_unroll_step, last_unroll_step):
+            last_factors,
+            # output_unroll_step,
+            # last_unroll_step
+            ):
         self.inline = inline
         self.vectorize = vectorize
         self.spatial_factors = spatial_factors
         self.reduce_factors = reduce_factors
         self.last_factors = last_factors
-        self.output_unroll_step = output_unroll_step
-        self.last_unroll_step = last_unroll_step
+        # self.output_unroll_step = output_unroll_step
+        # self.last_unroll_step = last_unroll_step
 
     def to_json(self):
         ret = {
@@ -40,8 +44,8 @@ class CUDAParamsV2(object):
             "spatial_factors": self.spatial_factors,
             "reduce_factors": self.reduce_factors,
             "last_factors": self.last_factors,
-            "output_unroll_step": self.output_unroll_step,
-            "last_unroll_step": self.last_unroll_step
+            # "output_unroll_step": self.output_unroll_step,
+            # "last_unroll_step": self.last_unroll_step
         }
         return ret
 
@@ -51,13 +55,12 @@ class CUDAParamsV2(object):
         self.spatial_factors = obj["spatial_factors"]
         self.reduce_factors = obj["reduce_factors"]
         self.last_factors = obj["last_factors"]
-        self.output_unroll_step = obj["output_unroll_step"]
-        self.last_unroll_step = obj["last_unroll_step"]
+        # self.output_unroll_step = obj["output_unroll_step"]
+        # self.last_unroll_step = obj["last_unroll_step"]
 
     def __str__(self):
         obj = self.to_json()
         new_obj = {}
-
         def handle(v):
             if isinstance(v, list):
                 return [handle(x) for x in v]
@@ -70,23 +73,23 @@ class CUDAParamsV2(object):
         return json.dumps(new_obj)
 
 
-def empty_cuda_params_v2():
-    return CUDAParamsV2(None, None, [], [], [], None, None)
+def empty_llvm_params():
+    return LLVMParams(None, None, [], [], [])
 
 
 #####################################################
 # Target specific parameter generator
 #####################################################
-class CUDAKernelParamGeneratorV2(CDParamGenerator):
+class LLVMKernelParamGenerator(CDParamGenerator):
     pass
 
 
-class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
-    def __init__(self, intrin_match_result, transform_state, eps=0.9,
-                 reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch=70,
-                 log_file="cuda_schedule_generator.log", steps=1):
-        super(CUDAScheduleGeneratorV2, self).__init__(eps, CUDAParamsV2,
-                                                      steps=steps, log_file=log_file)
+class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
+    def __init__(self, intrin_match_result, transform_state, eps=0.7,
+            reduce_tiling=2, spatial_tiling=2, last_tiling=2,
+            log_file="llvm_schedule_generator.log", steps=1):
+        super(LLVMScheduleGenerator, self).__init__(eps, LLVMParams,
+            steps=steps, log_file=log_file)
         self.init_recipe(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_recipe_stage(nodes)
@@ -102,8 +105,8 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
         self.reduce_tiling_parts = reduce_tiling
         self.spatial_tiling_parts = spatial_tiling
         self.last_op_tiling_parts = last_tiling
-        self.arch_info = CUDA(arch=arch)
-        self.warp_size = self.arch_info.get_warp_size()
+        # self.arch_info = CUDA(arch=arch)
+        # self.warp_size = self.arch_info.get_warp_size()
         # params generator
         self.init_param_generator()
         self.init_score_table()
@@ -162,21 +165,23 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
                 self.recipe.get_capsule_compute_reserve_axis(
                     self.compute_key, self.shape_key, name)
             reserve_inner_axis_count[op] = len(spatial_axis)
-            if name not in read_graph:
-                operation_role[op] = OperationRole.load_op
-                load_from_shared[op] = 1
-            elif name not in feed_graph:
-                operation_role[op] = OperationRole.output_op
-                store_to_shared[op] = 0
-                self.output_op = op
-            elif name == self.recipe.main_capsule_name:
+            if name == self.recipe.main_capsule_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
                     main_op_reserve_reduce_axis.append(
                         len(op.reduce_axis) - len(reduce_axis) + i)
                     main_op_reserve_reduce_axis_factor.append(
                         int(red.dom.extent))
-        assert self.output_op is not None
+            elif name not in read_graph:
+                operation_role[op] = OperationRole.load_op
+                load_from_shared[op] = 1
+            elif name not in feed_graph:
+                operation_role[op] = OperationRole.output_op
+                store_to_shared[op] = 0
+                self.output_op = op
+        # assert self.output_op is not None
+        if self.output_op is None:
+            self.output_op = self.main_op
         # construct recipe stage
         self.recipe_stage = RecipeStage(
             operation_role,
@@ -207,8 +212,7 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
                 self.reduce_splits.append(gen)
         # for output op spatial split
         self.spatial_splits = []
-        reserve_axis_count = int(
-            self.recipe_stage.reserve_inner_axis_count[self.output_op])
+        reserve_axis_count = int(self.recipe_stage.reserve_inner_axis_count[self.output_op])
         # skip the reserved spatial axis
         for iv in self.output_op.axis[:-reserve_axis_count]:
             gen = SplitFactorGenerator(
@@ -219,21 +223,21 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
         for iv in self.target_dag.op_lst[-1].axis:
             last_total_extent *= int(iv.dom.extent)
         self.last_splits = [
-            SplitFactorGenerator((last_total_extent + self.warp_size - 1) // self.warp_size,
+            SplitFactorGenerator(last_total_extent,
                                  self.last_op_tiling_parts)]
         self.inline = InlineGenerator()
         self.vectorize = VectorizeLengthGenerator(
             self.recipe.target, self.main_op.input_tensors[0].dtype)
-        self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
-        self.unroll_last = UnrollStepGenerator([16, 64, 512, 1500])
+        # self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
+        # self.unroll_last = UnrollStepGenerator([16, 64, 512, 1500])
         self.generator_lst = [
             self.inline,
             self.vectorize,
             *self.spatial_splits,
             *self.reduce_splits,
             *self.last_splits,
-            self.unroll_output,
-            self.unroll_last
+            # self.unroll_output,
+            # self.unroll_last
         ]
 
     def init_score_table(self):
@@ -250,29 +254,12 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
             self.main_op_id,
             self.output_op_id,
             self.recipe_stage,
-            spatial_tiling=self.spatial_tiling_parts,
-            reduce_tiling=self.reduce_tiling_parts,
-            last_tiling=self.last_op_tiling_parts
+            spatial_tiling = self.spatial_tiling_parts,
+            reduce_tiling = self.reduce_tiling_parts,
+            last_tiling = self.last_op_tiling_parts
         )
 
     def valid(self, record):
-        max_warps = self.arch_info.max_threads() // self.warp_size
-        max_blocks = self.arch_info.max_blocks()
-        warp_num = 1
-        block_num = 1
-        for factors in record.spatial_factors:
-            warp_num *= factors[0][-2]
-            block_num *= factors[0][0]
-        if warp_num > max_warps:
-            return False
-        if block_num > max_blocks:
-            return False
-        warp_num = record.last_factors[0][0][-1]
-        if warp_num > max_warps:
-            return False
-        block_num = record.last_factors[0][0][0]
-        if block_num > max_blocks:
-            return False
         return True
 
     def record_from_json(self, obj):
@@ -282,8 +269,9 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
             obj["spatial_factors"],
             obj["reduce_factors"],
             obj["last_factors"],
-            obj["output_unroll_step"],
-            obj["last_unroll_step"])
+            # obj["output_unroll_step"],
+            # obj["last_unroll_step"]
+            )
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
@@ -293,8 +281,9 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
                 [gen.get(policy=policy) for gen in self.spatial_splits],
                 [gen.get(policy=policy) for gen in self.reduce_splits],
                 [gen.get(policy=policy) for gen in self.last_splits],
-                self.unroll_output.get(policy=policy),
-                self.unroll_last.get(policy=policy))
+                # self.unroll_output.get(policy=policy),
+                # self.unroll_last.get(policy=policy)
+                )
         else:
             record = self.record_cls(
                 self.inline.get(hint=entry.record.inline[0], policy="q"),
@@ -305,22 +294,22 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
                     self.reduce_splits, entry.record.reduce_factors)],
                 [gen.get(hint=x[0], policy="q") for gen, x in zip(
                     self.last_splits, entry.record.last_factors)],
-                self.unroll_output.get(
-                    hint=entry.record.output_unroll_step[0], policy="q"),
-                self.unroll_last.get(
-                    hint=entry.record.last_unroll_step[0], policy="q"),
-            )
+                # self.unroll_output.get(
+                #     hint=entry.record.output_unroll_step[0], policy="q"),
+                # self.unroll_last.get(
+                #     hint=entry.record.last_unroll_step[0], policy="q"),
+                )
         return record
 
     def get_records_mutate_one_generator(
-            self, record, to_mutate, steps):
+        self, record, to_mutate, steps):
         inline = record.inline
         vec = record.vectorize
         spatial = record.spatial_factors
         reduce = record.reduce_factors
         last = record.last_factors
-        unroll_output = record.output_unroll_step
-        unroll_last = record.last_unroll_step
+        # unroll_output = record.output_unroll_step
+        # unroll_last = record.last_unroll_step
 
         next_inline = self.inline.get_next(
             inline[0], to_mutate
@@ -339,12 +328,12 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
             gen.get_next(x[0], to_mutate) for gen, x in zip(
                 self.last_splits, last)
         ]
-        next_unroll_output = self.unroll_output.get_next(
-            unroll_output[0], to_mutate
-        )
-        next_unroll_last = self.unroll_last.get_next(
-            unroll_last[0], to_mutate
-        )
+        # next_unroll_output = self.unroll_output.get_next(
+        #     unroll_output[0], to_mutate
+        # )
+        # next_unroll_last = self.unroll_last.get_next(
+        #     unroll_last[0], to_mutate
+        # )
 
         has_mutate = False
 
@@ -369,8 +358,8 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
             last = [
                 helper(_gen, org_val) for _gen, org_val in zip(next_last, last)
             ]
-            unroll_output = helper(next_unroll_output, unroll_output)
-            unroll_last = helper(next_unroll_last, unroll_last)
+            # unroll_output = helper(next_unroll_output, unroll_output)
+            # unroll_last = helper(next_unroll_last, unroll_last)
             if has_mutate:
                 yield self.record_cls(
                     inline,
@@ -378,8 +367,9 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
                     spatial,
                     reduce,
                     last,
-                    unroll_output,
-                    unroll_last)
+                    # unroll_output,
+                    # unroll_last
+                    )
             has_mutate = False
 
     def feedback_value(self, entry, value):
@@ -395,7 +385,7 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
         self.unroll_last.feedback(*entry.record.last_unroll_step, value)
 
 
-class CUDAScheduleApplierV2(object):
+class LLVMScheduleApplier(object):
     def __init__(self, intrin_match_result, schedule_compute_info, arch=70):
         self.intrin_match_result = intrin_match_result
         # get match recipe info
@@ -413,30 +403,15 @@ class CUDAScheduleApplierV2(object):
         self.output_op_id = schedule_compute_info.output_op_id
         self.recipe_stage = schedule_compute_info.recipe_stage
         # the state during schedule
-        self.state = empty_cuda_state_v2()
+        self.state = empty_llvm_state()
         # the parameters during schedule
-        self.params = empty_cuda_params_v2()
-        # some constants
-        self.warp_size = CUDA(arch=arch).get_warp_size()
-        self.bx = tvm.te.thread_axis("blockIdx.x")
-        self.ty = tvm.te.thread_axis("threadIdx.y")
-        self.tx = tvm.te.thread_axis("threadIdx.x")
-        self.obx = tvm.te.thread_axis("blockIdx.x")
-        self.oty = tvm.te.thread_axis("threadIdx.y")
-        self.otx = tvm.te.thread_axis("threadIdx.x")
+        self.params = empty_llvm_params()
         self.reduce_tiling_parts = schedule_compute_info.kwargs["reduce_tiling"]
         self.spatial_tiling_parts = schedule_compute_info.kwargs["spatial_tiling"]
         self.last_op_tiling_parts = schedule_compute_info.kwargs["last_tiling"]
 
     def initialize_state(self):
-        # self.state = {
-        #     "inlined": set(),
-        #     "main_op_reduce_axis": [],
-        #     "output_op_axis": [],
-        #     "last_op_axis": [],
-        #     "tensorize_iter": {}
-        # }
-        self.state = empty_cuda_state_v2()
+        self.state = empty_llvm_state()
 
     def initialize_parameters(self, params):
         self.params = params
@@ -452,68 +427,9 @@ class CUDAScheduleApplierV2(object):
             # print(self.main_op.body)
             raise RuntimeError("No reduce axis in main op.")
 
-    def get_main_op_outermost_first_reduce_axis(self):
-        if len(self.state.main_op_reduce_axis) > 0:
-            assert isinstance(self.state.main_op_reduce_axis[0], list)
-            assert len(self.state.main_op_reduce_axis[0]) > 0
-            return self.state.main_op_reduce_axis[0][0]
-        else:
-            # no reduce axis
-            # print(self.state.main_op_reduce_axis)
-            # print(self.main_op.body)
-            raise RuntimeError("No reduce axis in main op.")
-
-    def get_main_op_second_outermost_last_reduce_axis(self):
-        if len(self.state.main_op_reduce_axis) > 1:
-            assert isinstance(self.state.main_op_reduce_axis[1], list)
-            assert len(self.state.main_op_reduce_axis[1]) > 0
-            return self.state.main_op_reduce_axis[1][-1]
-        else:
-            # no enough reduce axis
-            return self.get_main_op_outermost_last_reduce_axis()
-
-    def get_output_op_third_innermost_last_axis(self):
-        assert len(self.state.output_op_axis) > 2
-        assert isinstance(self.state.output_op_axis[-3], list)
-        assert len(self.state.output_op_axis[-3]) > 0
-        return self.state.output_op_axis[-3][-1]
-
-    def get_output_op_outermost_last_axis(self):
-        assert len(self.state.output_op_axis) > 1
-        assert isinstance(self.state.output_op_axis[0], list)
-        assert len(self.state.output_op_axis[0]) > 0
-        return self.state.output_op_axis[0][-1]
-
-    def get_last_op_innermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[-1], list)
-        assert len(self.state.last_op_axis[-1]) > 0
-        return self.state.last_op_axis[-1][-1]
-
-    def get_last_op_second_innermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(self.state.last_op_axis[-1], list)
-        assert len(self.state.last_op_axis[-1]) > 1
-        return self.state.last_op_axis[-1][-2]
-
-    def get_last_op_outermost_last_axis(self):
-        assert len(self.state.last_op_axis) > 0
-        assert isinstance(
-            self.state.last_op_axis[0], list), self.state.last_op_axis[0]
-        assert len(self.state.last_op_axis[0]) > 0
-        return self.state.last_op_axis[0][0]
-
     def get_tensorize_iter(self, op):
         assert op in self.state.tensorize_iter
         return self.state.tensorize_iter[op]
-
-    def get_main_op_warp_numbers(self):
-        assert len(self.params.spatial_factors) > 0
-        ret = 1
-        for part in self.params.spatial_factors:
-            assert len(part[0]) > 1
-            ret *= part[0][-2]
-        return ret
 
     def get_main_op_reduce_axis_factors(self, number):
         assert len(self.params.reduce_factors) >= number
@@ -528,14 +444,6 @@ class CUDAScheduleApplierV2(object):
         assert len(self.params.last_factors) >= number
         return [x[0] for x in self.params.last_factors[:number]]
 
-    def get_last_op_warp_numbers(self):
-        assert len(self.params.last_factors) > 0
-        ret = 1
-        for part in self.params.last_factors:
-            assert len(part) > 0
-            ret *= part[0][-1]
-        return ret
-
     def get_vectorize_length(self):
         assert self.params.vectorize is not None
         return self.params.vectorize[0]
@@ -543,14 +451,6 @@ class CUDAScheduleApplierV2(object):
     def get_inline_choice(self):
         assert self.params.inline is not None
         return self.params.inline[0]
-
-    def get_output_op_unroll_step(self):
-        assert self.params.output_unroll_step is not None
-        return self.params.output_unroll_step[0]
-
-    def get_last_op_unroll_step(self):
-        assert self.params.last_unroll_step is not None
-        return self.params.last_unroll_step[0]
 
     def check_parameter_ready(self):
         return True
@@ -567,7 +467,7 @@ class CUDAScheduleApplierV2(object):
                     return
                 if len(consumers) == 1 and \
                     consumers[0] in self.recipe_stage.operation_role and \
-                        self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
+                        self.recipe_stage.operation_role[consumers[0]] == OperationRole.main_op:
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         return
@@ -578,118 +478,40 @@ class CUDAScheduleApplierV2(object):
     def cache_read(self, op_id, op, sch, X):
         if op in self.recipe_stage.operation_role:
             return
-        # if op in self.state.inlined:
-        #     return
         if not op in self.target_dag.feed_graph:
             return
         do_cache_read_for_load = False
-        do_cache_read_for_last = False
         consumers = self.target_dag.feed_graph[op]
         if len(consumers) <= 0:
             return
         if consumers[0] in self.recipe_stage.operation_role:
-            if self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
-                if len(consumers) == 1:
+            if self.recipe_stage.operation_role[consumers[0]] in [OperationRole.main_op]:
+                if len(consumers) == 1 and op in self.state.inlined:
                     do_cache_read_for_load = True
-        # if consumers[0] == self.target_dag.op_lst[-1]:
-        #     # the last op
-        #     if len(consumers) == 1:
-        #         do_cache_read_for_last = True
-
-        # can't do both
-        # assert not (do_cache_read_for_load and do_cache_read_for_last)
-
         if do_cache_read_for_load:
-            S = sch.cache_read(X(op).output(0), "shared",
-                               [X(x) for x in consumers])
+            S = sch.cache_read(X(op).output(0), "global", [self.state.transformed_main_op])
             axis = self.get_main_op_outermost_last_reduce_axis()
             # compute at to main op
-            sch[S].compute_at(sch[X(self.main_op)], axis)
-            warp_num = self.get_main_op_warp_numbers()
+            sch[S].compute_at(sch[self.state.transformed_main_op], axis)
             vec_len = self.get_vectorize_length()
             fused = sch[S].fuse(*sch[S].op.axis)
             fused, vectorized = sch[S].split(fused, factor=vec_len)
-            fused, thread_level = sch[S].split(fused, factor=self.warp_size)
-            fused, warp_level = sch[S].split(fused, factor=warp_num)
-            sch[S].bind(thread_level, self.tx)
-            sch[S].bind(warp_level, self.ty)
+            fused, to_unroll = sch[S].split(fused, factor=4)
             sch[S].vectorize(vectorized)
-
-        # if do_cache_read_for_last:
-        #     last_ops = [X(x) for x in consumers]
-        #     S = sch.cache_read(X(op).output(0), "shared", last_ops)
-        #     axis = self.get_last_op_innermost_last_axis()
-        #     # compute at to last op
-        #     sch[S].compute_at(sch[last_ops[0]], axis)
-        #     warp_num = self.get_last_op_warp_numbers()
-        #     fused = sch[S].fuse(*sch[S].op.axis)
-        #     fused, thread_level = sch[S].split(fused, factor=self.warp_size)
-        #     fused, warp_level = sch[S].split(fused, factor=warp_num)
-        #     sch[S].bind(thread_level, self.otx)
-        #     sch[S].bind(warp_level, self.oty)
+            sch[S].unroll(to_unroll)
 
     def set_scope(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
-            # do not set scope for output op
-            if self.recipe_stage.operation_role[op] != OperationRole.output_op:
-                # only handle register level
-                sch[X(op)].set_scope("local")
+        pass
 
     def tiling(self, op_id, op, sch, X):
         # only tiling for 3 ops: main, output, last
         if op == self.main_op:
-            # prepare spatial axis
-            axis = sch[X(op)].op.axis
-            reserve_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
-            spatial_axis_split_parts = [
-                axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
-
-            all_reduce_axis = sch[X(op)].op.reduce_axis
-            reserve_reduce_axis = []
-            split_reduce_axis = []
-            tmp = set([int(x)
-                      for x in self.recipe_stage.main_op_reserve_reduce_axis])
-            for i, iv in enumerate(all_reduce_axis):
-                if i in tmp:
-                    reserve_reduce_axis.append(iv)
-                else:
-                    split_reduce_axis.append(iv)
-            reserve_reduce_num = len(reserve_reduce_axis)
-            pos = self.get_output_op_third_innermost_last_axis()
-            sch[X(op)].compute_at(sch[X(self.output_op)], pos)
-
-            reduce_axis_split_parts = []
-            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
-                len(split_reduce_axis)
-            )
-            for iv, factors in zip(split_reduce_axis, reduce_axis_split_factors):
-                part = []
-                for f in reversed(factors[1:]):
-                    iv, inner = sch[X(op)].split(iv, factor=f)
-                    part.append(inner)
-                part.append(iv)
-                part = list(reversed(part))
-                reduce_axis_split_parts.append(part)
-            reordered_reduce_axis = [list(x)
-                                     for x in zip(*reduce_axis_split_parts)]
-            reordered_reduce_axis.append(reserve_reduce_axis)
-            assert len(
-                reordered_reduce_axis) > 3, "No enough reduce axis split."
-            ordered_axis = reordered_reduce_axis[:-2] + \
-                [spatial_axis_split_parts[0]] + \
-                reordered_reduce_axis[-2:-1] + \
-                [spatial_axis_split_parts[1]] + \
-                reordered_reduce_axis[-1:]
-            ordered_axis = reduce(lambda x, y: x + y, ordered_axis, [])
-            sch[X(op)].reorder(*ordered_axis)
-            self.state.main_op_reduce_axis = reordered_reduce_axis
-            self.state.tensorize_iter[op] = ordered_axis[
-                -(reserve_spatial_num + reserve_reduce_num)]
-        elif op == self.output_op:
-            axis = sch[X(op)].op.axis
-            reserve_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
+            # create write cache
+            Output = X(op).output(0)
+            LL = sch.cache_write(Output, "global")
+            # schedule output
+            axis = sch[Output].op.axis
+            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
             split_spatial_axis = axis[:-reserve_spatial_num]
             reserve_spatial_axis = axis[-reserve_spatial_num:]
             spatial_axis_split_factors = self.get_output_op_axis_factors(
@@ -699,59 +521,90 @@ class CUDAScheduleApplierV2(object):
             for iv, factors in zip(split_spatial_axis, spatial_axis_split_factors):
                 part = []
                 for f in reversed(factors[1:]):
-                    iv, inner = sch[X(op)].split(iv, factor=f)
+                    iv, inner = sch[Output].split(iv, factor=f)
                     part.append(inner)
                 part.append(iv)
                 part = list(reversed(part))
                 spatial_axis_split_parts.append(part)
-            reordered_spatial_axis = [list(x)
-                                      for x in zip(*spatial_axis_split_parts)]
+            reordered_spatial_axis = [list(x) for x in zip(*spatial_axis_split_parts)]
             reordered_spatial_axis.append(reserve_spatial_axis)
             # reorder
-            ordered_axis = reduce(lambda x, y: x + y,
-                                  reordered_spatial_axis, [])
-            sch[X(op)].reorder(*ordered_axis)
+            ordered_axis = reduce(lambda x, y: x + y, reordered_spatial_axis, [])
+            sch[Output].reorder(*ordered_axis)
             # fuse and bind
-            assert len(
-                reordered_spatial_axis) > 3, "No enough spatial axis split."
-            fused_axis = [sch[X(op)].fuse(*part)
-                          for part in reordered_spatial_axis[:-2]]
+            assert len(reordered_spatial_axis) > 2, "No enough spatial axis split."
+            fused_axis = [sch[Output].fuse(*part) for part in reordered_spatial_axis]
             final_axis = [[x] for x in fused_axis]
-            sch[X(op)].bind(fused_axis[0], self.bx)
-            # the intermediate bind to vthread
-            # for med_fused in fused_axis[1:-1]:
-            #     sch[X(op)].bind(med_fused, tvm.te.thread_axis("vthread"))
-            sch[X(op)].bind(fused_axis[-1], self.ty)
-            # thread level intrinsic, still bind to thread x
-            if self.recipe_stage.instruction_scope == InstructionScope.thread:
-                fused = sch[X(op)].fuse(*reordered_spatial_axis[-2])
-                outer, inner = sch[X(op)].split(fused, nparts=self.warp_size)
-                sch[X(op)].bind(outer, self.tx)
-                final_axis.append([outer, inner])
-                final_axis.append(reordered_spatial_axis[-1])
-            else:
-                final_axis.append(reordered_spatial_axis[-2])
-                final_axis.append(reordered_spatial_axis[-1])
+            sch[Output].parallel(fused_axis[0])
+            # thread level intrinsic
+            assert self.recipe_stage.instruction_scope == InstructionScope.thread
+            outer, inner = sch[Output].split(fused_axis[-1], factor=4)
+            sch[Output].vectorize(inner)
+            final_axis[-1] = [outer, inner]
             self.state.output_op_axis = final_axis
-            self.state.tensorize_iter[op] = final_axis[-1][-2]
+
+            # schedule LL
+            # prepare spatial axis
+            sch[LL].compute_at(sch[Output], final_axis[-2][0])
+            axis = sch[LL].op.axis
+            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
+            spatial_axis_split_parts = [
+                axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
+
+            all_reduce_axis = sch[LL].op.reduce_axis
+            reserve_reduce_axis = []
+            split_reduce_axis = []
+            tmp = set([int(x) for x in self.recipe_stage.main_op_reserve_reduce_axis])
+            for i, iv in enumerate(all_reduce_axis):
+                if i in tmp:
+                    reserve_reduce_axis.append(iv)
+                else:
+                    split_reduce_axis.append(iv)
+            reserve_reduce_num = len(reserve_reduce_axis)
+            
+            reduce_axis_split_parts = []
+            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
+                len(split_reduce_axis)
+            )
+            for iv, factors in zip(split_reduce_axis, reduce_axis_split_factors):
+                part = []
+                for f in reversed(factors[1:]):
+                    iv, inner = sch[LL].split(iv, factor=f)
+                    part.append(inner)
+                part.append(iv)
+                part = list(reversed(part))
+                reduce_axis_split_parts.append(part)
+            reordered_reduce_axis = [list(x) for x in zip(*reduce_axis_split_parts)]
+            reordered_reduce_axis.append(reserve_reduce_axis)
+            assert len(reordered_reduce_axis) > 2, "No enough reduce axis split."
+            ordered_axis = reordered_reduce_axis[:-2] + \
+                           [spatial_axis_split_parts[0]] + \
+                           reordered_reduce_axis[-2:-1] + \
+                           [spatial_axis_split_parts[1]] + \
+                           reordered_reduce_axis[-1:]
+            ordered_axis = reduce(lambda x, y: x + y, ordered_axis, [])
+            sch[LL].reorder(*ordered_axis)
+            sch[LL].unroll(spatial_axis_split_parts[0][-1])
+            self.state.main_op_reduce_axis = reordered_reduce_axis
+            self.state.tensorize_iter[op] = ordered_axis[
+                -(reserve_spatial_num + reserve_reduce_num)]
+            self.state.transformed_main_op = LL
         elif op == self.target_dag.op_lst[-1]:
             # last op
-            if op != self.output_op:
-                axis = sch[X(op)].op.axis
-                fused = sch[X(op)].fuse(*axis)
-                fused, thread_level = sch[X(op)].split(
-                    fused, factor=self.warp_size)
-                split_factors = self.get_last_op_axis_factors(1)
-                split_parts = []
-                for f in reversed(split_factors[0][1:]):
-                    fused, inner = sch[X(op)].split(fused, factor=f)
-                    split_parts.append(inner)
-                split_parts.append(fused)
-                split_parts = list(reversed(split_parts))
-                sch[X(op)].bind(split_parts[0], self.obx)
-                sch[X(op)].bind(split_parts[-1], self.oty)
-                sch[X(op)].bind(thread_level, self.otx)
-                self.state.last_op_axis = [split_parts + [thread_level]]
+            axis = sch[X(op)].op.axis
+            fused = sch[X(op)].fuse(*axis)
+            split_factors = self.get_last_op_axis_factors(1)
+            split_factors.append(4)
+            split_parts = []
+            for f in reversed(split_factors[0][1:]):
+                fused, inner = sch[X(op)].split(fused, factor=f)
+                split_parts.append(inner)
+            split_parts.append(fused)
+            split_parts = list(reversed(split_parts))
+
+            sch[X(op)].vectorize(split_parts[-1])
+            sch[X(op)].parallel(split_parts[0])
+            self.state.last_op_axis = [split_parts[0:1], split_parts[1:-1], split_factors[:-1]]
         else:
             # only tiling for op before tensorize load
             # when inline is not done
@@ -764,18 +617,15 @@ class CUDAScheduleApplierV2(object):
                     return
                 if len(consumers) == 1 and \
                     consumers[0] in self.recipe_stage.operation_role and \
-                        self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
+                        self.recipe_stage.operation_role[consumers[0]] == OperationRole.main_op:
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         do_tiling = True
             if do_tiling:
-                bx = tvm.te.thread_axis("blockIdx.x")
-                ty = tvm.te.thread_axis("threadIdx.y")
-                tx = tvm.te.thread_axis("threadIdx.x")
-                axis = sch[X(op)].op.axis
-                fused = sch[X(op)].fuse(*axis)
-                fused, thread_level = sch[X(op)].split(
-                    fused, factor=self.warp_size)
+                axis = list(sch[X(op)].op.axis)
+                fused = sch[X(op)].fuse(*axis[:-1])
+                _, vec = sch[X(op)].split(axis[-1], factor=self.get_vectorize_length())
+                sch[X(op)].vectorize(vec)
                 # reuse the factors of output op
                 split_factors = self.get_last_op_axis_factors(1)
                 split_parts = []
@@ -784,48 +634,13 @@ class CUDAScheduleApplierV2(object):
                     split_parts.append(inner)
                 split_parts.append(fused)
                 split_parts = list(reversed(split_parts))
-                sch[X(op)].bind(split_parts[0], bx)
-                sch[X(op)].bind(split_parts[-1], ty)
-                sch[X(op)].bind(thread_level, tx)
+                sch[X(op)].parallel(split_parts[0])
 
     def compute_at(self, op_id, op, sch, X):
-        if not op in self.recipe_stage.operation_role:
-            return
-        if op_id < self.main_op_id:
-            # compute at to main op
-            axis = self.get_main_op_second_outermost_last_reduce_axis()
-            sch[X(op)].compute_at(sch[X(self.main_op)], axis)
-            reserve_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
-            self.state.tensorize_iter[op] = sch[X(
-                op)].op.axis[-reserve_spatial_num]
-        elif self.main_op_id < op_id < self.output_op_id:
-            # compute at to output op
-            axis = self.get_output_op_third_innermost_last_axis()
-            sch[X(op)].compute_at(sch[X(self.output_op)], axis)
-            reserve_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
-            self.state.tensorize_iter[op] = sch[X(
-                op)].op.axis[-reserve_spatial_num]
+        pass
 
     def unroll(self, op_id, op, sch, X):
-        if op == self.output_op:
-            axis = self.get_output_op_outermost_last_axis()
-            step = self.get_output_op_unroll_step()
-            sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
-        elif op == self.main_op:
-            axis = self.get_main_op_outermost_first_reduce_axis()
-            # reuse output op unroll step
-            step = self.get_output_op_unroll_step()
-            sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-            # sch[X(op)].pragma(axis, "unroll_explicit", 0)
-        elif op == self.target_dag.op_lst[-1]:
-            if op != self.output_op:
-                axis = self.get_last_op_outermost_last_axis()
-                step = self.get_last_op_unroll_step()
-                sch[X(op)].pragma(axis, "auto_unroll_max_step", step)
-                # sch[X(op)].pragma(axis, "unroll_explicit", 0)
+        pass
 
     def tensorize(self, op_id, op, sch, X):
         if not op in self.recipe_stage.operation_role:
@@ -833,8 +648,9 @@ class CUDAScheduleApplierV2(object):
         intrin = self.recipe.get_intrinsic(
             self.compute_key, self.shape_key, self.recipe_stage.capsule_key[op])
         axis = self.get_tensorize_iter(op)
-        sch[X(op)].tensorize(axis, intrin)
-
+        assert op == self.main_op
+        sch[self.state.transformed_main_op].tensorize(axis, intrin)
+    
     def apply(self, sch, params, mapping_func=lambda x: x):
         X = mapping_func
         primitives = [
@@ -846,7 +662,7 @@ class CUDAScheduleApplierV2(object):
             self.unroll,
             self.tensorize
         ]
-
+        
         # initialize parameters
         self.initialize_parameters(params)
         # check if parameters are ready

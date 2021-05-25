@@ -5,7 +5,7 @@ from concurrent.futures import TimeoutError
 from pebble import ProcessPool, ProcessExpired
 
 
-supported_target = ["cuda", "opencl"]
+supported_target = ["cuda", "opencl", "llvm -mcpu=skylake-avx512"]
 
 
 def get_vector_bitwidth(target):
@@ -14,6 +14,8 @@ def get_vector_bitwidth(target):
         return 128
     elif target == "opencl":
         return 128
+    elif target == "llvm -mcpu=skylake-avx512":
+        return 256
 
 
 def get_vector_length(target, dtype):

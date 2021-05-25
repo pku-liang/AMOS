@@ -369,7 +369,7 @@ def wide_resnet101_2(pretrained=False, progress=True, **kwargs):
 
 if __name__ == "__main__":
     print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.enabled = False
     batch = 16
 
     model = resnet18(pretrained=False, num_classes=1000).cuda().half()

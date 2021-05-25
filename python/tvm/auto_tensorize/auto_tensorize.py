@@ -13,6 +13,7 @@ from .tensorization_phases import (
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
     CUDAScheduleApplierMultiReduce
 from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
+from .tensorization_phases import LLVMScheduleGenerator, LLVMScheduleApplier
 from .search import (
     EmptyChecker, CUDAProgramChecker,
     MaliProgramChecker,
@@ -93,13 +94,16 @@ def auto_tensorize_schedule(target_dag, target,
                             verbose=False,
                             search_batch=16,
                             enable_split_K=False,
-                            use_lagacy=False):
+                            use_lagacy=False,
+                            build_parallel=1,
+                            run_parallel=1):
     if match_result is None or new_state is None:
         return AutoTensorizeResult(None, None, None, None)
     if str(target) == "cuda":
         if enable_split_K:
             schedule_gen = CUDAScheduleGeneratorSplitK(
-                match_result, new_state, log_file=log_file)
+                match_result, new_state, log_file=log_file,
+                arch=get_cuda_compute_version(measure_opt.dev_id))
             if os.path.exists(log_file) and os.path.isfile(log_file):
                 schedule_gen.load_from_file(log_file)
             sc_info = schedule_gen.get_schedule_compute_info()
@@ -108,7 +112,8 @@ def auto_tensorize_schedule(target_dag, target,
             checker = EmptyChecker()
         elif use_lagacy:
             schedule_gen = CUDAScheduleGenerator(
-                match_result, new_state, log_file=log_file)
+                match_result, new_state, log_file=log_file,
+                arch=get_cuda_compute_version(measure_opt.dev_id))
             if os.path.exists(log_file) and os.path.isfile(log_file):
                 schedule_gen.load_from_file(log_file)
             sc_info = schedule_gen.get_schedule_compute_info()
@@ -117,7 +122,8 @@ def auto_tensorize_schedule(target_dag, target,
                 arch=get_cuda_compute_version(measure_opt.dev_id))
         else:
             schedule_gen = CUDAScheduleGeneratorV2(
-                match_result, new_state, log_file=log_file)
+                match_result, new_state, log_file=log_file,
+                arch=get_cuda_compute_version(measure_opt.dev_id))
             if os.path.exists(log_file) and os.path.isfile(log_file):
                 schedule_gen.load_from_file(log_file)
             sc_info = schedule_gen.get_schedule_compute_info()
@@ -133,6 +139,15 @@ def auto_tensorize_schedule(target_dag, target,
         schedule_app = MaliScheduleApplier(match_result, sc_info)
         # TODO: write a checker for MALI GPU
         checker = MaliProgramChecker(arch="g76")
+    elif str(target) == "llvm -mcpu=skylake-avx512":
+        schedule_gen = LLVMScheduleGenerator(
+            match_result, new_state, log_file=log_file)
+        if os.path.exists(log_file) and os.path.isfile(log_file):
+            schedule_gen.load_from_file(log_file)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = LLVMScheduleApplier(match_result, sc_info)
+        # TODO: write a checker for CPU
+        checker = EmptyChecker()
     else:
         raise RuntimeError("Do not support target: %s" % target)
 
@@ -144,7 +159,9 @@ def auto_tensorize_schedule(target_dag, target,
             builder=builder,
             runner=runner,
             verbose=verbose,
-            batch_size=search_batch)
+            batch_size=search_batch,
+            build_parallel=build_parallel,
+            run_parallel=run_parallel)
 
     entry = schedule_gen.get_best_entry()
     # we store 1/time_cost in file
@@ -169,7 +186,9 @@ def auto_tensorize(target_dag, target,
                    transform_dump=False,
                    transform_policy="all_fit",
                    search_batch=16,
-                   enable_split_K=False):
+                   enable_split_K=False,
+                   build_parallel=1,
+                   run_parallel=1):
     match_result, new_state = auto_tensorize_compute(
         target_dag,
         target,
@@ -191,7 +210,9 @@ def auto_tensorize(target_dag, target,
         runner,
         verbose,
         search_batch,
-        enable_split_K
+        enable_split_K,
+        build_parallel=build_parallel,
+        run_parallel=run_parallel
     )
 
 
@@ -301,7 +322,9 @@ def auto_tensorize_v3(
         desired_shape_key=None,
         enable_split_K=False,
         use_shared_store=False,
-        drop_output=False):
+        drop_output=False,
+        build_parallel=1,
+        run_parallel=1):
 
     measure_opt.target = target
     match_results = get_match_results(target_dag, target)
@@ -386,6 +409,16 @@ def auto_tensorize_v3(
         print(f"Choose transform: {record}", flush=True)
         new_state = app.apply(record, drop_output=drop_output)
 
+        if transform_dump:
+            print("Dump IR after transform:", flush=True)
+            new_target_dag = new_state.target_dag
+            new_inputs = new_target_dag.get_inputs()
+            sch = tvm.te.create_schedule(
+                [x.op for x in new_target_dag.tensors])
+            print(tvm.lower(
+                sch, new_inputs + list(new_target_dag.tensors), simple_mode=True),
+                flush=True)
+
         record_key = record.as_key()
         if record_key in schedule_context_cache:
             sch_ctx = schedule_context_cache[record_key]
@@ -395,25 +428,31 @@ def auto_tensorize_v3(
                 if not enable_split_K:
                     if use_shared_store:
                         schedule_gen = CUDAScheduleGeneratorV3(
-                            match_result, new_state, log_file=current_log_file)
+                            match_result, new_state, log_file=current_log_file,
+                            arch=get_cuda_compute_version(measure_opt.dev_id))
                         if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
                             schedule_gen.load_from_file(current_log_file)
                         sc_info = schedule_gen.get_schedule_compute_info()
-                        schedule_app = CUDAScheduleApplierV3(match_result, sc_info)
+                        schedule_app = CUDAScheduleApplierV3(
+                            match_result, sc_info)
                     else:
                         schedule_gen = CUDAScheduleGeneratorV2(
-                            match_result, new_state, log_file=current_log_file)
+                            match_result, new_state, log_file=current_log_file,
+                            arch=get_cuda_compute_version(measure_opt.dev_id))
                         if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
                             schedule_gen.load_from_file(current_log_file)
                         sc_info = schedule_gen.get_schedule_compute_info()
-                        schedule_app = CUDAScheduleApplierV2(match_result, sc_info)
+                        schedule_app = CUDAScheduleApplierV2(
+                            match_result, sc_info)
                 else:
                     schedule_gen = CUDAScheduleGeneratorSplitK(
-                    match_result, new_state, log_file=current_log_file)
+                        match_result, new_state, log_file=current_log_file,
+                        arch=get_cuda_compute_version(measure_opt.dev_id))
                     if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
                         schedule_gen.load_from_file(current_log_file)
                     sc_info = schedule_gen.get_schedule_compute_info()
-                    schedule_app = CUDAScheduleApplierSplitK(match_result, sc_info)
+                    schedule_app = CUDAScheduleApplierSplitK(
+                        match_result, sc_info)
                 checker = CUDAProgramChecker(
                     arch=get_cuda_compute_version(measure_opt.dev_id))
             elif str(target) == "opencl":
@@ -425,6 +464,15 @@ def auto_tensorize_v3(
                 schedule_app = MaliScheduleApplier(match_result, sc_info)
                 # TODO: write a checker for MALI GPU
                 checker = MaliProgramChecker(arch="g76")
+            elif str(target) == "llvm -mcpu=skylake-avx512":
+                schedule_gen = LLVMScheduleGenerator(
+                    match_result, new_state, log_file=current_log_file)
+                if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                    schedule_gen.load_from_file(current_log_file)
+                sc_info = schedule_gen.get_schedule_compute_info()
+                schedule_app = LLVMScheduleApplier(match_result, sc_info)
+                # TODO: write a checker for CPU
+                checker = EmptyChecker()
             else:
                 raise RuntimeError("Do not support target: %s" % target)
 
@@ -436,7 +484,9 @@ def auto_tensorize_v3(
                     builder=builder,
                     runner=runner,
                     verbose=verbose_schedule,
-                    batch_size=search_batch)
+                    batch_size=search_batch,
+                    build_parallel=build_parallel,
+                    run_parallel=run_parallel)
             else:
                 generate_schedule = None
 
@@ -465,7 +515,7 @@ def auto_tensorize_v3(
             best_params = params
 
         print(
-            f"Iteration: {it+1}: {value}/{best_value}, {str(record)}, {str(params)}", flush=True)
+            f"Iteration: {it+1}: {value}/{best_value}({1/best_value*1e3} ms), {str(record)}, {str(params)}", flush=True)
 
         if (it + 1) % 10 == 0:
             print("Show transformation explore summary:", flush=True)

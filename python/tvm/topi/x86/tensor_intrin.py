@@ -309,7 +309,6 @@ def dot_16x1x16_uint8_int8_int32_cascadelake():
                     pair_reduction,
                     vec_one,
                 )
-
             if index == 0:
                 ib.emit(outs[0].vstore(0, quad_reduction))
             else:
