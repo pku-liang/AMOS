@@ -39,27 +39,36 @@ def register_test(func):
         print("Can't convert to number", name[len(prefix):])
 
 
-def conv2d(N, C, H, W, K, R, S, stride, padding, with_bias=True):
+def conv2d(N, C, H, W, K, R, S, stride, padding, with_bias=True, in_dtype=["float16", "float16"], out_dtype="float32"):
     H = H + 2 * padding
     W = W + 2 * padding
-    A = tvm.te.placeholder([N, C, H, W], dtype="float16", name="A")
-    B = tvm.te.placeholder([K, C, R, S], dtype="float16", name="B")
+    A = tvm.te.placeholder([N, C, H, W], dtype=in_dtype[0], name="A")
+    B = tvm.te.placeholder([K, C, R, S], dtype=in_dtype[1], name="B")
     rc = tvm.te.reduce_axis([0, C], name="rc")
     rr = tvm.te.reduce_axis([0, R], name="rr")
     rs = tvm.te.reduce_axis([0, S], name="rs")
 
     P = (H - R) // stride + 1
     Q = (W - S) // stride + 1
-    Conv = tvm.te.compute(
-        [N, K, P, Q],
-        lambda n, k, p, q:
-            tvm.te.sum((A[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
-                        ).astype("float32"), axis=[rc, rr, rs]),
-        name="Conv"
-    )
+    if in_dtype[0] == "uint8":
+        Conv = tvm.te.compute(
+            [N, K, P, Q],
+            lambda n, k, p, q:
+                tvm.te.sum((A[n, rc, p+rr, q+rs].astype(out_dtype) * B[k, rc, rr, rs].astype(out_dtype)
+                            ), axis=[rc, rr, rs]),
+            name="Conv"
+        )
+    else:
+        Conv = tvm.te.compute(
+            [N, K, P, Q],
+            lambda n, k, p, q:
+                tvm.te.sum((A[n, rc, p+rr, q+rs] * B[k, rc, rr, rs]
+                            ).astype(out_dtype), axis=[rc, rr, rs]),
+            name="Conv"
+        )
     if not with_bias:
         return [A, B, Conv]
-    bias = tvm.te.placeholder([N, K, P, Q], dtype="float32", name="bias")
+    bias = tvm.te.placeholder([N, K, P, Q], dtype=out_dtype, name="bias")
     E = tvm.te.compute(
         [N, K, P, Q],
         lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bn, bk, bp, bq],
@@ -1369,6 +1378,132 @@ def test5():
 
         build_func = "default"
         target_host = "llvm"
+        timeout = 150
+        verbose = 1
+
+        # build_results = tg_parallel_builder_build(
+        #     schedule_app,
+        #     params_lst,
+        #     recipe.target,
+        #     target_host,
+        #     timeout=timeout,
+        #     build_func=build_func,
+        #     verbose=verbose)
+
+        build_results = pebble_local_builder_build(
+            schedule_app,
+            params_lst,
+            recipe.target,
+            target_host,
+            timeout,
+            1,
+            build_func=build_func)
+
+        for r in build_results:
+            print(r)
+        
+        number = 1
+        repeat = 1
+        min_repeat_ms = 150
+        cooldown_interval = 1
+        enable_cpu_cache_flush = 1
+
+        run_results = pebble_local_runner_run(
+            recipe.target,
+            0,
+            build_results,
+            timeout,
+            number,
+            repeat,
+            min_repeat_ms,
+            cooldown_interval,
+            enable_cpu_cache_flush,
+            verbose
+        )
+
+        for r in run_results:
+            print(r)
+
+        gen.feedback(record, np.random.random())
+    end = time.time()
+    print("Pass %f seconds." % (end - beg))
+    print("Pass!\n")
+
+
+@register_test
+def test6():
+    print("##########################")
+    print("Test 6")
+    recipe = at.AVX512SkylakeGemvRecipe()
+    compute_key = "dummy"
+    shape_key = "16x4"
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    A, B, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1, with_bias=False, in_dtype=["uint8", "int8"], out_dtype="int32")
+    target_dag = at.compute_dag_from_tensors([E])
+
+    # inputs_ref = target_dag.get_inputs()
+    sch_ref = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    print(tvm.lower(sch_ref, [A, B, E], simple_mode=True))
+    # func_ref = tvm.build(sch_ref, inputs_ref +
+    #                      list(target_dag.tensors), "llvm")
+    # ctx = tvm.cpu()
+    # inputs_np_arrays = get_np_arrays(inputs_ref)
+    # inputs_arrays = get_tvm_arrays_from_np_arrays(inputs_np_arrays, ctx)
+    # outputs_arrays_ref = get_tvm_arrays(list(target_dag.tensors), ctx)
+    # func_ref(*inputs_arrays, *outputs_arrays_ref)
+
+    main_op_map = {
+        intrin_dag.op_lst[0]: target_dag.op_lst[0]
+    }
+    elem_op_map = {
+    }
+    ii, = intrin_dag.op_lst[0].axis
+    kk, = intrin_dag.op_lst[0].reduce_axis
+    n, k, p, q = target_dag.op_lst[0].axis
+    rc, rr, rs = target_dag.op_lst[0].reduce_axis
+    axis_map = {
+        ii: [k, k, k],
+        kk: [rc, rr, rs]
+    }
+    match_result = at.IntrinMatchResult(
+        recipe, compute_key, shape_key,
+        main_op_map, elem_op_map,
+        axis_map, target_dag, intrin_dag
+    )
+
+    gen = at.TransformGenerator(match_result)
+    beg = time.time()
+    for i in range(1):
+        record = gen.get(policy="random")
+        record.unfold_choice = ([1, 1, 1], record.unfold_choice[1])
+ 
+        print("transform decision:")
+        for k, v in record.to_json().items():
+            print(k, "=", v)
+
+        app = at.TransformApplier(match_result)
+        new_state = app.apply(record)
+
+        schedule_gen = at.LLVMScheduleGenerator(match_result, new_state)
+        sc_info = schedule_gen.get_schedule_compute_info()
+        schedule_app = at.LLVMScheduleApplier(match_result, sc_info)
+        params_lst = []
+        trials = 1
+        print("trials=", trials)
+        for j in range(trials):
+            params = schedule_gen.get(policy="random")
+            my_params = {
+                'inline': (0, 1),
+                'vectorize': (1, 1),
+                'spatial_factors': [([2, 1], (0, 0)), ([4, 1], (-1, 1)), ([14, 1], (-1, -1)), ([14, 1], (-1, -1))],
+                'reduce_factors': [([3, 2], (1, 1)), ([1, 1, 3], (0, -1))],
+                'last_factors': [([-1, 32], (-1,))],
+                }
+            params.from_json(my_params)
+            params_lst.append(params)
+
+        build_func = "default"
+        target_host = "llvm -mcpu=skylake-avx512"
         timeout = 150
         verbose = 1
 

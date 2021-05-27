@@ -76,7 +76,7 @@ def schedule_conv2d_nvvi(A, B, Output):
     data_vec = padded.op.input_tensors[0]
     sch = tvm.te.create_schedule(Output.op)
 
-    reg_n, unroll_kw = 2, False
+    reg_n, unroll_kw = 4, False
     ic_bn = CI
     oc_bn = KI
 
@@ -92,7 +92,7 @@ def schedule_conv2d_nvvi(A, B, Output):
 
     oc_chunk, ic_chunk, oh, ow, ic_block, oc_block, _ = sch[kernel_vec].op.axis
     sch[kernel_vec].reorder(oc_chunk, oh, ic_chunk, ow, ic_block, oc_block)
-    oc_bn = 2
+    oc_bn = 1
     if oc_bn > 1:
         sch[kernel_vec].vectorize(oc_block)
     parallel_axis = sch[kernel_vec].fuse(oc_chunk, oh)

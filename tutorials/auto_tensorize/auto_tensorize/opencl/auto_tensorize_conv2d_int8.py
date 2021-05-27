@@ -55,7 +55,7 @@ def tensorize_tensorcore_s8s8(
 ):
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
-    
+
     target = "opencl"
     target_host = 'llvm -mtriple=aarch64-linux-android'
 

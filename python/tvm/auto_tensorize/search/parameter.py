@@ -362,7 +362,8 @@ def find_optimized_parameters(
     match_results, schedule_gen, schedule_app,
         measure_opt, checker, trials, batch_size=16,
         policy="", builder=tg_parallel_builder_build,
-        runner=pebble_local_runner_run, verbose=False):
+        runner=pebble_local_runner_run, verbose=False,
+        build_parallel=1, run_parallel=1):
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
@@ -370,6 +371,7 @@ def find_optimized_parameters(
         best_value = top1.value
         best_params = top1.record
     if measure_opt.use_rpc:
+        assert 0
         runner = pebble_rpc_runner_run
     batch_num = (trials + batch_size - 1) // batch_size
     print("Total search tirals:", trials,
@@ -385,31 +387,14 @@ def find_optimized_parameters(
                 # params = schedule_gen.get(policy=policy)
                 params = schedule_gen.get_next(policy=policy)
                 # my_params = {
-                #     'split_K': (4, 0),
-                #     'inline': (0, 1),
-                #     'vectorize': (2, 1),
-                #     'spatial_factors': [([2, 1, 1, 2], (0, 0)), ([4, 1, 1, 2], (-1, 1)), ([14, 1, 1, 1], (-1, -1))],
-                #     'reduce_factors': [([3, 2, 2], (1, 1)), ([1, 1, 3], (0, -1))],
-                #     'last_factors': [([-1, 32], (-1,))],
-                #     'output_unroll_step': (64, -1),
-                #     'last_unroll_step': (512, 1)}
-                # my_params = {
-                #     'split_K': (4, 0),
-                #     'inline': (0, 1),
-                #     'vectorize': (4, 1),
-                #     'spatial_factors': [([5, 1, 1, 1], (0, 0)), ([4, 1, 1, 2], (-1, 1)), ([14, 1, 1, 1], (-1, -1))],
-                #     'reduce_factors': [([3, 2, 2], (1, 1)), ([1, 1, 3], (0, -1))],
-                #     'last_factors': [([-1, 32], (-1,))],
-                #     'output_unroll_step': (64, -1),
-                #     'last_unroll_step': (512, 1)}
                 # params.from_json(my_params)
                 # print(str(params))
                 params_lst.append(params)
         assert params_lst
         build_results = builder(
-            schedule_app, params_lst, measure_opt, checker)
+            schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel)
         run_results = runner(
-            build_results, measure_opt)
+            build_results, measure_opt, n_parallel=run_parallel)
         for params, res in zip(params_lst, run_results):
             if verbose:
                 print(res)
@@ -439,7 +424,8 @@ def find_optimized_parameters_v2(
     match_results, schedule_gen, schedule_app,
         measure_opt, checker, trials, batch_size=5,
         policy="", builder=tg_parallel_builder_build,
-        runner=pebble_local_runner_run, verbose=False):
+        runner=pebble_local_runner_run, verbose=False,
+        build_parallel=1, run_parallel=1):
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
@@ -468,9 +454,9 @@ def find_optimized_parameters_v2(
                     params_lst.append(params)
             assert params_lst
             build_results = builder(
-                schedule_app, params_lst, measure_opt, checker)
+                schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel)
             run_results = runner(
-                build_results, measure_opt)
+                build_results, measure_opt, n_parallel=run_parallel)
 
             max_value = 1 / MAX_FLOAT
             for params, res in zip(params_lst, run_results):
