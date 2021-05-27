@@ -249,9 +249,9 @@ def tune_and_evaluate(N, C, H, W, K, R, S, stride, padding, dilation, in_dtypes,
         ctx = tvm.context(str(target), 0)
         module = runtime.GraphModule(lib["default"](ctx))
         data_tvm = tvm.nd.array((np.random.uniform(size=input_shape)).astype(in_dtypes[0]))
-        weight_tvm = tvm.nd.array((np.random.uniform(size=weight_shape)).astype(in_dtypes[1]))
+        # weight_tvm = tvm.nd.array((np.random.uniform(size=weight_shape)).astype(in_dtypes[1]))
         module.set_input("data", data_tvm)
-        moduel.set_input("weight", weight_tvm)
+        # module.set_input("weight", weight_tvm)
 
         # evaluate
         print("Evaluate inference time cost...")
@@ -285,8 +285,8 @@ if __name__ == "__main__":
     batches = [2**i for i in range(1)]
     beg = 0
     #num = 15
-    num = 1
-    in_dtypes = ["float32", "float32"]
+    num = 12
+    in_dtypes = ["float16", "float16"]
     out_dtype = "float32"
     target = tvm.target.cuda()
     for batch in batches:
@@ -302,26 +302,26 @@ if __name__ == "__main__":
             tuning_option = {
                 "log_filename": log_file,
                 "tuner": "xgb",
-                "n_trial": 1000,
+                "n_trial": 100,
                 "early_stopping": 200,
                 "measure_option": autotvm.measure_option(
                     builder=autotvm.LocalBuilder(timeout=10),
                     runner=autotvm.LocalRunner(number=20, repeat=3, timeout=4, min_repeat_ms=150),
                 ),
             }
-            # try:
-            cost = tune_and_evaluate(
-                N, C, H, W, K, R, S, stride,
-                padding, dilation,
-                in_dtypes,
-                out_dtype,
-                tuning_option,
-                target
-            )
-            costs.append(cost)
-            # except Exception as e:
-            #     print("Fail to run\n", str(e))
-            #     costs.append(float("inf"))
+            try:
+                cost = tune_and_evaluate(
+                    N, C, H, W, K, R, S, stride,
+                    padding, dilation,
+                    in_dtypes,
+                    out_dtype,
+                    tuning_option,
+                    target
+                )
+                costs.append(cost)
+            except Exception as e:
+                print("Fail to run\n", str(e))
+                costs.append(float("inf"))
         print("\nBatch=", batch)
         for cost in costs:
             print(cost)

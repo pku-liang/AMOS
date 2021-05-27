@@ -384,7 +384,7 @@ def pebble_local_build_worker(index):
         except Exception:
             error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
             error_msg = auto_scheduler.measure.make_error_msg()
-            print(error_msg)
+            # print(error_msg)
         if error_no == 0:
             dirname = tempfile.mkdtemp()
             filename = os.path.join(
