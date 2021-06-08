@@ -44,7 +44,7 @@ def kernel_gemm_tensorcore_split_K_common_common(arch, code, tag="single_buffer"
             name="Gemm"
         )
 
-        def schedule_kernel(sch):
+        def schedule_kernel(sch, ctx=None):
             m1, m, n1, n = sch[Gemm].op.axis
             num_threads = (
                 (threadblock_problem_size[0] // warp_problem_size[0])
@@ -104,7 +104,7 @@ def kernel_gemm_tensorcore_common_common(arch, code, tag="single_buffer"):
             name="Gemm"
         )
 
-        def schedule_kernel(sch):
+        def schedule_kernel(sch, ctx=None):
             m1, m, n1, n = sch[Gemm].op.axis
             num_threads = (
                 (threadblock_problem_size[0] // warp_problem_size[0])
@@ -167,7 +167,7 @@ def kernel_gemm_tensorcore_split_K_perfect_common_common(arch, code, tag="single
             name="Gemm"
         )
 
-        def schedule_kernel(sch):
+        def schedule_kernel(sch, ctx=None):
             m, n = sch[Gemm].op.axis
             num_threads = (
                 (threadblock_problem_size[0] // warp_problem_size[0])
@@ -226,7 +226,7 @@ def kernel_gemm_tensorcore_perfect_common_common(arch, code, tag="single_buffer"
             name="Gemm"
         )
 
-        def schedule_kernel(sch):
+        def schedule_kernel(sch, ctx=None):
             m, n = sch[Gemm].op.axis
             num_threads = (
                 (threadblock_problem_size[0] // warp_problem_size[0])

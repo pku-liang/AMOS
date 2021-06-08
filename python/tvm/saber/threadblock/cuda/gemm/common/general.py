@@ -129,7 +129,7 @@ def threadblock_gemm_general_common_common_double_buffer(
     def thread(x): return te.thread_axis(f"threadIdx.{x}")
     def vthread(): return te.thread_axis("vthread")
 
-    def schedule_threadblock_gemm_thread_map_double_buffer(sch):
+    def schedule_threadblock_gemm_thread_map_double_buffer(sch, ctx=None):
         nonlocal C
 
         BM, BN, BK = M2 * M3 * M4, N2 * N3 * N4, K2 * K3 * K4
@@ -139,7 +139,7 @@ def threadblock_gemm_general_common_common_double_buffer(
         n_warps_per_block = M2 * N2
         n_threads_per_warp = M4 * N4
         n_threads_per_block = n_threads_per_warp * n_warps_per_block
-        assert n_threads_per_warp == 32
+        # assert n_threads_per_warp == 32
         assert (BK * BM) % n_threads_per_block == 0
         assert (BK * BN) % n_threads_per_block == 0
 

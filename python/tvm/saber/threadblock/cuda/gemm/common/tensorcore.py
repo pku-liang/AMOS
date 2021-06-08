@@ -130,7 +130,7 @@ def threadblock_gemm_tensorcore_common_common_single_buffer(get_tensorcore_recip
         thread_y = lambda *_: tvm.te.thread_axis("threadIdx.y")
         thread_z = lambda *_: tvm.te.thread_axis("threadIdx.z")
 
-        def schedule_threadblock_gemm(sch):
+        def schedule_threadblock_gemm(sch, ctx=None):
             nonlocal C
             if len(Epilogues) == 0:
                 cache_write = sch.cache_write(C, "local")

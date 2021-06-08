@@ -127,6 +127,81 @@ def test5():
             print(f"{M},{N},{K},{cost}", file=fp, flush=True)
 
 
+@register_test
+def test6():
+    def compile_impl(params):
+        assert isinstance(params, saber.CUDAParams)
+        gemm = saber.GemmCUDAGeneral(
+            in_dtype="float32",
+            out_dtype="float32",
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            instruction_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        return gemm.expose_compile_context()
+
+    def evaluate_impl(params):
+        assert isinstance(params, saber.CUDAParams)
+        gemm = saber.GemmCUDAGeneral(
+            in_dtype="float32",
+            out_dtype="float32",
+            threadblock_problem_size=params.threadblock_problem_size[0],
+            warp_problem_size=params.warp_problem_size[0],
+            instruction_problem_size=params.instruction_problem_size[0],
+            split_K=params.split_K[0][0])
+        shapes = [
+            [256, 256, 256],
+        ]
+        
+        tensor_lst = []
+        var_value_lst = []
+        for shape in shapes:
+            args, vars = gemm.expose_evaluate_context(*shape)
+            tensor_lst.append(args)
+            var_value_lst.append(vars)
+        return tensor_lst, var_value_lst
+
+    targets = [
+        1
+    ]
+
+    def relative_perf_geo(lst):
+        rel = []
+        for cost, target in zip(lst, targets):
+            rel.append(target / cost)
+        return geomean(rel)
+
+    class Checker(object):
+        def check(self, *args, **kwargs):
+            return True
+
+    generator = saber.CUDADeviceGeneralGenerator(arch="sm80")
+    saber.parallel_maximize(
+        compile_impl,
+        evaluate_impl,
+        relative_perf_geo,
+        [generator],
+        saber.MeasureOptions(
+            use_rpc=False,
+            target="cuda",
+            target_host="llvm",
+            timeout=10, number=10,
+            min_repeat_ms=80,
+            build_func="default",
+            key="",
+            host="",
+            port=None,
+            cooldown_interval=0,
+            verbose=False),
+        # at.search.MaliProgramChecker(arch="g76"),
+        Checker(),
+        iterations=1000,
+        verbose=False,
+        build_parallel=1,
+        report_period=1
+        )
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()

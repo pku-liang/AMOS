@@ -2,7 +2,6 @@ import numpy as np
 import json
 from collections import namedtuple
 from functools import reduce
-from ..analysis import kmeans
 
 
 class ConvParams(object):
@@ -136,6 +135,22 @@ class ConvFullParams(object):
             self.use_fp16
         )
 
+    @staticmethod
+    def from_flatten_tuple(tup):
+        return ConvFullParams(
+            tup[0],
+            tup[1],
+            tup[2],
+            tup[3],
+            tup[4],
+            (tup[5], tup[6]),
+            (tup[7], tup[8]),
+            (tup[9], tup[10]),
+            tup[11],
+            tup[12],
+            tup[13]
+        )
+
     def to_tuple_key(self):
         tmp = (
             self.batch,
@@ -188,7 +203,18 @@ def make_conv_full_param_lst(param, item):
     return ret, counts
 
 
-def get_conv_shapes(filename="conv_op_config_longtail.txt"):
+def make_conv_full_param_lst_from_param_groups(param_groups):
+    full_param_input_lst = []
+    count_lst = []
+    for (param, shape_item) in param_groups:
+        part_param_input_lst, part_count_lst = make_conv_full_param_lst(
+            param, shape_item)
+        full_param_input_lst.extend(part_param_input_lst)
+        count_lst.extend(part_count_lst)
+    return full_param_input_lst, count_lst
+
+
+def get_conv_shapes(filename):
     ret = []
     with open(filename, "r") as fin:
         for line in fin:
@@ -201,13 +227,6 @@ def get_conv_shapes(filename="conv_op_config_longtail.txt"):
             ret.append((conv_param, item))
 
     return ret
-
-
-def normalize_params(params):
-    array = np.array(params)
-    max_item = np.max(array, axis=0)
-    min_item = np.min(array, axis=0)
-    return (array - min_item) / (max_item - min_item + 1e-10)
 
 
 def cluster_kernel_params(cluster, info, total_kernels):
@@ -244,20 +263,12 @@ def cluster_kernel_params(cluster, info, total_kernels):
     return cluster, predicts, param_clusters, list(map(int, num_kernels))
 
 
-def cluster_param_inputs(cluster, param_group, assigned_kernels):
+def cluster_param_inputs(cluster, full_param_input_lst, count_lst, assigned_kernels):
     """
     cluster: tool such as KMeans
     param_group: [(param, shape_item)]
     assigned_kernels: number of kernels for this group
     """
-    full_param_input_lst = []
-    count_lst = []
-    for (param, shape_item) in param_group:
-        part_param_input_lst, part_count_lst = make_conv_full_param_lst(
-            param, shape_item)
-        full_param_input_lst.extend(part_param_input_lst)
-        count_lst.extend(part_count_lst)
-    
     X = np.array(
         [list(map(float, x.to_flatten_tuple())) for x in full_param_input_lst])
     X = normalize_params(X)
@@ -291,3 +302,6 @@ def cluster_param_inputs(cluster, param_group, assigned_kernels):
         print("Warning: use additional", int(excess_kernels), "kernels", flush=True)
     
     return cluster, predicts, param_input_clusters, list(map(int, num_kernels))
+
+
+

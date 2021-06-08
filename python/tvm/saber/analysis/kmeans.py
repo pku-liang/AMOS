@@ -1,22 +1,22 @@
 import faiss
+import os
+import json
 import numpy as np
 
 
 class FaissKMeans(object):
-    def __init__(self, n_clusters=8, n_init=10, max_iter=300):
+    def __init__(self, n_clusters=8):
         self.n_clusters = n_clusters
-        self.n_init = n_init
-        self.max_iter = max_iter
         self.kmeans = None
         self.cluster_centers_ = None
         self.inertia_ = None
 
-    def fit(self, X):
+    def fit(self, X, n_init=10, max_iter=300):
         self.kmeans = faiss.Kmeans(
             d=X.shape[1],
             k=self.n_clusters,
-            niter=self.max_iter,
-            nredo=self.n_init
+            niter=max_iter,
+            nredo=n_init
         )
         self.kmeans.train(X.astype(np.float32))
         self.cluster_centers_ = self.kmeans.centroids
@@ -31,6 +31,26 @@ class FaissKMeans(object):
 
     def predict(self, X):
         return self.kmeans.index.search(X.astype(np.float32), 1)[1]
+
+    def save(self, path, override=True):
+        obj = {"centers": self.cluster_centers_.tolist()}
+        s = json.dumps(obj)
+        if not override:
+            assert not os.path.isfile(path)
+        with open(path, "w") as fout:
+            fout.write(s + "\n")
+
+    @staticmethod
+    def load(path):
+        with open(path, "r") as fin:
+            line = fin.readline().strip()
+            obj = json.loads(line)
+            centers = np.array(obj["centers"])
+            n_clusters = len(centers)
+            ret = FaissKMeans(n_clusters=n_clusters)
+            ret.fit(centers)
+            return ret
+
 
 
 
@@ -49,5 +69,11 @@ if __name__ == "__main__":
 
     KMeans.fit(X)
     predicts = KMeans.predict(np.array([[5, 5, 5], [3, 3, 3]])).squeeze()
+    print(predicts)
     centers = KMeans.get_centers()
     print(centers[predicts])
+
+    KMeans.save("tmp.json")
+    new_kmeans = FaissKMeans.load("tmp.json")
+    predicts = new_kmeans.predict(np.array([[5, 5, 5], [3, 3, 3]])).squeeze()
+    print(predicts)

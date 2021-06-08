@@ -186,7 +186,7 @@ DEVICE_GENERATOR = {
 
 
 def optimize_device_implementation(
-        shapes, targets, measure_opt, num_generators=4,
+        shapes, target_perfs, measure_opt, num_generators=4,
         iterations=300, build_parallel=4,
         verbose=False, report_period=1,
         op_name="gemm", device_name="cuda",
@@ -194,7 +194,7 @@ def optimize_device_implementation(
         type_name="general", arch="ampere", code="sm80", tag="double_buffer"):
     """
     shapes: [[xx, xx, xx]...]
-    targets: [xxx(ms), xxx, ....]
+    target_perfs: [xxx(ms), xxx, ....]
     """
     op_cls = DEVICE_IMPL[op_name][device_name][type_name]
     param_cls = DEVICE_PARAMS[device_name]
@@ -244,7 +244,7 @@ def optimize_device_implementation(
 
     def relative_perf_geo(lst):
         rel = []
-        for cost, target in zip(lst, targets):
+        for cost, target in zip(lst, target_perfs):
             rel.append(target / cost)
         return geomean(rel)
 

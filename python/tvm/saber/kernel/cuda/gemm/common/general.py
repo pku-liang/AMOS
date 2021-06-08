@@ -72,7 +72,7 @@ def kernel_gemm_general_perfect_common_common(arch, code, tag="double_buffer"):
             name="Gemm"
         )
 
-        def schedule_kernel(sch):
+        def schedule_kernel(sch, ctx=None):
             Last = Gemm
 
             m, n = sch[Last].op.axis

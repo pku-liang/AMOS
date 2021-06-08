@@ -180,7 +180,7 @@ def evaluate_schedule(sch, args, vars,
                     print(".E", end="", flush=True)
                     results = MAX_FLOAT
                     from tvm import auto_scheduler
-                    print(auto_scheduler.utils.make_traceback_info())
+                    # print(auto_scheduler.utils.make_traceback_info())
 
         return results
 
@@ -188,7 +188,7 @@ def evaluate_schedule(sch, args, vars,
 def evaluate_function_worker(dummy):
     global EVALUTE_FUNCTION_INPUTS
     func, args, var_values, measure_opt = EVALUTE_FUNCTION_INPUTS
-    print(args, var_values)
+    # print(args, var_values)
     target = measure_opt.target
     dev_id = measure_opt.dev_id
     number = measure_opt.number
@@ -279,7 +279,7 @@ def evaluate_function(func, args, var_values, measure_opt, new_process=True):
                     print(".E", end="", flush=True)
                     results = MAX_FLOAT
                     from tvm import auto_scheduler
-                    print(auto_scheduler.utils.make_traceback_info())
+                    # print(auto_scheduler.utils.make_traceback_info())
 
         return results
 
@@ -340,7 +340,7 @@ def pebble_local_build_worker_shape_oblivious(index):
         except Exception:
             error_no = auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR
             error_msg = auto_scheduler.utils.make_traceback_info()
-            print(error_msg)
+            # print(error_msg)
 
         if error_no == 0:
             dirname = tempfile.mkdtemp()
@@ -658,7 +658,7 @@ def pebble_rpc_run_worker_shape_oblivious(index):
             costs = (max_float,)
             error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
             error_msg = auto_scheduler.utils.make_traceback_info()
-            print(error_msg)
+            # print(error_msg)
 
         if error_no == 0:
             costs = []
@@ -692,7 +692,7 @@ def pebble_rpc_run_worker_shape_oblivious(index):
                     costs.append(max_float)
                     error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
                     error_msg = auto_scheduler.utils.make_traceback_info()
-                    print(error_msg)
+                    # print(error_msg)
 
         shutil.rmtree(os.path.dirname(build_res.filename))
         toc = time.time()

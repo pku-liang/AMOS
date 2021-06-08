@@ -27,23 +27,11 @@ def register_test(func):
 @register_test
 def test1():
     shapes = saber.distribution.conv2d.get_conv_shapes("conv_op_config_longtail.txt")
-    cluster = saber.analysis.kmeans.FaissKMeans(n_clusters=4)
-    cluster, predicts, param_clusters, num_kernels = saber.distribution.conv2d.cluster_kernel_params(cluster, shapes, 40)
-    print(num_kernels)
-    with open("conv_op_cluster_predicts.txt", "w") as fout:
-        for p in predicts:
-            fout.write(str(p) + "," + str(num_kernels[p]))
-            fout.write("\n")
-
-    for param_cluster, assigned_kernels in zip(param_clusters, num_kernels):
-        sub_cluster = saber.analysis.kmeans.FaissKMeans(n_clusters=assigned_kernels)
-        sub_cluster, predicts, param_input_cluster, num_kernels_in_group = \
-            saber.distribution.conv2d.cluster_param_inputs(
-                sub_cluster,
-                param_cluster,
-                assigned_kernels
-            )
-        print(num_kernels_in_group)
+    cluster = saber.analysis.kmeans.FaissKMeans(n_clusters=10)
+    shape_class = saber.distribution.conv2d.ConvFullParams
+    shapes, counts = saber.distribution.conv2d.make_conv_full_param_lst_from_param_groups(shapes)
+    saber.distribution.general.group_shapes(cluster, shape_class, shapes, counts)
+    
 
 
 if __name__ == "__main__":

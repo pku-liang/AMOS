@@ -212,12 +212,12 @@ def kernel_conv2d_nhwc_implicit_gemm_general_perfect_common_common(arch, code, t
             name="Conv2d"
         )
 
-        def schedule_pro(sch):
+        def schedule_pro(sch, ctx=None):
             sch[padded].compute_inline()
             sch[A_M].compute_inline()
             sch[B_M].compute_inline()
 
-        def schedule_epi(sch):
+        def schedule_epi(sch, ctx=None):
             n, p, q, k = sch[Conv2d].op.axis
             fused = sch[Conv2d].fuse(n, p, q, k)
             n_threads_per_warp = 32
