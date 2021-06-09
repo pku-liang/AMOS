@@ -90,6 +90,15 @@ class ConvFullParams(object):
         self.groups = groups
         self.use_fp16 = use_fp16
 
+    def gflop(self):
+        return (
+            self.batch * self.H * self.W
+            * self.in_channels * self.out_channels
+            * self.kernel_size[0] * self.kernel_size[1]
+            / self.strides[0] / self.strides[1]
+            / self.groups * 2 / 1e9
+        )
+
     def valid(self):
         return (
             self.batch is not None and

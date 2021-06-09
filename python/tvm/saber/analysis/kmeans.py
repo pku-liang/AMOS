@@ -32,6 +32,9 @@ class FaissKMeans(object):
     def predict(self, X):
         return self.kmeans.index.search(X.astype(np.float32), 1)[1]
 
+    def topk(self, X, k):
+        return self.kmeans.index.search(X.astype(np.float32), k)[1]
+
     def save(self, path, override=True):
         obj = {"centers": self.cluster_centers_.tolist()}
         s = json.dumps(obj)

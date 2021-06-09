@@ -28,14 +28,15 @@ def split_ndarry(ndarry, conds):
 
 def group_shapes(
     cluster,
-    shape_class,
     full_param_input_lst,
     count_lst,
     normalize_func=normalize_params,
     feature_func=identity_feature):
     """
     cluster: tool such as KMeans
-    """    
+    """
+    assert len(full_param_input_lst)
+    shape_class = full_param_input_lst[0].__class__
     X = np.array([list(map(float, feature_func(x))) for x in full_param_input_lst])
     shapes = X
     X = normalize_func(X)

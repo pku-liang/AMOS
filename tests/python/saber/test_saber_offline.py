@@ -30,7 +30,7 @@ def test1():
     cluster = saber.analysis.kmeans.FaissKMeans(n_clusters=10)
     shape_class = saber.distribution.conv2d.ConvFullParams
     shapes, counts = saber.distribution.conv2d.make_conv_full_param_lst_from_param_groups(shapes)
-    saber.distribution.general.group_shapes(cluster, shape_class, shapes, counts)
+    saber.distribution.general.group_shapes(cluster, shapes, counts)
     
 
 
