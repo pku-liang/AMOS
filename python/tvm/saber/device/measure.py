@@ -21,6 +21,7 @@ from tempfile import mkstemp
 from tvm import rpc
 from tvm.contrib import ndk
 from . import registry
+from .measure_base import *
 
 
 class MeasureOptions(object):
@@ -47,243 +48,9 @@ class MeasureOptions(object):
         self.priority = priority
 
 
-EVALUTE_SCHEDULE_INPUTS = None
-EVALUTE_FUNCTION_INPUTS = None
 GLOBAL_BUILD_INPUTS = None
 GLOBAL_RUN_INPUTS = None
 GLOBAL_RPC_RUN_INPUTS = None
-MAX_FLOAT = 1e10
-
-
-def get_np_arrays(tensors):
-    ret = []
-    for t in tensors:
-        dtype = t.dtype
-        if str(dtype) == "bfloat16":
-            # For now, just simply use float16
-            dtype = "float16"
-        np_ary = np.random.uniform(-1, 1, [int(x)
-                                           for x in t.shape]).astype(dtype)
-        ret.append(np_ary)
-    return ret
-
-
-def get_tvm_arrays_from_np_arrays(arys, ctx):
-    ret = []
-    for ary in arys:
-        tvm_ary = tvm.nd.array(ary, ctx)
-        ret.append(tvm_ary)
-    return ret
-
-
-def get_tvm_arrays(tensors, ctx):
-    ret = []
-    for t in tensors:
-        dtype = t.dtype
-        if str(dtype) == "bfloat16":
-            # For now, just simply use float16
-            dtype = "float16"
-        if str(dtype) in ["int4", "int1"]:
-            tvm_ary = tvm.nd.empty([int(x) for x in t.shape], dtype, ctx)
-        else:
-            np_ary = np.random.uniform(-1, 1, [int(x)
-                                           for x in t.shape]).astype(dtype)
-            tvm_ary = tvm.nd.array(np_ary, ctx)
-        ret.append(tvm_ary)
-    return ret
-
-
-def evaluate_schedule_worker(dummy):
-    global EVALUTE_SCHEDULE_INPUTS
-    sch, args, vars, arg_values, var_values, measure_opt = EVALUTE_SCHEDULE_INPUTS
-    target = measure_opt.target
-    dev_id = measure_opt.dev_id
-    number = measure_opt.number
-    min_repeat_ms = measure_opt.min_repeat_ms
-    use_rpc = measure_opt.key is not None
-    if use_rpc:
-        key = measure_opt.key
-        host = measure_opt.host
-        port = measure_opt.port
-        priority = measure_opt.priority
-        timeout = measure_opt.timeout
-        from tvm import auto_scheduler
-        remote = auto_scheduler.utils.request_remote(
-            key, host, port, priority, timeout)
-    ctx = (remote if use_rpc else tvm).context(target, dev_id)
-    arrays = get_tvm_arrays(arg_values, ctx)
-    func = tvm.build(sch, args + vars, target=target,
-                    target_host=measure_opt.target_host if use_rpc else None)
-    if use_rpc:
-        fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
-        os.close(fd)
-        func.export_library(lib, ndk.create_shared)
-        remote.upload(lib)
-        func = remote.load_module(os.path.split(lib)[-1])
-        os.unlink(lib)
-    evaluator = func.time_evaluator(
-        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
-    ctx.sync()
-    cost = evaluator(*arrays, *var_values).mean * 1e3
-    return cost
-
-
-def evaluate_schedule(sch, args, vars,
-        arg_values, var_values, measure_opt, new_process=True):
-    if not new_process:
-        target = measure_opt.target
-        dev_id = measure_opt.dev_id
-        number = measure_opt.number
-        min_repeat_ms = measure_opt.min_repeat_ms
-        remote = None
-        use_rpc = measure_opt.key is not None
-        if use_rpc:
-            key = measure_opt.key
-            host = measure_opt.host
-            port = measure_opt.port
-            priority = measure_opt.priority
-            timeout = measure_opt.timeout
-            from tvm import auto_scheduler
-            remote = auto_scheduler.utils.request_remote(
-                key, host, port, priority, timeout)
-        ctx = (remote if use_rpc else tvm).context(target, dev_id)
-        arrays = get_tvm_arrays(arg_values, ctx)
-        func = tvm.build(sch, args + vars, target=target,
-                        target_host=measure_opt.target_host if use_rpc else None)
-        if use_rpc:
-            fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
-            os.close(fd)
-            func.export_library(lib, ndk.create_shared)
-            remote.upload(lib)
-            func = remote.load_module(os.path.split(lib)[-1])
-            os.unlink(lib)
-        evaluator = func.time_evaluator(
-            func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
-        ctx.sync()
-        cost = evaluator(*arrays, *var_values).mean * 1e3
-        return cost
-    else:
-        global EVALUTE_SCHEDULE_INPUTS
-        EVALUTE_SCHEDULE_INPUTS = (sch, args, vars, arg_values, var_values, measure_opt)
-        with ProcessPool(1) as pool:
-            future = pool.map(evaluate_schedule_worker, [0], timeout=100)
-            iterator = future.result()
-
-            while True:
-                try:
-                    results = next(iterator)
-                    print(".Y", end="", flush=True)
-                except StopIteration:
-                    break
-                except TimeoutError as error:
-                    print(".T", end="", flush=True)
-                    results = MAX_FLOAT
-                except Exception as error:
-                    print(".E", end="", flush=True)
-                    results = MAX_FLOAT
-                    from tvm import auto_scheduler
-                    # print(auto_scheduler.utils.make_traceback_info())
-
-        return results
-
-
-def evaluate_function_worker(dummy):
-    global EVALUTE_FUNCTION_INPUTS
-    func, args, var_values, measure_opt = EVALUTE_FUNCTION_INPUTS
-    # print(args, var_values)
-    target = measure_opt.target
-    dev_id = measure_opt.dev_id
-    number = measure_opt.number
-    min_repeat_ms = measure_opt.min_repeat_ms
-    use_rpc = measure_opt.key is not None
-    if use_rpc:
-        key = measure_opt.key
-        host = measure_opt.host
-        port = measure_opt.port
-        priority = measure_opt.priority
-        timeout = measure_opt.timeout
-        from tvm import auto_scheduler
-        remote = auto_scheduler.utils.request_remote(
-            key, host, port, priority, timeout)
-    ctx = (remote if use_rpc else tvm).context(target, dev_id)
-    arrays = get_tvm_arrays(arg_values, ctx)
-    func = tvm.build(sch, args + vars, target=target,
-                    target_host=measure_opt.target_host if use_rpc else None)
-    if use_rpc:
-        fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
-        os.close(fd)
-        func.export_library(lib, ndk.create_shared)
-        remote.upload(lib)
-        func = remote.load_module(os.path.split(lib)[-1])
-        os.unlink(lib)
-    evaluator = func.time_evaluator(
-        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
-    ctx.sync()
-    cost = evaluator(*arrays, *var_values).mean * 1e3
-    return cost
-
-
-def evaluate_function(func, args, var_values, measure_opt, new_process=True):
-    if not new_process:
-        target = measure_opt.target
-        dev_id = measure_opt.dev_id
-        number = measure_opt.number
-        min_repeat_ms = measure_opt.min_repeat_ms
-        build_func = measure_opt.build_func
-        remote = None
-        use_rpc = measure_opt.key is not None
-        if use_rpc:
-            key = measure_opt.key
-            host = measure_opt.host
-            port = measure_opt.port
-            priority = measure_opt.priority
-            timeout = measure_opt.timeout
-            from tvm import auto_scheduler
-            remote = auto_scheduler.utils.request_remote(
-                key, host, port, priority, timeout)
-        ctx = (remote if use_rpc else tvm).context(target, dev_id)
-        arrays = get_tvm_arrays(args, ctx)
-        if use_rpc:
-            if build_func == "default":
-                build_func = tar.tar
-            elif build_func == "ndk":
-                build_func = ndk.create_shared
-            else:
-                raise ValueError("Invalid build_func" + build_func)
-            fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix="." + build_func.output_format)
-            os.close(fd)
-            func.export_library(lib, build_func)
-            remote.upload(lib)
-            func = remote.load_module(os.path.split(lib)[-1])
-            os.unlink(lib)
-        evaluator = func.time_evaluator(
-            func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
-        ctx.sync()
-        cost = evaluator(*arrays, *var_values).mean * 1e3
-        return cost
-    else:
-        global EVALUTE_FUNCTION_INPUTS
-        EVALUTE_FUNCTION_INPUTS = (func, args, var_values, measure_opt)
-        with ProcessPool(1) as pool:
-            future = pool.map(evaluate_function_worker, [0], timeout=100)
-            iterator = future.result()
-
-            while True:
-                try:
-                    results = next(iterator)
-                    print(".Y", end="", flush=True)
-                except StopIteration:
-                    break
-                except TimeoutError as error:
-                    print(".T", end="", flush=True)
-                    results = MAX_FLOAT
-                except Exception as error:
-                    print(".E", end="", flush=True)
-                    results = MAX_FLOAT
-                    from tvm import auto_scheduler
-                    # print(auto_scheduler.utils.make_traceback_info())
-
-        return results
 
 
 def pebble_local_build_worker_shape_oblivious(index):
@@ -788,7 +555,6 @@ def pebble_rpc_runner_run_shape_oblivious(build_results, param_lst, evaluate_imp
 
 def _timed_func(kernel_type, kernel_config, build_func, target, target_host, verbose):
     tic = time.time()
-
     error_no = auto_scheduler.measure.MeasureErrorNo.NO_ERROR
     error_msg = None
     args = []
@@ -803,11 +569,10 @@ def _timed_func(kernel_type, kernel_config, build_func, target, target_host, ver
     if error_no == 0:
         dirname = tempfile.mkdtemp()
         filename = os.path.join(dirname, "tmp_func." + build_func.output_format)
-
         try:
             with transform.PassContext():
                 func = build_module.build(
-                    sch, args, vars, target=target, target_host=target_host
+                    sch, [*args, *vars], target=target, target_host=target_host
                 )
             func.export_library(filename, build_func)
         # pylint: disable=broad-except
@@ -918,7 +683,7 @@ def local_builder_build_shape_oblivious(
 def _timed_eval_func(
     kernel_type,
     kernel_config,
-    run_shape,
+    run_shapes,
     build_res,
     target,
     dev_id,
@@ -957,15 +722,23 @@ def _timed_eval_func(
 
     if error_no == 0:
         try:
-            tensors, var_values = registry.DEVICE_GET_RUNTIME_CTX(kernel_type, kernel_config, run_shape)
-            args = [ndarray.empty(
-                auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in tensors]
-            random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
-            assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
-            for arg in args:
-                random_fill(arg)
-            ctx.sync()
-            costs = time_f(*args, *var_values).results
+            costs = []
+            for run_shape in run_shapes:
+                tensors, var_values = registry.DEVICE_GET_RUNTIME_CTX(kernel_type, kernel_config, run_shape)
+                args = [ndarray.empty(
+                    auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in tensors]
+                random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
+                assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
+                for arg in args:
+                    random_fill(arg)
+                ctx.sync()
+                tmp_costs = time_f(*args, *var_values).results
+                tmp_costs = np.mean(
+                    np.array(
+                        [float(x) if isinstance(x, float) else float(x.value) for x in tmp_costs]
+                    )
+                )
+                costs.append(float(tmp_costs))
         # pylint: disable=broad-except
         except Exception:
             costs = (MAX_FLOAT,)
@@ -984,7 +757,6 @@ def _timed_eval_func(
     return costs, error_no, error_msg, toc - tic + build_res.time_cost, toc
 
 
-@tvm._ffi.register_func("auto_scheduler.local_runner.run")
 def local_run(
     inputs,
     build_results,
@@ -1045,7 +817,7 @@ def local_run(
 
     measure_results = []
     assert len(inputs) == len(build_results), "Measure input size should be equal to build results"
-    for (kernel_type, kernel_config, run_shape), build_res in zip(inputs, build_results):
+    for (kernel_type, kernel_config, run_shapes), build_res in zip(inputs, build_results):
         if build_res.error_no != 0:
             res = (
                 (MAX_FLOAT,),
@@ -1061,7 +833,7 @@ def local_run(
                 args=(
                     kernel_type,
                     kernel_config,
-                    run_shape,
+                    run_shapes,
                     build_res,
                     target,
                     dev_id,
@@ -1238,7 +1010,6 @@ def _rpc_run_worker(args):
     return res
 
 
-@tvm._ffi.register_func("auto_scheduler.rpc_runner.run")
 def rpc_runner_run(
     inputs,
     build_results,

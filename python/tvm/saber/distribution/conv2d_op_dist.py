@@ -77,7 +77,7 @@ class ConvParams(object):
 
 
 class ConvFullParams(object):
-    def __init__(self, batch=None, H=None, W=None, in_channels=None, out_channels=None, kernel_size=None, strides=(1, 1), padding=(0, 0), bias=True, groups=1, use_fp16=False):
+    def __init__(self, batch=None, H=None, W=None, in_channels=None, out_channels=None, kernel_size=None, strides=(1, 1), padding=(0, 0), bias=True, groups=1, use_fp16=False, dilation=1):
         self.batch = batch
         self.H = H
         self.W = W
@@ -89,6 +89,7 @@ class ConvFullParams(object):
         self.bias = bias
         self.groups = groups
         self.use_fp16 = use_fp16
+        self.dilation = dilation
 
     def gflop(self):
         return (
@@ -111,7 +112,8 @@ class ConvFullParams(object):
             self.padding is not None and
             self.bias is not None and
             self.groups is not None and
-            self.use_fp16 is not None
+            self.use_fp16 is not None and
+            self.dilation is not None
         )
 
     def to_tuple(self):
@@ -126,7 +128,8 @@ class ConvFullParams(object):
             self.padding,
             self.bias,
             self.groups,
-            self.use_fp16
+            self.use_fp16,
+            self.dilation
         )
 
     def to_flatten_tuple(self):
@@ -141,7 +144,8 @@ class ConvFullParams(object):
             *self.padding,
             self.bias,
             self.groups,
-            self.use_fp16
+            self.use_fp16,
+            self.dilation
         )
 
     @staticmethod
@@ -157,7 +161,8 @@ class ConvFullParams(object):
             (tup[9], tup[10]),
             tup[11],
             tup[12],
-            tup[13]
+            tup[13],
+            tup[14]
         )
 
     def to_tuple_key(self):
@@ -170,7 +175,8 @@ class ConvFullParams(object):
             self.kernel_size[0],
             self.strides[0],
             self.padding[0],
-            self.groups
+            self.groups,
+            self.dilation
         )
         ret = ",".join([str(x) for x in tmp])
         return ret

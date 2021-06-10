@@ -4,7 +4,7 @@ from ...utils import ceil
 from ...kernel import (
     get_conv2d_implementation_mali
 )
-from ..measure import MeasureOptions, evaluate_function, evaluate_schedule
+from ..measure_base import MeasureOptions, evaluate_function, evaluate_schedule
 
 
 class Conv2dGeneral(Operator):

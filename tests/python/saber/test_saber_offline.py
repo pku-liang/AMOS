@@ -30,7 +30,71 @@ def test1():
     cluster = saber.analysis.kmeans.FaissKMeans(n_clusters=10)
     shape_class = saber.distribution.conv2d.ConvFullParams
     shapes, counts = saber.distribution.conv2d.make_conv_full_param_lst_from_param_groups(shapes)
-    saber.distribution.general.group_shapes(cluster, shapes, counts)
+    groups = saber.distribution.general.group_shapes(
+        cluster, shapes, counts)
+    print(groups[0].shapes)
+
+
+@register_test
+def test2():
+    shape1 = saber.distribution.gemm.GEMMParams(256, 256, 256)
+    shape2 = saber.distribution.gemm.GEMMParams(512, 256, 256)
+    shape3 = saber.distribution.gemm.GEMMParams(256, 512, 256)
+    group = saber.distribution.general.ShapeGroup(0, [
+        shape1, shape2, shape3
+    ])
+    tb_space = saber.space.SubSpace([
+        [32, 32, 32]
+    ])
+    wp_space = saber.space.SubSpace([
+        [32, 32, 8]
+    ])
+    it_space = saber.space.SubSpace([
+        [4, 8, 8]
+    ])
+    
+    def valid_func(x):
+        tb = x["threadblock_problem_size"]
+        wp = x["warp_problem_size"]
+        it = x["instruction_problem_size"]
+        return (
+            tb[0] >= wp[0] >= it[0] and
+            tb[1] >= wp[1] >= it[1] and
+            tb[2] >= wp[2] >= it[2]
+        )
+    
+    space = saber.space.JoinedSpace(valid_func)
+    space.add_subspace("threadblock_problem_size", tb_space)
+    space.add_subspace("warp_problem_size",wp_space)
+    space.add_subspace("instruction_problem_size", it_space)
+
+    kernel_ctx = saber.offline.KernelContext(
+        "gemm",
+        "cuda",
+        "general",
+        "llvm",
+        "default",
+        {
+            "in_dtype": "float32",
+            "out_dtype": "float32",
+            "arch": "ampere",
+            "code": "sm80"
+        },
+        space,
+        build_timeout = 10,
+        build_parallel = 4,
+        verbose = False
+    )
+    evaluate_ctx = saber.offline.EvaluationContext()
+    num_rounds = 10
+    perf_model = saber.model.PerfModel(saber.model.RandomOpPerfModel)
+    saber.offline.train_for_one_group(
+        group,
+        kernel_ctx,
+        evaluate_ctx,
+        num_rounds,
+        perf_model
+    )
     
 
 

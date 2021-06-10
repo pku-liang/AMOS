@@ -47,6 +47,6 @@ def DEVICE_GET_RUNTIME_CTX(kernel_type, kernel_config, run_shape):
     op, target, hardware = kernel_type.split(":")
     device = DEVICE_IMPL_REGISTRY[op][target][hardware]
     impl = device(**kernel_config)
-    tensors, var_values = impl.expose_evaluate_context(*run_shape)
+    tensors, var_values = impl.expose_evaluate_context_with_shape(run_shape)
     return tensors, var_values
 

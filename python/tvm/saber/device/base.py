@@ -1,6 +1,7 @@
 import tvm
 from ..utils import ceil
-from .measure import MeasureOptions, evaluate_function, evaluate_schedule
+from ..distribution import conv2d, gemm
+from .measure_base import MeasureOptions, evaluate_function, evaluate_schedule
 
 
 class Operator(object):
@@ -220,6 +221,10 @@ class GemmOperator(Operator):
         ]
         return args, var_values
 
+    def expose_evaluate_context_with_shape(self, shape):
+        assert isinstance(shape, gemm.GEMMParams)
+        return self.expose_evaluate_context(shape.M, shape.N, shape.K)
+
 
 class Conv2dOperator(Operator):
     def __init__(self,
@@ -359,6 +364,21 @@ class Conv2dOperator(Operator):
             return args, var_values
         else:
             raise RuntimeError("Unsupported Layout: " + str(self.layout))
+    
+    def expose_evaluate_context_with_shape(self, shape):
+        assert isinstance(shape, conv2d.ConvFullParams)
+        return self.expose_evaluate_context(
+            shape.batch,
+            shape.in_channels,
+            shape.H,
+            shape.W,
+            shape.out_channels,
+            shape.kernel_size[0],
+            shape.kernel_size[1],
+            shape.strides,
+            shape.padding,
+            shape.dilation
+        )
 
     def evaluate(self, func, N, C, H, W, K, R, S, measure_opt=MeasureOptions(
             target="cuda", min_repeat_ms=500), new_process=False):

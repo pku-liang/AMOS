@@ -5,7 +5,7 @@ from ...utils import ceil
 from ...kernel import (
     get_gemm_implementation_mali
 )
-from ..measure import MeasureOptions, evaluate_function, evaluate_schedule
+from ..measure_base import MeasureOptions, evaluate_function, evaluate_schedule
 
 
 class GemmGeneral(Operator):
