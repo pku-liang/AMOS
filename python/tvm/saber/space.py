@@ -12,29 +12,35 @@ class SubSpace(object):
         self.values = values
 
     def random(self):
-        return np.random.choice(self.values, 1)
+        ret = np.random.choice(range(len(self.values)), 1)[0]
+        return self.values[ret]
 
 
 class JoinedSpace(object):
-    def __init__(self, subspaces):
+    def __init__(self, valid_func=lambda x: True):
         """
         subspaces: dict {str: SubSpace}
         """
-        self.subspaces = subspaces
+        self.subspaces = {}
+        self.valid_func = valid_func
         self._visited = set()
 
+    def add_subspace(self, key, subspace):
+        self.subspaces[key] = subspace
 
     def random(self, batch=20):
         ret = []
-        for i in range(batch * 10):
+        for i in range(batch * 100):
             tmp = {}
             for k, v in self.subspaces.items():
                 tmp[k] = v.random()
+            if not self.valid_func(tmp):
+                continue
             key = json.dumps(tmp)
             if key not in self._visited:
-                ret.append(key)
+                ret.append(tmp)
                 self._visited.add(key)
-            if len(key) >= batch:
+            if len(ret) >= batch:
                 break
         return ret
 
@@ -69,6 +75,7 @@ class HeapSpace(object):
                 ret.append(item.item)
             else:
                 break
+        return ret
     
     def all(self):
         tmp = [x.item for x in self._space]

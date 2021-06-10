@@ -139,9 +139,9 @@ def threadblock_gemm_general_common_common_double_buffer(
         n_warps_per_block = M2 * N2
         n_threads_per_warp = M4 * N4
         n_threads_per_block = n_threads_per_warp * n_warps_per_block
-        # assert n_threads_per_warp == 32
-        assert (BK * BM) % n_threads_per_block == 0
-        assert (BK * BN) % n_threads_per_block == 0
+        assert n_threads_per_warp == 32
+        assert (BK * BM) % n_threads_per_block == 0, f"({BK}*{BM}) % {n_threads_per_block} != 0"
+        assert (BK * BN) % n_threads_per_block == 0, f"({BK}*{BN}) % {n_threads_per_block} != 0"
 
         # build graph
         if len(Epilogues) == 0:
