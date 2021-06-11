@@ -15,6 +15,27 @@
 <!--- specific language governing permissions and limitations -->
 <!--- under the License. -->
 
+## Saber
+Saber is a template-based shape-oblivious operator library built on top of TVM.
+The design principle of Saber is borrowed from [CUTLASS](https://github.com/NVIDIA/cutlass).
+
+## Installation
+Apart from the requirements of installing TVM, we need additional python dependencies:
+```
+pebble
+faiss-cpu
+torch-cpu
+```
+Note that we have to install PyTorch for CPU only, PyTorch with GPU will disturb Saber's tuning process.
+
+That is,
+```
+pip install pebble
+pip install faiss-cpu
+pip install torch==1.8.1+cpu torchvision==0.9.1+cpu torchaudio===0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
+```
+
+
 <img src=https://raw.githubusercontent.com/apache/tvm-site/main/images/logo/tvm-logo-small.png width=128/> Open Deep Learning Compiler Stack
 ==============================================
 [Documentation](https://tvm.apache.org/docs) |
