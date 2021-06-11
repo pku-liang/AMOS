@@ -27,7 +27,7 @@ from .measure_base import *
 class MeasureOptions(object):
     def __init__(
         self, target="llvm", build_func="default", target_host="llvm", timeout=10,
-            verbose=1, number=100, repeat=1, min_repeat_ms=150,
+            verbose=True, number=100, repeat=1, min_repeat_ms=150,
             cooldown_interval=1, enable_cpu_cache_flush=1,
             dev_id=0, use_rpc=False, key=None, host=None, port=None, priority=1):
         self.target = target
@@ -131,7 +131,7 @@ def pebble_local_build_worker_shape_oblivious(index):
         else:
             filename = ""
 
-        if verbose >= 1:
+        if verbose:
             if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
                 print(".Y", end="", flush=True)
             else:
@@ -168,16 +168,16 @@ def pebble_local_builder_build_shape_oblivious(
             except StopIteration:
                 break
             except TimeoutError as error:
-                if verbose >= 1:
+                if verbose:
                     print(".T", end="", flush=True)
                 result = None, [], auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT, None, timeout
             except Exception as error:
-                if verbose >= 1:
+                if verbose:
                     print(".F", end="", flush=True)
                 result = None, [], auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST, None, timeout
             results.append(auto_scheduler.measure.BuildResult(*result))
     
-    if verbose >= 1:
+    if verbose:
         print("", flush=True)
 
     return results
@@ -276,7 +276,7 @@ def pebble_local_run_worker_shape_oblivious(index):
         toc = time.time()
         time.sleep(cooldown_interval)
 
-        if verbose >= 1:
+        if verbose:
             if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
                 print("*Y", end="", flush=True)
             else:
@@ -323,7 +323,7 @@ def pebble_local_runner_run_shape_oblivious(build_results, param_lst, evaluate_i
             except StopIteration:
                 break
             except TimeoutError:
-                if verbose >= 1:
+                if verbose:
                     print("*T", end="", flush=True)  # Run timeout
                 result = (
                     (MAX_FLOAT,),
@@ -333,7 +333,7 @@ def pebble_local_runner_run_shape_oblivious(build_results, param_lst, evaluate_i
                     time.time(),
                 )
             except Exception as error:
-                if verbose >= 1:
+                if verbose:
                     print("*F", end="", flush=True)  # Run fatal error
                 result = (
                     (MAX_FLOAT,),
@@ -345,7 +345,7 @@ def pebble_local_runner_run_shape_oblivious(build_results, param_lst, evaluate_i
             measure_results.append(
                 auto_scheduler.measure.MeasureResult(*result))
 
-    if verbose >= 1:
+    if verbose:
         print("", flush=True)
 
     return measure_results
@@ -467,7 +467,7 @@ def pebble_rpc_run_worker_shape_oblivious(index):
         toc = time.time()
 
         time.sleep(cooldown_interval)
-        if verbose >= 1:
+        if verbose:
             if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
                 print("*Y", end="", flush=True)
             else:
@@ -525,7 +525,7 @@ def pebble_rpc_runner_run_shape_oblivious(build_results, param_lst, evaluate_imp
             except StopIteration:
                 break
             except TimeoutError:
-                if verbose >= 1:
+                if verbose:
                     print("*T", end="", flush=True)  # Run timeout
                 result = (
                     (MAX_FLOAT,),
@@ -535,7 +535,7 @@ def pebble_rpc_runner_run_shape_oblivious(build_results, param_lst, evaluate_imp
                     time.time(),
                 )
             except Exception as error:
-                if verbose >= 1:
+                if verbose:
                     print("*F", end="", flush=True)  # Run fatal error
                 result = (
                     (MAX_FLOAT,),
@@ -547,7 +547,7 @@ def pebble_rpc_runner_run_shape_oblivious(build_results, param_lst, evaluate_imp
             measure_results.append(
                 auto_scheduler.measure.MeasureResult(*result))
 
-    if verbose >= 1:
+    if verbose:
         print("", flush=True)
 
     return measure_results
@@ -584,7 +584,7 @@ def _timed_func(kernel_type, kernel_config, build_func, target, target_host, ver
 
     if verbose:
         if error_no ==  auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
-            print(".", end="", flush=True)
+            print(".Y", end="", flush=True)
         else:
             print(".E", end="", flush=True)  # Build error
 
@@ -617,11 +617,11 @@ def local_build_worker_shape_oblivious(args):
         timeout, _timed_func, args=(
             kernel_type, kernel_config, build_func, target, target_host, verbose))
     if isinstance(res, TimeoutError):
-        if verbose >= 1:
+        if verbose:
             print(".T", end="", flush=True)  # Build timeout
         res = None, [], auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT, None, timeout
     elif isinstance(res, Exception):
-        if verbose >= 1:
+        if verbose:
             print(".E", end="", flush=True)  # Build error
         res = None, [], auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST, str(res), timeout
 
@@ -629,7 +629,7 @@ def local_build_worker_shape_oblivious(args):
 
 
 def local_builder_build_shape_oblivious(
-    inputs, timeout, target, target_host, n_parallel, build_func="default", verbose=False):
+    inputs, timeout, target, target_host, n_parallel, build_func="default", verbose=True):
     """
     Build function of LocalBuilder to build the MeasureInputs to runnable modules.
 
@@ -716,7 +716,7 @@ def _timed_eval_func(
         )
     # pylint: disable=broad-except
     except Exception:
-        costs = (MAX_FLOAT,)
+        costs = [MAX_FLOAT for x in run_shapes]
         error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
         error_msg = auto_scheduler.utils.make_traceback_info()
 
@@ -741,7 +741,7 @@ def _timed_eval_func(
                 costs.append(float(tmp_costs))
         # pylint: disable=broad-except
         except Exception:
-            costs = (MAX_FLOAT,)
+            costs = [MAX_FLOAT for x in run_shapes]
             error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
             error_msg = auto_scheduler.utils.make_traceback_info()
 
@@ -749,9 +749,9 @@ def _timed_eval_func(
     toc = time.time()
     time.sleep(cooldown_interval)
 
-    if verbose >= 1:
+    if verbose:
         if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
-            print("*", end="", flush=True)
+            print("*Y", end="", flush=True)
         else:
             print("*E", end="", flush=True)  # Run error
     return costs, error_no, error_msg, toc - tic + build_res.time_cost, toc
@@ -768,7 +768,7 @@ def local_run(
     min_repeat_ms=0,
     cooldown_interval=0,
     enable_cpu_cache_flush=False,
-    verbose=1,
+    verbose=True,
 ):
     """
     Run function of LocalRunner to test the performance of the input BuildResults.
@@ -820,7 +820,7 @@ def local_run(
     for (kernel_type, kernel_config, run_shapes), build_res in zip(inputs, build_results):
         if build_res.error_no != 0:
             res = (
-                (MAX_FLOAT,),
+                [MAX_FLOAT for x in run_shapes],
                 build_res.error_no,
                 build_res.error_msg,
                 build_res.time_cost,
@@ -847,20 +847,20 @@ def local_run(
                 add_thread_wrapper=True,
             )
             if isinstance(res, TimeoutError):
-                if verbose >= 1:
+                if verbose:
                     print("*T", end="", flush=True)  # Run timeout
                 res = (
-                    (MAX_FLOAT,),
+                    [MAX_FLOAT for x in run_shapes],
                     auto_scheduler.measure.MeasureErrorNo.RUN_TIMEOUT,
                     None,
                     build_res.time_cost + timeout,
                     time.time(),
                 )
             elif isinstance(res, Exception):
-                if verbose >= 1:
+                if verbose:
                     print("*E", end="", flush=True)  # Run error
                 res = (
-                    (MAX_FLOAT,),
+                    [MAX_FLOAT for x in run_shapes],
                     auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE,
                     str(res),
                     build_res.time_cost + timeout,
@@ -869,7 +869,7 @@ def local_run(
 
         measure_results.append(auto_scheduler.measure.MeasureResult(*res))
 
-    if verbose >= 1:
+    if verbose:
         print("", flush=True)
 
     return measure_results
@@ -878,7 +878,7 @@ def local_run(
 def _timed_rpc_run(
     kernel_type,
     kernel_config,
-    run_shape,
+    run_shapes,
     build_res,
     target,
     dev_id,
@@ -919,33 +919,41 @@ def _timed_rpc_run(
         )
     # pylint: disable=broad-except
     except Exception:
-        costs = (MAX_FLOAT,)
+        costs = [MAX_FLOAT for x in run_shapes]
         error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
         error_msg = auto_scheduler.utils.make_traceback_info()
 
     if error_no == 0:
         try:
-            tensors, var_values = registry.DEVICE_GET_RUNTIME_CTX(kernel_type, kernel_config, run_shape)
-            args = [ndarray.empty(
-                auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in tensors]
-            try:
-                random_fill = remote.get_function("tvm.contrib.random.random_fill")
-            except AttributeError:
-                raise AttributeError(
-                    "Please make sure USE_RANDOM is ON in the config.cmake " "on the remote devices"
-                )
-            for arg in args:
-                random_fill(arg)
-            ctx.sync()
+            costs = []
+            for run_shape in run_shapes:
+                tensors, var_values = registry.DEVICE_GET_RUNTIME_CTX(kernel_type, kernel_config, run_shape)
+                args = [ndarray.empty(
+                    auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in tensors]
+                try:
+                    random_fill = remote.get_function("tvm.contrib.random.random_fill")
+                except AttributeError:
+                    raise AttributeError(
+                        "Please make sure USE_RANDOM is ON in the config.cmake " "on the remote devices"
+                    )
+                for arg in args:
+                    random_fill(arg)
+                ctx.sync()
 
-            costs = time_f(*args, *var_values).results
+                tmp_costs = time_f(*args, *var_values).results
+                tmp_costs = np.mean(
+                    np.array(
+                        [float(x) if isinstance(x, float) else float(x.value) for x in tmp_costs]
+                    )
+                )
+                costs.append(float(tmp_costs))
             # clean up remote files
             remote.remove(build_res.filename)
             remote.remove(os.path.splitext(build_res.filename)[0] + ".so")
             remote.remove("")
         # pylint: disable=broad-except
         except Exception:
-            costs = (MAX_FLOAT,)
+            costs = [MAX_FLOAT for x in run_shapes]
             error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
             error_msg = auto_scheduler.utils.make_traceback_info()
 
@@ -953,7 +961,7 @@ def _timed_rpc_run(
     toc = time.time()
 
     time.sleep(cooldown_interval)
-    if verbose >= 1:
+    if verbose:
         if error_no == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
             print("*", end="")
         else:
@@ -975,10 +983,10 @@ def _rpc_run_worker(args):
     res : MeasureResult
         The measure result of this Runner thread.
     """
-    _, _, _, build_res, _, _, _, _, _, _, timeout, _, _, _, _, _, verbose = args
+    _, _, run_shapes, build_res, _, _, _, _, _, _, timeout, _, _, _, _, _, verbose = args
     if build_res.error_no != auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
         return (
-            (MAX_FLOAT,),
+            [MAX_FLOAT for x in run_shapes],
             build_res.error_no,
             build_res.error_msg,
             build_res.time_cost,
@@ -987,20 +995,20 @@ def _rpc_run_worker(args):
 
     res = auto_scheduler.utils.call_func_with_timeout(timeout, _timed_rpc_run, args=args)
     if isinstance(res, TimeoutError):
-        if verbose >= 1:
+        if verbose:
             print("*T", end="")  # Run timeout
         res = (
-            (MAX_FLOAT,),
+            [MAX_FLOAT for x in run_shapes],
             auto_scheduler.measure.MeasureErrorNo.RUN_TIMEOUT,
             None,
             build_res.time_cost + timeout,
             time.time(),
         )
     elif isinstance(res, Exception):
-        if verbose >= 1:
+        if verbose:
             print("*E", end="")  # Run error
         res = (
-            (MAX_FLOAT,),
+            [MAX_FLOAT for x in run_shapes],
             auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE,
             str(res),
             build_res.time_cost + timeout,
@@ -1026,7 +1034,7 @@ def rpc_runner_run(
     min_repeat_ms=0,
     cooldown_interval=0.0,
     enable_cpu_cache_flush=False,
-    verbose=1,
+    verbose=True,
 ):
     """Run function of RPCRunner to test the performance of the input BuildResults.
 
@@ -1090,7 +1098,7 @@ def rpc_runner_run(
             (
                 kernel_type,
                 kernel_config,
-                run_shape,
+                run_shapes,
                 build_res,
                 target,
                 dev_id,
@@ -1106,7 +1114,7 @@ def rpc_runner_run(
                 enable_cpu_cache_flush,
                 verbose,
             )
-            for (kernel_type, kernel_config, run_shape), build_res in zip(inputs, build_results)
+            for (kernel_type, kernel_config, run_shapes), build_res in zip(inputs, build_results)
         ],
     )
     pool.terminate()
@@ -1117,7 +1125,7 @@ def rpc_runner_run(
     for res in tuple_res:
         results.append(auto_scheduler.measure.MeasureResult(*res))
 
-    if verbose >= 1:
+    if verbose:
         print("")
 
     return results

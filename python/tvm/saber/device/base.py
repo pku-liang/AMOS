@@ -113,6 +113,11 @@ class GemmOperator(Operator):
             func, args, var_values, measure_opt, new_process=new_process
         )
 
+    def evaluate_with_shape(self, func, run_shape, measure_opt, new_process):
+        assert isinstance(run_shape, gemm.GEMMParams)
+        return self.evaluate(func, run_shape.M, run_shape.N, run_shape.K,
+            measure_opt, new_process)
+
     def calculate(self, func, A, B, C):
         K, M = A.shape
         _, N = B.shape

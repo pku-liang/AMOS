@@ -43,15 +43,19 @@ def test2():
     group = saber.distribution.general.ShapeGroup(0, [
         shape1, shape2, shape3
     ])
-    tb_space = saber.space.SubSpace([
-        [32, 32, 32]
-    ])
-    wp_space = saber.space.SubSpace([
-        [32, 32, 8]
-    ])
-    it_space = saber.space.SubSpace([
-        [4, 8, 8]
-    ])
+    # tb_space = saber.space.SubSpace([
+    #     [32, 32, 32]
+    # ])
+    # wp_space = saber.space.SubSpace([
+    #     [32, 32, 8]
+    # ])
+    # it_space = saber.space.SubSpace([
+    #     [4, 8, 8],
+    #     [8, 4, 8]
+    # ])
+    tb_space = saber.space.ThreadblockProblemSizeSpace()
+    wp_space = saber.space.WarpProblemSizeSpace()
+    it_space = saber.space.InstructionProblemSizeSpace()
     
     def valid_func(x):
         tb = x["threadblock_problem_size"]
@@ -82,19 +86,41 @@ def test2():
         },
         space,
         build_timeout = 10,
-        build_parallel = 4,
+        build_parallel = 1,
         verbose = False
     )
-    evaluate_ctx = saber.offline.EvaluationContext()
-    num_rounds = 10
-    perf_model = saber.model.PerfModel(saber.model.RandomOpPerfModel)
-    saber.offline.train_for_one_group(
+    evaluate_ctx = saber.offline.EvaluationContext(
+        timeout=10,
+        verbose=False,
+        number=100,
+        repeat=1,
+        min_repeat_ms=500,
+        cooldown_interval=1,
+        enable_cpu_cache_flush=0,
+        dev_id=0
+    )
+    num_rounds = 1000
+    perf_model = saber.model.PerfModel(saber.model.SimpleMLPCUDAGemmGeneralPerfModel)
+    # perf_model = saber.model.PerfModel(saber.model.RandomOpPerfModel)
+    result = saber.offline.train_for_one_group(
         group,
         kernel_ctx,
         evaluate_ctx,
         num_rounds,
-        perf_model
+        perf_model,
+        verbose=True
     )
+
+    kernel = saber.offline.CompiledKernel.make_compiled_kernel_from_result_kernel_context(result, "test")
+    print(kernel)
+    cost = kernel.evaluate(
+        shape1,
+        saber.MeasureOptions(
+            target="cuda", number=100,
+            min_repeat_ms=500),
+        False
+    )
+    print("Cost is", cost, "ms")
     
 
 

@@ -50,3 +50,13 @@ def DEVICE_GET_RUNTIME_CTX(kernel_type, kernel_config, run_shape):
     tensors, var_values = impl.expose_evaluate_context_with_shape(run_shape)
     return tensors, var_values
 
+
+def DEVICE_GET_RUNTIME_EVALUATE(compiled_kernel, run_shape, measure_opt, new_process=False):
+    op, target, hardware = compiled_kernel.kernel_type.split(":")
+    device = DEVICE_IMPL_REGISTRY[op][target][hardware]
+    impl = device(**compiled_kernel.kernel_config)
+    cost = impl.evaluate_with_shape(
+            compiled_kernel.func, run_shape,
+            measure_opt=measure_opt, new_process=new_process)
+    return cost
+

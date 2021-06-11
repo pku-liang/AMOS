@@ -45,7 +45,7 @@ class KernelContext(object):
 def average_gflops(times, gflop):
     gflop = np.array(gflop).astype("float32")
     times = np.array(times).astype("float32")
-    return gflop.sum() / times.sum(axis=1)
+    return gflop.sum(axis=1) / (times.sum(axis=1) + 1e-10)
 
 
 class EvaluationContext(object):
@@ -94,7 +94,8 @@ class ResultKernelContext(object):
         target_host,
         build_func,
         static_params,
-        configs
+        configs,
+        timeout
     ):
         """
         kernel_type: str
@@ -106,6 +107,7 @@ class ResultKernelContext(object):
         self.build_func = build_func
         self.static_params = static_params
         self.configs = configs
+        self.timeout = timeout
 
 
 class ResultMultiKernelContext(object):
@@ -117,30 +119,62 @@ class ResultMultiKernelContext(object):
 
 
 class CompiledKernel(object):
-    def __init__(self, name, func, kernel_params, kernel_type, build_func="default"):
+    def __init__(self, name, func, kernel_config, kernel_type, build_func="default"):
         """
         name: str
         func: tvm.runtime.Module
-        kernel_params: dict {str: list}
+        kernel_config: dict {str: list}
         kernel_type: str
         build_func: str
         """
         self.name = name
         self.func = func
-        self.kernel_params = kernel_params
+        self.kernel_config = kernel_config
         self.kernel_type = kernel_type
         self.build_func = build_func
 
-    def run(self, inputs, shape_params):
+    @staticmethod
+    def make_compiled_kernel_from_result_kernel_context(kernel_ctx, kernel_name):
+        full_kernel_configs = {}
+        full_kernel_configs.update(kernel_ctx.static_params)
+        full_kernel_configs.update(kernel_ctx.configs)
+        build_results = measure.local_builder_build_shape_oblivious(
+            [(kernel_ctx.kernel_type, full_kernel_configs)],
+            kernel_ctx.timeout,
+            kernel_ctx.target,
+            kernel_ctx.target_host,
+            1, # build parallel
+            kernel_ctx.build_func,
+            True # verbose
+        )
+        res = build_results[0]
+        if res.error_no:
+            raise RuntimeError(f"Can't build kernel: {res.error_msg}")
+        func = tvm.runtime.load_module(res.filename)
+        print("\nGet func!", flush=True)
+        return CompiledKernel(
+            kernel_name,
+            func,
+            full_kernel_configs,
+            kernel_ctx.kernel_type,
+            kernel_ctx.build_func
+        )
+
+    def run(self, inputs, run_shape):
         """
         inputs: dict {str: tvm.nd.array}
-        shape_params: dict {str: any}
+        run_shape:
         """
         tensors, runtime_params = registry.DEVICE_GET_RUNTIME_CTX(
             self.kernel_type,
-            self.kernel_params,
-            shape_params)
-        self.func(*inputs, *shape_params, *runtime_params)
+            self.kernel_config,
+            run_shape)
+        self.func(*inputs, *run_shape, *runtime_params)
+
+    def evaluate(self, run_shape, measure_opt, new_process):
+        return registry.DEVICE_GET_RUNTIME_EVALUATE(
+            self, run_shape, measure_opt, new_process
+        )
 
     def save(self, libpath):
         if self.build_func == "default":
@@ -153,7 +187,7 @@ class CompiledKernel(object):
             os.path.join(libpath, self.name + build_func.output_format), build_func)
         meta = {
             "name": self.name,
-            "kernel_params": self.kernel_params,
+            "kernel_config": self.kernel_config,
             "kernel_type": self.kernel_type,
             "build_func": self.build_func
         }
@@ -175,7 +209,7 @@ class CompiledKernel(object):
         )
         ret = CompiledKernel(
             meta["name"], func,
-            meta["kernel_params"],
+            meta["kernel_config"],
             meta["kernel_type"],
             meta["build_func"])
         return ret
@@ -218,7 +252,8 @@ class CompiledMultiKernel(object):
 
 
 def train_for_one_group(
-    group, kernel_ctx, evaluate_ctx, num_rounds, perf_model):
+    group, kernel_ctx, evaluate_ctx, num_rounds, perf_model,
+    num_kernels_explore=40, num_kernels_evaluate=20, verbose=False):
     """
     group: ShapeGroup
     kernel_ctx: KernelContext
@@ -227,37 +262,43 @@ def train_for_one_group(
     Returns:
     ResultKernelContext
     """
+    print(f"Find kernel (type={kernel_ctx.kernel_type}) for group id={group.group_id} (totally {len(group.shapes)} shapes)", flush=True)
+    print(f"The space size is {kernel_ctx.space.size()}", flush=True)
     # some constants
-    num_kernels_explore = 4
-    num_kernels_evaluate = 2
     num_iterations = (num_rounds + num_kernels_evaluate - 1) // num_kernels_evaluate
+    print(f"Searching for {num_iterations} iterations, {num_kernels_evaluate} items per iteration.", flush=True)
     # prepare temp space
     evaluated_space = space.HeapSpace() # heap
     explored_space = space.HeapSpace() # heap
     unexplored_space = kernel_ctx.space
 
-    GFLOP = [shape.gflop() for shape in group.shapes]
+    GFLOP = [[shape.gflop() for shape in group.shapes]]
+    print("GFLOP of each shape:", GFLOP, flush=True)
     for it in range(num_iterations):
+        print(f"Iteration {it + 1}: ", flush=True, end="")
         # steps:
         # random sample num_kernels_explore points from space
         # measure them using the model
         # send top num_kernels_evaluate to evaluate
         # use the results to update model
         kernel_configs = unexplored_space.random(batch=num_kernels_explore)
+        print(f"#explore: {len(kernel_configs)} ", flush=True, end="")
 
         predict_matrix = []
         for shape in group.shapes:
             evaluate_configs = [
                 (x, shape) for x in kernel_configs
             ]
-            evaluate_restuls = perf_model.predict(kernel_ctx, evaluate_configs)
-            predict_matrix.append(evaluate_restuls)
+            evaluate_results = perf_model.predict(kernel_ctx, evaluate_configs)
+            predict_matrix.append(evaluate_results)
         predict_matrix = np.array(predict_matrix).transpose()
         
         agg_results = evaluate_ctx.aggregate_func(predict_matrix, GFLOP)
         explored_space.update(kernel_configs, agg_results, predict_matrix)
 
         selected_configs = explored_space.topk(k=num_kernels_evaluate)
+        print(f"#selected: {len(selected_configs)} ", flush=True)
+        print(flush=True)
         full_kernel_configs = [
                 (kernel_ctx.kernel_type,
                 dict(list(x.items()) + list(kernel_ctx.static_params.items())))
@@ -273,12 +314,14 @@ def train_for_one_group(
             kernel_ctx.build_func,
             kernel_ctx.verbose
         )
-        # results_matrix = []
-        # for shape in group.shapes:
+        print(f"#build: {np.sum([1 if x.error_no == 0 else 0 for x in build_results])} ", flush=True, end="")
+        if verbose:
+            print(build_results, flush=True)
+
         full_evaluate_configs = [
             (x[0], x[1], group.shapes) for x in full_kernel_configs
         ]
-        evaluate_restuls = measure.local_run(
+        evaluate_results = measure.local_run(
             full_evaluate_configs,
             build_results,
             kernel_ctx.target,
@@ -293,7 +336,12 @@ def train_for_one_group(
         )
 
         results_lst = [
-                    [float(y) if isinstance(y, float) else float(y.value) for y in x.costs] for x in evaluate_restuls]
+                    [float(y) if isinstance(y, float) else float(y.value) for y in x.costs] for x in evaluate_results]
+        print(f"#run: {np.sum([1 if x.error_no == 0 else 0 for x in evaluate_results])} ", flush=True, end="")
+        if verbose:
+            print(evaluate_results, flush=True)
+        else:
+            print(flush=True)
 
         if results_lst:
             results_matrix = results_lst
@@ -303,21 +351,25 @@ def train_for_one_group(
             evaluated_space.update(selected_configs, agg_results, results_matrix)
 
             perf_model.update(kernel_ctx, evaluated_space.read_records(), group.shapes)
-        
+            res_str = '\n\t\t'.join(map(str, results_lst))
+            agg_str = '\n\t\t'.join(map(str, agg_results))
+            print(f"Current:\n\tresults=\n\t\t{res_str}\n\tscore=\n\t\t{agg_str}", flush=True)
+
         all_explored_configs = explored_space.all()
         predict_matrix = []
         for shape in group.shapes:
             evaluate_configs = [
                 (x, shape) for x in all_explored_configs
             ]
-            evaluate_restuls = perf_model.predict(kernel_ctx, evaluate_configs)
-            predict_matrix.append(evaluate_restuls)
+            evaluate_results = perf_model.predict(kernel_ctx, evaluate_configs)
+            predict_matrix.append(evaluate_results)
         predict_matrix = np.array(predict_matrix).transpose()
 
         agg_results = evaluate_ctx.aggregate_func(predict_matrix, GFLOP)
         explored_space.global_update(all_explored_configs, agg_results, predict_matrix)
+        print(f"Best: {evaluated_space.top_value()}", flush=True)
 
-    best_configs = evaluated_space.topk(k=1)[0]
+    best_configs = evaluated_space.top_value()[0]
     
     return ResultKernelContext(
         kernel_ctx.op_name,
@@ -326,7 +378,8 @@ def train_for_one_group(
         kernel_ctx.target_host,
         kernel_ctx.build_func,
         kernel_ctx.static_params,
-        best_configs
+        best_configs,
+        kernel_ctx.build_timeout
     )
 
 
@@ -338,7 +391,10 @@ def train(
     num_groups=10,
     representative_num=20,
     num_rounds=100,
-    model_type="random"
+    model_type="random",
+    num_kernels_explore=40,
+    num_kernels_evaluate=20,
+    verbose=False
 ):
     """
     num_rounds: one round is to measure one kernel for all the shapes in one group
@@ -362,7 +418,10 @@ def train(
         repre_shapes = np.random.choice(group.shapes, representative_num)
         repre_group = general.ShapeGroup(group.group_id, repre_shapes)
         result_kernel_ctx = train_for_one_group(
-            repre_group, kernel_ctx, evaluate_ctx, num_rounds, perf_model)
+            repre_group, kernel_ctx, evaluate_ctx, num_rounds, perf_model,
+            num_kernels_explore=num_kernels_explore,
+            num_kernels_evaluate=num_kernels_evaluate,
+            verbose=verbose)
         result_multi_kernel_ctx.add_kernel_context(repre_group.group_id, result_kernel_ctx)
 
     return result_multi_kernel_ctx
