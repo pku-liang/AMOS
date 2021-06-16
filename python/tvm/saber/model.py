@@ -122,10 +122,6 @@ class SimpleAnalyticCUDAGemmGeneralPerfModel(OpPerfModel):
 
     def __init__(self, name):
         super(SimpleAnalyticCUDAGemmGeneralPerfModel, self).__init__(name)
-        self._layer1 = torch.nn.Linear(3, 256)
-        self._layer2 = torch.nn.Linear(9, 256)
-        self._layer3 = torch.nn.Linear(512, 512)
-        self._predict = torch.nn.Linear(512, 1)
 
     def _static_info(self, tb, wp, it, hardware_params, dtype="float32"):
         BM, BN, BK = tb
