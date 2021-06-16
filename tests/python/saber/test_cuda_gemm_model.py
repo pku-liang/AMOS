@@ -29,23 +29,38 @@ def register_test(func):
 @register_test
 def test1():
     perf_model = saber.model.SimpleAnalyticCUDAGemmGeneralPerfModel("just-for-test")
-    config = dict(
-        threadblock_problem_size=[128, 128, 8],
-        warp_problem_size=[32, 64, 8],
-        instruction_problem_size=[4, 8, 8],
-    )
-    gemm = saber.GemmCUDAGeneral(**config)
+    tb = [128, 128, 8]
+    wp = [32, 64, 8]
+    it = [4, 8, 8]
+    configs = [
+        [[128, 128, 8], [32, 64, 8], [4, 8, 8]],
+        [[64, 256, 8], [32, 64, 8], [4, 8, 8]],
+        [[64, 128, 8], [32, 32, 8], [4, 8, 8]],
+        [[64, 128, 8], [32, 64, 8], [4, 8, 8]],
+        [[64, 64, 8], [32, 64, 8], [4, 8, 8]],
+    ]
     first = True
-    DIMS = (256, 512, 1024)
-    SHAPES = [(M, N, K) for M in DIMS for N in DIMS for K in DIMS]
-    with open("./saber-cuda-general-col-row-gemm-model-hongv0.csv", "w") as fp:
-        print("M,N,K,pred(gflops),cost(gflops)", file=fp, flush=True)
-        for M, N, K in SHAPES:
-            shape = saber.distribution.gemm.GEMMParams(M, N, K)
-            pred = perf_model.predict([(config, shape)])[0]
-            cost = shape.gflop() / (gemm.try_with(M, N, K, new_process=first) * 1e-3 + 1e-10) 
-            first = False
-            print(f"{M},{N},{K},{pred},{cost}", file=fp, flush=True)
+    def run(tb, wp, it):
+        nonlocal first
+        config = dict(
+            threadblock_problem_size=tb,
+            warp_problem_size=wp,
+            instruction_problem_size=it,
+        )
+        gemm = saber.GemmCUDAGeneral(**config)
+        DIMS = (256, 512, 1024)
+        SHAPES = [(M, N, K) for M in DIMS for N in DIMS for K in DIMS]
+        with open(f"./saber-cuda-general-col-row-gemm-{tb}-{wp}-{it}-model-hongv0.csv", "w") as fp:
+            print("M,N,K,pred(gflops),cost(gflops)", file=fp, flush=True)
+            for M, N, K in SHAPES:
+                shape = saber.distribution.gemm.GEMMParams(M, N, K)
+                pred = perf_model.predict([(config, shape)])[0]
+                cost = shape.gflop() / (gemm.try_with(M, N, K, new_process=first) * 1e-3 + 1e-10) 
+                first = False
+                print(f"{M},{N},{K},{pred},{cost}", file=fp, flush=True)
+    
+    for cfg in configs:
+        run(*cfg)
 
 
 if __name__ == "__main__":

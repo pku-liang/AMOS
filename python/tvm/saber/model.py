@@ -178,11 +178,10 @@ class SimpleAnalyticCUDAGemmGeneralPerfModel(OpPerfModel):
         )
 
     def _dynamic_info(self, shape, tb, wp, it, hardware_params, dtype="float32"):
-        BM, BN, BK = tb
         PM, PN, PK = (int(math.ceil(X / BX)) for (X, BX) in zip(shape, tb))
 
-        n_blocks = (PM // BM) * (PN // BN)
-        n_iters = PK // BK
+        n_blocks = PM * PN
+        n_iters = PK
 
         return dict(
             n_blocks=n_blocks,
@@ -258,7 +257,7 @@ class SimpleAnalyticCUDAGemmGeneralPerfModel(OpPerfModel):
             static_key = (*tb, *wp, *it)
             if static_key not in self._static_info_cache:
                 self._static_info_cache[static_key] = self._static_info(
-                    wp, it, it, hardware_params)
+                    tb, wp, it, hardware_params)
             static_info = self._static_info_cache[static_key]
             dynamic_info = self._dynamic_info(
                 (M, N, K), tb, wp, it, hardware_params)
