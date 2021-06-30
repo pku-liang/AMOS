@@ -450,7 +450,7 @@ def find_optimized_parameters_v2(
                 if b * batch_size + i < trials:
                     # params = schedule_gen.get(policy=policy)
                     params = schedule_gen.get_next(policy=policy)
-                    print(str(params))
+                    # print(str(params))
                     params_lst.append(params)
             assert params_lst
             build_results = builder(

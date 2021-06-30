@@ -105,7 +105,7 @@ def conv2d_fuse_nhw_crs(N, C, H, W, K, R, S, stride, padding, dilation):
 
 
 def schedule_conv_fuse_nhw_crs(Image, Filter, Output):
-    split_K = 4
+    split_K = 1
     thread_y = split_K
     thread_z = 1
     input_vec = 4
@@ -176,6 +176,9 @@ def schedule_conv_fuse_nhw_crs(Image, Filter, Output):
     tbx, _, ttx = tile_axes(sch, BBX, fused, [-1, 2, 32])
     sch[BBX].bind(tbx, bx)
     sch[BBX].bind(ttx, tx)
+
+    # sch[AAX].compute_inline()
+    # sch[BBX].compute_inline()
 
 
     bx = tvm.te.thread_axis("blockIdx.x") # (N*P*Q / 16) / 4 / 1
@@ -263,17 +266,17 @@ def schedule_conv_fuse_nhw_crs(Image, Filter, Output):
     
 res18_shapes = [
         # (1, 3, 224, 224, 64, 3, 7, 7, 2, 2),  # conv1  0
-        # (1, 64, 56, 56, 64, 64, 3, 3, 1, 1),  # conv2   1
-        # (1, 64, 56, 56, 64, 64, 1, 1, 1, 1),  # conv3   2
-        # (1, 64, 56, 56, 128, 64, 3, 3, 2, 2),  # conv4   3
+        (1, 64, 56, 56, 64, 64, 3, 3, 1, 1),  # conv2   1
+        (1, 64, 56, 56, 64, 64, 1, 1, 1, 1),  # conv3   2
+        (1, 64, 56, 56, 128, 64, 3, 3, 2, 2),  # conv4   3
         (1, 64, 56, 56, 128, 64, 1, 1, 2, 2),  # conv5   4
-        # (1, 128, 28, 28, 128, 128, 3, 3, 1, 1),  # conv6   5
-        # (1, 128, 28, 28, 256, 128, 3, 3, 2, 2),  # conv7   6
-        # (1, 128, 28, 28, 256, 128, 1, 1, 2, 2),  # conv8   7
-        # (1, 256, 14, 14, 256, 256, 3, 3, 1, 1),  # conv9   8
-        # (1, 256, 14, 14, 512, 256, 3, 3, 2, 2),  # conv10  9
-        # (1, 256, 14, 14, 512, 256, 1, 1, 2, 2),  # conv11  10
-        # (1, 512, 7, 7, 512, 512, 3, 3, 1, 1),  # conv12  11
+        (1, 128, 28, 28, 128, 128, 3, 3, 1, 1),  # conv6   5
+        (1, 128, 28, 28, 256, 128, 3, 3, 2, 2),  # conv7   6
+        (1, 128, 28, 28, 256, 128, 1, 1, 2, 2),  # conv8   7
+        (1, 256, 14, 14, 256, 256, 3, 3, 1, 1),  # conv9   8
+        (1, 256, 14, 14, 512, 256, 3, 3, 2, 2),  # conv10  9
+        (1, 256, 14, 14, 512, 256, 1, 1, 2, 2),  # conv11  10
+        (1, 512, 7, 7, 512, 512, 3, 3, 1, 1),  # conv12  11
 ]
 
 

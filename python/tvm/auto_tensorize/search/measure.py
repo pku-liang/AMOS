@@ -19,13 +19,14 @@ from collections import OrderedDict
 from tempfile import mkstemp
 from tvm import rpc
 from tvm.contrib import ndk
+from ..backend import tenet
 
 
 class MeasureOptions(object):
     def __init__(
         self, target="llvm", build_func="default", target_host="llvm", timeout=10,
             verbose=1, number=100, repeat=1, min_repeat_ms=150,
-            cooldown_interval=1, enable_cpu_cache_flush=1,
+            cooldown_interval=0, enable_cpu_cache_flush=1,
             dev_id=0, use_rpc=False, key=None, host=None, port=None, priority=1):
         self.target = target
         self.build_func = build_func
@@ -387,21 +388,33 @@ def pebble_local_build_worker(index):
             # print(error_msg)
         if error_no == 0:
             dirname = tempfile.mkdtemp()
-            filename = os.path.join(
-                dirname, "tmp_func." + build_func.output_format)
+            if str(target).startswith("tenet"):
+                filename = os.path.join(
+                    dirname, "tmp_func.tenet")
 
-            try:
-                # TODO(merrymercy): Port the unroll pass.
-                with transform.PassContext():
-                    func = build_module.build(
-                        sch, args, target=target, target_host=target_host,
-                        name=name
-                    )
-                func.export_library(filename, build_func)
-            # pylint: disable=broad-except
-            except Exception:
-                error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
-                error_msg = auto_scheduler.measure.make_error_msg()
+                func = tenet.build(
+                    sch, args, sch_app.tenet_ctx,
+                    target=target, target_host=target_host,
+                    name=name
+                )
+
+                func.save(filename)
+            else:
+                filename = os.path.join(
+                    dirname, "tmp_func." + build_func.output_format)
+
+                try:
+                    # TODO(merrymercy): Port the unroll pass.
+                    with transform.PassContext():
+                        func = build_module.build(
+                            sch, args, target=target, target_host=target_host,
+                            name=name
+                        )
+                    func.export_library(filename, build_func)
+                # pylint: disable=broad-except
+                except Exception:
+                    error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
+                    error_msg = auto_scheduler.measure.make_error_msg()
         else:
             filename = ""
 
@@ -518,51 +531,61 @@ def pebble_local_run_worker(index):
                 time.time(),
             )
 
-        try:
-            func = module.load_module(build_res.filename)
-            ctx = ndarray.context(str(target), dev_id)
-            # Limitation:
-            # We can not get PackFunction directly in the remote mode as it is wrapped
-            # under the std::function. We could lift the restriction later once we fold
-            # the PackedFunc as an object. Currently, we pass function name to work
-            # around it.
-            f_prepare = "cache_flush_cpu_non_first_arg" if enable_cpu_cache_flush else ""
-            time_f = func.time_evaluator(
-                func.entry_name if name is None else name,
-                ctx,
-                number=number,
-                repeat=repeat,
-                min_repeat_ms=min_repeat_ms,
-                # f_preproc=f_prepare,
-            )
-        # pylint: disable=broad-except
-        except Exception:
-            costs = (MAX_FLOAT,)
-            error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
-            error_msg = auto_scheduler.measure.make_error_msg()
-            # print(error_msg)
-
-        if error_no == 0:
+        if str(target).startswith("tenet"):
             try:
-                args = [
-                    ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
-                ]
-                random_fill = tvm.get_global_func(
-                    "tvm.contrib.random.random_fill", True)
-                assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
-                for arg in args:
-                    if str(arg.dtype) in ["int4"]:
-                        continue
-                    random_fill(arg)
-                ctx.sync()
-                costs = time_f(*args).results
-                # print("peek costs:", costs, flush=True)
+                func = tenet.load_func(build_res.filename)
+                costs = tenet.evaluate_func(func)
+            except Exception:
+                costs = (MAX_FLOAT,)
+                error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
+                error_msg = auto_scheduler.measure.make_error_msg()
+                # print(error_msg)
+        else:
+            try:
+                func = module.load_module(build_res.filename)
+                ctx = ndarray.context(str(target), dev_id)
+                # Limitation:
+                # We can not get PackFunction directly in the remote mode as it is wrapped
+                # under the std::function. We could lift the restriction later once we fold
+                # the PackedFunc as an object. Currently, we pass function name to work
+                # around it.
+                f_prepare = "cache_flush_cpu_non_first_arg" if enable_cpu_cache_flush else ""
+                time_f = func.time_evaluator(
+                    func.entry_name if name is None else name,
+                    ctx,
+                    number=number,
+                    repeat=repeat,
+                    min_repeat_ms=min_repeat_ms,
+                    # f_preproc=f_prepare,
+                )
             # pylint: disable=broad-except
             except Exception:
                 costs = (MAX_FLOAT,)
-                error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
+                error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
                 error_msg = auto_scheduler.measure.make_error_msg()
                 # print(error_msg)
+
+            if error_no == 0:
+                try:
+                    args = [
+                        ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                    ]
+                    random_fill = tvm.get_global_func(
+                        "tvm.contrib.random.random_fill", True)
+                    assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
+                    for arg in args:
+                        if str(arg.dtype) in ["int4"]:
+                            continue
+                        random_fill(arg)
+                    ctx.sync()
+                    costs = time_f(*args).results
+                    # print("peek costs:", costs, flush=True)
+                # pylint: disable=broad-except
+                except Exception:
+                    costs = (MAX_FLOAT,)
+                    error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
+                    error_msg = auto_scheduler.measure.make_error_msg()
+                    # print(error_msg)
 
         shutil.rmtree(os.path.dirname(build_res.filename))
         toc = time.time()
@@ -626,6 +649,7 @@ def pebble_local_runner_run(build_results, measure_opt, name="main", n_parallel=
             except Exception as error:
                 if verbose >= 1:
                     print("*F", end="", flush=True)  # Run fatal error
+                    print(error)
                 result = (
                     (MAX_FLOAT,),
                     auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE,

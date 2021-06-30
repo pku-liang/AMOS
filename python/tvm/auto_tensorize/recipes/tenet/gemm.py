@@ -1,12 +1,5 @@
 import tvm
-from ...capsules import (
-    CompilationCapsule,
-    register_capsule,
-    MemoryCapsule,
-    ComputeCapsule,
-    ElementwiseComputeCapsule,
-    ElementwiseMemoryCapsule,
-)
+from ...capsules import *
 from ..recipe_base import (
     CompilationRecipe,
     register_recipe
@@ -14,7 +7,7 @@ from ..recipe_base import (
 from ..recipe_base import InstructionScope
 
 
-class WMMABaseRecipe(CompilationRecipe):
+class TenetGemmBaseRecipe(CompilationRecipe):
     scope = InstructionScope.warp
 
     def get_name(self):
@@ -270,7 +263,7 @@ class WMMABaseRecipe(CompilationRecipe):
         C_shape = (m, n) if not tC else (m, n)
         if capsule_key == "load_a":
             ldm = m if tA else k
-            layout = "nvcuda::wmma::col_major" if tA else "nvcuda::wmma::row_major"
+            layout = "tenet::gemm::col_major" if tA else "tenet::gemm::row_major"
             return capsule.get_intrinsic(
                 [A_shape],
                 [A_shape],
@@ -283,7 +276,7 @@ class WMMABaseRecipe(CompilationRecipe):
             )
         elif capsule_key == "load_b":
             ldm = k if tB else n
-            layout = "nvcuda::wmma::col_major" if tB else "nvcuda::wmma::row_major"
+            layout = "tenet::gemm::col_major" if tB else "tenet::gemm::row_major"
             return capsule.get_intrinsic(
                 [B_shape],
                 [B_shape],
@@ -306,7 +299,7 @@ class WMMABaseRecipe(CompilationRecipe):
             )
         elif capsule_key == "store":
             ldm = m if tC else n
-            layout = "nvcuda::wmma::mem_col_major" if tB else "nvcuda::wmma::mem_row_major"
+            layout = "tenet::gemm::mem_col_major" if tB else "tenet::gemm::mem_row_major"
             return capsule.get_intrinsic(
                 [C_shape],
                 [C_shape],
@@ -333,18 +326,18 @@ class WMMABaseRecipe(CompilationRecipe):
         ---
         Returns:
         memory scope realization: [str, int]
-            as for str, e.g. nvcuda::wmma::fragment<
-                    nvcuda::wmma::matrix_a, 16, 16, 16,
-                    nvcuda::wmma::row_major, 16>
+            as for str, e.g. tenet::gemm::fragment<
+                    tenet::gemm::matrix_a, 16, 16, 16,
+                    tenet::gemm::row_major, 16>
         """
         assert "storage_shape" in attributes
         storage_shape = attributes["storage_shape"]
         m, n, k = [int(x) for x in storage_shape.split(", ")]
-        if scope == "nvcuda::wmma::matrix_a":
+        if scope == "tenet::gemm::matrix_a":
             assert "storage_layout" in attributes
             storage_layout = attributes["storage_layout"]
             storage = (
-                "nvcuda::wmma::fragment<"
+                "tenet::gemm::fragment<"
                 + scope
                 + ", "
                 + storage_shape
@@ -357,11 +350,11 @@ class WMMABaseRecipe(CompilationRecipe):
             assert constant_size % (m * k) == 0
             storage_size = constant_size // (m * k)
             return [storage, storage_size]
-        elif scope == "nvcuda::wmma::matrix_b":
+        elif scope == "tenet::gemm::matrix_b":
             assert "storage_layout" in attributes
             storage_layout = attributes["storage_layout"]
             storage = (
-                "nvcuda::wmma::fragment<"
+                "tenet::gemm::fragment<"
                 + scope
                 + ", "
                 + storage_shape
@@ -374,8 +367,8 @@ class WMMABaseRecipe(CompilationRecipe):
             assert constant_size % (n * k) == 0
             storage_size = constant_size // (n * k)
             return [storage, storage_size]
-        elif scope == "nvcuda::wmma::accumulator":
-            storage = "nvcuda::wmma::fragment<" + scope + ", " + storage_shape + ", " + dtype + ">"
+        elif scope == "tenet::gemm::accumulator":
+            storage = "tenet::gemm::fragment<" + scope + ", " + storage_shape + ", " + dtype + ">"
             assert constant_size % (m * n) == 0
             storage_size = constant_size // (m * n)
             return [storage, storage_size]
@@ -383,4 +376,55 @@ class WMMABaseRecipe(CompilationRecipe):
             raise RuntimeError("Unknown scope: %s" % scope)
 
     def get_header(self):
-        return "#include <mma.h>\n"
+        return ""
+
+
+@register_recipe("tenet gemm", "tenet_gemm_fp16_fp16")
+class TenetGemmFp16Fp16(TenetGemmBaseRecipe):
+    def __init__(self):
+        self.capsules = {
+            "load_a": TenetGemmLoadMatrix,
+            "load_b": TenetGemmLoadMatrix,
+            "mma": TenetGemmMma,
+            "store": TenetGemmStoreMatrix,
+        }
+        self.edges = {
+            "mma": ["load_a", "load_b"],
+            "store": ["mma"],
+            "load_a": ["a"],
+            "load_b": ["b"],
+        }
+        self.main_capsule_name = "mma"
+        self.anchor_point = "mma"
+        self.input_dtypes = {
+            "load_a": ["float16"],
+            "load_b": ["float16"],
+            "mma": ["float16", "float16"],
+            "store": ["float16"],
+            "a": ["float16"],
+            "b": ["float16"],
+        }
+        self.output_dtypes = {
+            "load_a": ["float16"],
+            "load_b": ["float16"],
+            "mma": ["float16"],
+            "store": ["float16"],
+            "a": ["float16"],
+            "b": ["float16"],
+        }
+
+    def get_name(self):
+        return "tenet_gemm_fp16_fp16"
+
+    def get_all_compute_keys(self):
+        """Return all compute keys. Keys are str"""
+        ret = []
+        choice = ["n", "t"]  # n: not transpose, t: transpose
+        for i in choice:
+            for j in choice:
+                    ret.append(i + j + "n")
+        return ret
+
+    def get_all_shape_keys(self):
+        """Return all shape keys. Keys are str"""
+        return ["16x16x16"]

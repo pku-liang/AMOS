@@ -471,12 +471,13 @@ class AutoTensorizeContextV2(object):
             if str(self.measure_option.target) == "cuda":
                 if not self.enable_split_K:
                     if self.use_shared_store:
-                        schedule_gen = at.CUDAScheduleGeneratorV3(
-                            self.match_result, new_state, log_file=current_log_file)
-                        if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
-                            schedule_gen.load_from_file(current_log_file)
-                        sc_info = schedule_gen.get_schedule_compute_info()
-                        schedule_app = at.CUDAScheduleApplierV3(self.match_result, sc_info)
+                        raise NotImplementedError()
+                        # schedule_gen = at.CUDAScheduleGeneratorV3(
+                        #     self.match_result, new_state, log_file=current_log_file)
+                        # if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        #     schedule_gen.load_from_file(current_log_file)
+                        # sc_info = schedule_gen.get_schedule_compute_info()
+                        # schedule_app = at.CUDAScheduleApplierV3(self.match_result, sc_info)
                     else:
                         schedule_gen = at.CUDAScheduleGeneratorV2(
                             self.match_result, new_state, log_file=current_log_file)
@@ -568,12 +569,13 @@ class AutoTensorizeContextV2(object):
         if str(self.measure_option.target) == "cuda":
           if not self.enable_split_K:
               if self.use_shared_store:
-                  schedule_gen = at.CUDAScheduleGeneratorV3(
-                      self.match_result, new_state, log_file=best_log_file)
-                  if os.path.exists(best_log_file) and os.path.isfile(best_log_file):
-                      schedule_gen.load_from_file(best_log_file)
-                  sc_info = schedule_gen.get_schedule_compute_info()
-                  schedule_app = at.CUDAScheduleApplierV3(self.match_result, sc_info)
+                  raise NotImplementedError()
+                  # schedule_gen = at.CUDAScheduleGeneratorV3(
+                  #     self.match_result, new_state, log_file=best_log_file)
+                  # if os.path.exists(best_log_file) and os.path.isfile(best_log_file):
+                  #     schedule_gen.load_from_file(best_log_file)
+                  # sc_info = schedule_gen.get_schedule_compute_info()
+                  # schedule_app = at.CUDAScheduleApplierV3(self.match_result, sc_info)
               else:
                   schedule_gen = at.CUDAScheduleGeneratorV2(
                       self.match_result, new_state, log_file=best_log_file)

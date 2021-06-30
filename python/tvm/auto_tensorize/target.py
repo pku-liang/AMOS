@@ -112,3 +112,23 @@ class Mali(AcceleratorTarget):
 
     def max_blocks(self):
         return self._arch_params[self.arch][4]
+
+
+class TENET(AcceleratorTarget):
+    def __init__(self, arch="gemm"):
+        self.arch = arch
+
+    def get_shared_memory_bytes(self):
+        return 48 * 2**12
+
+    def get_warp_size(self):
+        return 32
+
+    def get_register_bytes_per_thread(self):
+        return 255 * 32 # greatly relaxed
+
+    def max_threads(self):
+        return 1024
+
+    def max_blocks(self):
+        return 2**16

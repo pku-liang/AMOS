@@ -8,12 +8,13 @@ from .tensorization_phases import get_match_results, TransformGenerator, Transfo
 from .tensorization_phases import (
     CUDAScheduleGenerator, CUDAScheduleApplier,
     CUDAScheduleGeneratorV2, CUDAScheduleApplierV2,
-    CUDAScheduleGeneratorV3, CUDAScheduleApplierV3,
+    # CUDAScheduleGeneratorV3, CUDAScheduleApplierV3,
     CUDAScheduleGeneratorSplitK, CUDAScheduleApplierSplitK)
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
     CUDAScheduleApplierMultiReduce
 from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
 from .tensorization_phases import LLVMScheduleGenerator, LLVMScheduleApplier
+from .tensorization_phases import TenetScheduleGenerator, TenetScheduleApplier
 from .search import (
     EmptyChecker, CUDAProgramChecker,
     MaliProgramChecker,
@@ -23,7 +24,7 @@ from .policy import first_fit, best_fit, all_fit
 
 
 class AutoTensorizeResult(object):
-    def __init__(self, sch_gen, sch_app, params, perf):
+    def __init__(self, sch_gen=None, sch_app=None, params=None, perf=None):
         self.sch_gen = sch_gen
         self.sch_app = sch_app
         self.params = params
@@ -332,7 +333,7 @@ def auto_tensorize_v3(
     if len(match_results) == 0:
         print("This workload has no matched intrinsic for target: %s" %
               target, flush=True)
-        return None, None
+        return AutoTensorizeResult()
     elif verbose:
         print("Matched results:", flush=True)
         for m in match_results:
@@ -348,7 +349,7 @@ def auto_tensorize_v3(
     if len(compute_key_match_results) == 0:
         print("No match result matches desired compute key:",
               desired_compute_key, flush=True)
-        return None, None
+        return AutoTensorizeResult()
     shape_key_match_results = []
     if desired_shape_key is not None:
         for m in compute_key_match_results:
@@ -359,7 +360,7 @@ def auto_tensorize_v3(
     if len(shape_key_match_results) == 0:
         print("No match result matches desired shape key:",
               desired_shape_key, flush=True)
-        return None, None
+        return AutoTensorizeResult()
 
     match_result = shape_key_match_results[0]
     if verbose:
@@ -427,14 +428,15 @@ def auto_tensorize_v3(
             if str(target) == "cuda":
                 if not enable_split_K:
                     if use_shared_store:
-                        schedule_gen = CUDAScheduleGeneratorV3(
-                            match_result, new_state, log_file=current_log_file,
-                            arch=get_cuda_compute_version(measure_opt.dev_id))
-                        if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
-                            schedule_gen.load_from_file(current_log_file)
-                        sc_info = schedule_gen.get_schedule_compute_info()
-                        schedule_app = CUDAScheduleApplierV3(
-                            match_result, sc_info)
+                        raise NotImplementedError()
+                        # schedule_gen = CUDAScheduleGeneratorV3(
+                        #     match_result, new_state, log_file=current_log_file,
+                        #     arch=get_cuda_compute_version(measure_opt.dev_id))
+                        # if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        #     schedule_gen.load_from_file(current_log_file)
+                        # sc_info = schedule_gen.get_schedule_compute_info()
+                        # schedule_app = CUDAScheduleApplierV3(
+                        #     match_result, sc_info)
                     else:
                         schedule_gen = CUDAScheduleGeneratorV2(
                             match_result, new_state, log_file=current_log_file,
@@ -472,6 +474,16 @@ def auto_tensorize_v3(
                 sc_info = schedule_gen.get_schedule_compute_info()
                 schedule_app = LLVMScheduleApplier(match_result, sc_info)
                 # TODO: write a checker for CPU
+                checker = EmptyChecker()
+            elif str(target).startswith("tenet"):
+                schedule_gen = TenetScheduleGenerator(
+                    match_result, new_state, log_file=current_log_file
+                )
+                if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                    schedule_gen.load_from_file(current_log_file)
+                sc_info = schedule_gen.get_schedule_compute_info()
+                schedule_app = TenetScheduleApplier(match_result, sc_info)
+                # TODO: write a checker for TENET
                 checker = EmptyChecker()
             else:
                 raise RuntimeError("Do not support target: %s" % target)
