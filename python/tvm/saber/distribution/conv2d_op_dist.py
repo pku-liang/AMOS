@@ -4,6 +4,10 @@ from collections import namedtuple
 from functools import reduce
 
 
+"""
+Deprecated structures:
+"""
+
 class ConvParams(object):
     def __init__(self, in_channels=None, out_channels=None, kernel_size=None, strides=(1, 1), padding=(0, 0), bias=True, groups=1, use_fp16=False):
         self.in_channels = in_channels
@@ -320,3 +324,125 @@ def cluster_param_inputs(cluster, full_param_input_lst, count_lst, assigned_kern
 
 
 
+"""
+End of deprecated structures
+"""
+
+class Conv2dParams(object):
+    def __init__(self,
+        N, C, H, W, K, R, S,
+        stride_h, stride_w,
+        padding_h, padding_w,
+        dilation_h, dilation_w,
+        groups):
+        self.N = N
+        self.C = C
+        self.H = H
+        self.W = W
+        self.K = K
+        self.R = R
+        self.S = S
+        self.stride_h = stride_h
+        self.stride_w = stride_w
+        self.padding_h = padding_h
+        self.padding_w = padding_w
+        self.dilation_h = dilation_h
+        self.dilation_w = dilation_w
+        self.groups = groups
+
+    def gflop(self):
+        return (
+            self.N * self.C * ((self.H + 2 * self.padding_h - (self.R-1) * self.dilation_h - 1)//self.stride_h + 1)
+            *((self.W + 2 * self.padding_w - (self.S-1) * self.dilation_w - 1)//self.stride_w + 1)
+            * self.K * self.R * self.S // self.groups * 2 / 1e9
+        )
+
+    def valid(self):
+        return (
+            self.N is not None and
+            self.C is not None and
+            self.H is not None and
+            self.W is not None and
+            self.K is not None and
+            self.R is not None and
+            self.S is not None and
+            self.stride_h is not None and
+            self.stride_w is not None and
+            self.padding_h is not None and
+            self.padding_w is not None and
+            self.dilation_h is not None and
+            self.dilation_w is not None and
+            self.groups is not None
+        )
+
+    def to_tuple(self):
+        return (
+            self.N,
+            self.C,
+            self.H,
+            self.W,
+            self.K,
+            self.R,
+            self.S,
+            self.stride_h,
+            self.stride_w,
+            self.padding_h,
+            self.padding_w,
+            self.dilation_h,
+            self.dilation_w,
+            self.groups
+        )
+
+    def to_flatten_tuple(self):
+        return self.to_tuple()
+
+    @staticmethod
+    def from_flatten_tuple(tup):
+        return Conv2dParams(
+            tup[0],
+            tup[1],
+            tup[2],
+            tup[3],
+            tup[4],
+            tup[5],
+            tup[6],
+            tup[7],
+            tup[8],
+            tup[9],
+            tup[10],
+            tup[11],
+            tup[12],
+            tup[13]
+        )
+
+    def to_tuple_key(self):
+        tmp = (
+            self.N,
+            self.C,
+            self.H,
+            self.W,
+            self.K,
+            self.R,
+            self.S,
+            self.stride_h,
+            self.stride_w,
+            self.padding_h,
+            self.padding_w,
+            self.dilation_h,
+            self.dilation_w,
+            self.groups
+        )
+        ret = ",".join([str(x) for x in tmp])
+        return ret
+
+    def __hash__(self):
+        return hash(self.to_tuple())
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return self.to_tuple() == other.to_tuple()
+        else:
+            return self.to_tuple() == other
+
+    def __repr__(self):
+        return "Conv2dParams" + str(self.to_tuple())

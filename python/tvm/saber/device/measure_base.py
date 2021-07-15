@@ -164,7 +164,7 @@ def evaluate_schedule(sch, args, vars,
                     print(".E", end="", flush=True)
                     results = MAX_FLOAT
                     from tvm import auto_scheduler
-                    # print(auto_scheduler.utils.make_traceback_info())
+                    print(auto_scheduler.utils.make_traceback_info())
 
         return results
 

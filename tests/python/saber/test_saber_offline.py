@@ -99,7 +99,7 @@ def test2():
         enable_cpu_cache_flush=0,
         dev_id=0
     )
-    num_rounds = 1000
+    num_rounds = 10
     perf_model = saber.model.PerfModel(saber.model.SimpleMLPCUDAGemmGeneralPerfModel)
     # perf_model = saber.model.PerfModel(saber.model.RandomOpPerfModel)
     result = saber.offline.train_for_one_group(
@@ -121,6 +121,58 @@ def test2():
         False
     )
     print("Cost is", cost, "ms")
+
+
+yolo_shapes_b1 = [
+    # batch, in_channel, height, width, out_channel, _, k_h, k_w, _, stride, padding, dilation, groups = shape
+    # yolo
+    (1, 3, 448, 448, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
+    (1, 64, 112, 112, 192, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
+    (1, 192, 56, 56, 128, 192, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
+    (1, 128, 56, 56, 256, 128, 3, 3, 1, 1, 1, 1, 1),  # conv4   3
+    (1, 256, 56, 56, 256, 256, 1, 1, 1, 1, 0, 1, 1),  # conv5   4
+    (1, 256, 56, 56, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
+    (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv7   6
+    (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv8   7
+    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv9
+    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv10
+    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv11
+    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv12
+    # # (1, 512, 28, 28, 256, 512, 1, 1, 1, 1, 0, 1, 1),  # conv13
+    # # (1, 256, 28, 28, 512, 256, 3, 3, 1, 1, 1, 1, 1),  # conv14
+    (1, 512, 28, 28, 512, 512, 1, 1, 1, 1, 0, 1, 1),  # conv15      8
+    (1, 512, 28, 28, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv16     9
+    (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv17    10
+    (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv18     11
+    # # (1, 1024, 14, 14, 512, 1024, 1, 1, 1, 1, 0, 1, 1),  # conv19
+    # # (1, 512, 14, 14, 1024, 512, 3, 3, 1, 1, 1, 1, 1),  # conv20
+    (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv21   12
+    (1, 1024, 14, 14, 1024, 1024, 3, 3, 1, 2, 1, 1, 1),  # conv22   13
+    (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv23     14
+    # (1, 1024, 7, 7, 1024, 1024, 3, 3, 1, 1, 1, 1, 1),  # conv24
+]
+
+
+@register_test
+def test3():
+    shapes = []
+    for ss in yolo_shapes_b1:
+        N, C, H, W, K, _, R, S, _, stride, padding, dilation, groups = ss
+        shape = saber.distribution.conv2d.Conv2dParams(
+            N, C, H, W, K, R, S,
+            stride, stride,
+            padding, padding,
+            dilation, dilation,
+            groups
+        )
+        shapes.append(shape)
+    cluster = saber.analysis.kmeans.FaissKMeans(n_clusters=4)
+    shape_groups = saber.distribution.general.group_shapes(
+        cluster, shapes, [])
+    for group in shape_groups:
+        print("Group", group.group_id)
+        for ss in group.shapes:
+            print("\t", ss)
     
 
 

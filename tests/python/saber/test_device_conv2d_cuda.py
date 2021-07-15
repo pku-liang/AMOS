@@ -46,9 +46,15 @@ def test2():
 @register_test
 def test3():
     conv2d = saber.Conv2dCUDATensorCore(
-        threadblock_problem_size=[16, 16, 128],
-        warp_problem_size=[16, 16, 32],
-        tensorcore_problem_size=[16, 16, 16])
+        # threadblock_problem_size=[16, 16, 128],
+        # warp_problem_size=[16, 16, 32],
+        # tensorcore_problem_size=[16, 16, 16]
+        threadblock_problem_size=[256, 16, 64],
+        warp_problem_size=[64, 16, 32],
+        tensorcore_problem_size=[16, 16, 16],
+        stride=1,
+        padding=1
+    )
     cost = conv2d.try_with(1, 512, 7, 7, 512, 3, 3, new_process=False)
     print("Cost is", cost, "ms")
     cost = conv2d.try_with(1, 512, 7, 7, 512, 3, 3, new_process=False)

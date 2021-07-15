@@ -1,3 +1,4 @@
+from .cuda.conv2d_cuda_general import Conv2dGeneral as Conv2dCUDAGeneral
 from .cuda.conv2d_cuda_tensorcore import Conv2dTensorCore as Conv2dCUDATensorCore
 from .cuda.gemm_cuda_tensorcore import GemmTensorCore as GemmCUDATensorCore
 from .cuda.gemm_cuda_general import GemmGeneral as GemmCUDAGeneral
@@ -26,6 +27,7 @@ DEVICE_IMPL_REGISTRY = {
     },
     "conv2d": {
         "cuda": {
+            "general": Conv2dCUDAGeneral,
             "tensorcore": Conv2dCUDATensorCore
         },
         "mali": {

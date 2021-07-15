@@ -25,6 +25,10 @@ def kernel_conv2d_nchw_implicit_gemm_general_perfect_common_common(arch, code, t
         R = index("R")
         S = index("S")
 
+        M1 = index("M1")
+        N1 = index("N1")
+        K1 = index("K1")
+
         Params = [N, C, H, W, K, R, S]
 
         pH = H + 2 * padding
@@ -71,9 +75,10 @@ def kernel_conv2d_nchw_implicit_gemm_general_perfect_common_common(arch, code, t
         (
             Output,
             schedule_func,
-            (M1, N1, K1),
+            # (M1, N1, K1),
             parse_func
         ) = get_gemm_implementation_cuda("general", arch, code, tag)(
+            [M1, N1, K1],
             threadblock_problem_size,
             warp_problem_size,
             tensorize_problem_size,

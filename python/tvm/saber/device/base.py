@@ -275,7 +275,10 @@ class Conv2dOperator(Operator):
                 A_dtype=self.in_dtype,
                 B_dtype=self.in_dtype,
                 C_dtype=self.out_dtype,
-                split_K=split_K
+                split_K=split_K,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation
             )
         else:
             self.get_context = lambda *_: get_conv2d_implementation(type_name, arch, code, tag, layout, algorithm, strategy)(
@@ -285,7 +288,10 @@ class Conv2dOperator(Operator):
                 self.epilogues,
                 A_dtype=self.in_dtype,
                 B_dtype=self.in_dtype,
-                C_dtype=self.out_dtype
+                C_dtype=self.out_dtype,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation
             )
 
     def expose_compile_context(self):
@@ -371,18 +377,31 @@ class Conv2dOperator(Operator):
             raise RuntimeError("Unsupported Layout: " + str(self.layout))
     
     def expose_evaluate_context_with_shape(self, shape):
-        assert isinstance(shape, conv2d.ConvFullParams)
+        # assert isinstance(shape, conv2d.ConvFullParams)
+        # return self.expose_evaluate_context(
+        #     shape.batch,
+        #     shape.in_channels,
+        #     shape.H,
+        #     shape.W,
+        #     shape.out_channels,
+        #     shape.kernel_size[0],
+        #     shape.kernel_size[1],
+        #     shape.strides,
+        #     shape.padding,
+        #     shape.dilation
+        # )
+        assert isinstance(shape, conv2d.Conv2dParams)
         return self.expose_evaluate_context(
-            shape.batch,
-            shape.in_channels,
+            shape.N,
+            shape.C,
             shape.H,
             shape.W,
-            shape.out_channels,
-            shape.kernel_size[0],
-            shape.kernel_size[1],
-            shape.strides,
-            shape.padding,
-            shape.dilation
+            shape.K,
+            shape.R,
+            shape.S,
+            (shape.stride_h, shape.stride_w),
+            (shape.padding_h, shape.padding_w),
+            (shape.dilation_h, shape.dilation_w)
         )
 
     def evaluate(self, func, N, C, H, W, K, R, S, measure_opt=MeasureOptions(

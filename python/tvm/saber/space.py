@@ -45,6 +45,11 @@ class InstructionProblemSizeSpace(SubSpace):
         super().__init__(cube_within(max_x, max_y, max_k, valid_func=lambda *x: x[0] * x[1] == 32))
 
 
+class TensorCoreSizeSpace(SubSpace):
+    def __init__(self):
+        super().__init__([[16, 16, 16]])
+
+
 class JoinedSpace(object):
     def __init__(self, valid_func=lambda x: True):
         """
