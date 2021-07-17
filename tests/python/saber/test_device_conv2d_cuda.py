@@ -61,6 +61,18 @@ def test3():
     print("Cost is", cost, "ms")
 
 
+@register_test
+def test4():
+    conv2d = saber.Conv2dCUDAGeneral(
+        threadblock_problem_size=[128, 128, 8],
+        warp_problem_size=[32, 64, 8],
+        instruction_problem_size=[4, 8, 8], stride=1, padding=1, dilation=1)
+    cost = conv2d.try_with(2, 256, 100, 164, 256, 3, 3, new_process=False)
+    print("Cost is", cost, "ms")
+    cost = conv2d.try_with(1, 512, 7, 7, 512, 3, 3, new_process=False)
+    print("Cost is", cost, "ms")
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()

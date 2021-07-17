@@ -148,12 +148,20 @@ def generate_data(group, filename="data.log"):
         tb = x["threadblock_problem_size"]
         wp = x["warp_problem_size"]
         it = x["instruction_problem_size"]
+        n_threads_per_warp = it[0] * it[1]
+        n_warps_per_block = (tb[0] / wp[0]) * (tb[1] / wp[1])
+        n_threads_per_block = n_threads_per_warp * n_warps_per_block
         return (
             tb[0] >= wp[0] >= it[0] and
             tb[1] >= wp[1] >= it[1] and
-            tb[2] >= wp[2] >= it[2] and
-            wp[0] * wp[1] % 128 == 0 and
-            it[0] * it[1] % 32 == 0
+            tb[2] == wp[2] == it[2] and
+            # wp[0] * wp[1] % 128 == 0 and
+            # n_threads_per_warp % 32 == 0 and 
+            n_threads_per_warp == 32 and 
+            (tb[0] * tb[2]) % n_threads_per_block == 0 and 
+            (tb[1] * tb[2]) % n_threads_per_block == 0 and 
+            (tb[0] % n_threads_per_warp == 0 or n_threads_per_warp % tb[0] == 0) and 
+            (tb[1] % n_threads_per_warp == 0 or n_threads_per_warp % tb[1] == 0)
         )
     
     custom_space = space.JoinedSpace(valid_func)
