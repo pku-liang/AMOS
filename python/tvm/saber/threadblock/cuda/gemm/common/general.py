@@ -182,7 +182,7 @@ def threadblock_gemm_general_common_common_double_buffer(
                 s[XX].bind(yi, ty)
                 s[XX].bind(ywx, tx)
                 return y0, x0, yv, yo, yi, ywx
-            else:
+            elif BX <= n_threads_per_block:
                 assert BX % n_threads_per_warp == 0
                 y0, y1, y2, y3, x0, x1, x2, x3 = s[XX].op.axis
                 y = s[XX].fuse(y1, y2, y3)
@@ -197,6 +197,21 @@ def threadblock_gemm_general_common_common_double_buffer(
                 s[XX].bind(xo, ty)
                 s[XX].bind(xi, tx)
                 return y0, x0, yv, y, xo, xi
+            else:
+                assert BX % n_threads_per_block == 0
+                y0, y1, y2, y3, x0, x1, x2, x3 = s[XX].op.axis
+                y = s[XX].fuse(y1, y2, y3)
+                x = s[XX].fuse(x1, x2, x3)
+                xv, x = s[XX].split(x, factor=n_threads_per_block)
+                xo, xi = s[XX].split(x, factor=n_threads_per_warp)
+                xoo, xoi = s[XX].split(xo, nparts=(BM // WM))
+                s[XX].reorder(y0, x0, y, xv, xoo, xoi, xi)
+                yxv = s[XX].fuse(y, xv)
+                s[XX].bind(yxv, vthread())
+                s[XX].bind(xoo, tz)
+                s[XX].bind(xoi, ty)
+                s[XX].bind(xi, tx)
+                return y0, x0, yxv, xoo, xoi, xi
 
         m1, m2, m3, m4, n1, n2, n3, n4 = s[Last].op.axis
         s[Last].reorder(m1, n1, m2, n2, m3, n3, m4, n4)
