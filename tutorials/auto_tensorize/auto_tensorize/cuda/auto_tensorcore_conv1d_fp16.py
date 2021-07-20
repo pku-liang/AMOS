@@ -34,8 +34,8 @@ def conv1d(inputs, weight, stride=1, padding=0, dilation=1):
 
     out_len = (in_len + 2 * padding - dilation * (k_len - 1) - 1) // stride + 1
 
-    rc = tvm.te.reduce_axis((0, channel_per_group))
-    rl = tvm.te.reduce_axis((0, k_len))
+    rc = tvm.te.reduce_axis((0, channel_per_group), name="rc")
+    rl = tvm.te.reduce_axis((0, k_len), name="rl")
 
     padded = zero_pad1d(inputs, padding=padding)
     conved = tvm.te.compute(

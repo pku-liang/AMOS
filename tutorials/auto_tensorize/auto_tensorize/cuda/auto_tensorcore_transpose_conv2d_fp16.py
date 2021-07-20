@@ -65,9 +65,9 @@ def conv_transpose2d_nchw(inputs, weight, stride=1, padding=0, output_padding=0,
     kernel_w = (k_w - 1) * dilation[1] + 1
     out_h = (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h + output_padding[0]
     out_w = (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w + output_padding[1]
-    rc = tvm.te.reduce_axis((0, input_channel))
-    rh = tvm.te.reduce_axis((0, k_h))
-    rw = tvm.te.reduce_axis((0, k_w))
+    rc = tvm.te.reduce_axis((0, input_channel), name="rc")
+    rh = tvm.te.reduce_axis((0, k_h), name="rh")
+    rw = tvm.te.reduce_axis((0, k_w), name="rw")
 
     expanded = zero_expand2d(inputs, stride=stride)
     padded = zero_pad2d(expanded, padding=(
