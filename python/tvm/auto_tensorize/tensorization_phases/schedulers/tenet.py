@@ -240,17 +240,17 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         )
 
     def valid(self, record):
-        max_threads = self.arch_info.max_threads()
-        max_blocks = self.arch_info.max_blocks()
-        thread_num = 1
-        block_num = 1
-        for factors in record.spatial_factors:
-            thread_num *= factors[0][-2]
-            block_num *= factors[0][0]
-        if thread_num > max_threads:
-            return False
-        if block_num > max_blocks:
-            return False
+        # max_threads = self.arch_info.max_threads()
+        # max_blocks = self.arch_info.max_blocks()
+        # thread_num = 1
+        # block_num = 1
+        # for factors in record.spatial_factors:
+        #     thread_num *= factors[0][-2]
+        #     block_num *= factors[0][0]
+        # if thread_num > max_threads:
+        #     return False
+        # if block_num > max_blocks:
+        #     return False
         return True
 
     def record_from_json(self, obj):
@@ -586,6 +586,24 @@ class TenetScheduleApplier(object):
             self.state.main_op_reduce_axis = reordered_reduce_axis
             self.state.tensorize_iter[op] = ordered_axis[
                 -(reserve_spatial_num + reserve_reduce_num)]
+            #################################
+            ## update tenet context
+            #################################
+            ## update time loops
+            #################################
+            ## this is outermost timeloop
+            ## surrounding shared memory
+            self.tenet_ctx.update_time_loop(
+                0, reduce(
+                    lambda x, y: x + y, reordered_reduce_axis[:1], []), push_front=False)
+            #################################
+            ## this is intermediate timeloop
+            ## surrounding register
+            self.tenet_ctx.update_time_loop(
+                2, reduce(
+                    lambda x, y: x + y, reordered_reduce_axis[1:-1], []), push_front=False)
+            #################################
+            ## no innermost timeloop
         elif op == self.output_op:
             axis = sch[X(op)].op.axis
             reserve_spatial_num = int(
@@ -626,6 +644,35 @@ class TenetScheduleApplier(object):
             final_axis.append(reordered_spatial_axis[-1])
             self.state.output_op_axis = final_axis
             self.state.tensorize_iter[op] = final_axis[-1][0]
+            #################################
+            ## update tenet context
+            #################################
+            ## update space loops
+            #################################
+            ## this is outermost spaceloop
+            ## surrounding shared memory
+            self.tenet_ctx.set_space_loop(
+                0, final_axis[0])
+            #################################
+            ## this is intermediate spaceloop
+            ## surrounding register
+            self.tenet_ctx.set_space_loop(
+                1, final_axis[-3])
+            #################################
+            ## no innermost spaceloop
+            #################################
+            ## update time loops
+            #################################
+            ## this is intermediate timeloop
+            self.tenet_ctx.update_time_loop(
+                0, reduce(
+                    lambda x, y: x + y, final_axis[1:-3], []))
+            #################################
+            ## this is innermost timeloop
+            self.tenet_ctx.update_time_loop(
+                2, final_axis[-2])
+            #################################
+            ## no innermost timeloop
         elif op == self.target_dag.op_lst[-1]:
             # last op
             if op != self.output_op:

@@ -287,7 +287,14 @@ def evaluate_params_worker(dump):
         sch = schedule_app.apply(sch, params)
         if dump:
             print(tvm.lower(sch, args, simple_mode=True), flush=True)
-        cost = evaluate_schedule(sch, args, measure_opt)
+        if str(measure_opt.target).startswith("tenet"):
+            func = tenet.build(
+                sch, args, schedule_app.tenet_ctx,
+                target=measure_opt.target, target_host=measure_opt.target_host
+            )
+            cost = tenet.evaluate_func(func)[0]
+        else:
+            cost = evaluate_schedule(sch, args, measure_opt)
     except Exception as e:
         print("Bad params, error message:", flush=True)
         print(auto_scheduler.measure.make_error_msg(), flush=True)
@@ -484,6 +491,7 @@ def pebble_local_builder_build(
             except Exception as error:
                 if verbose >= 1:
                     print(".F", end="", flush=True)
+                    # print(error)
                 result = None, [], auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST, None, timeout
             results.append(auto_scheduler.measure.BuildResult(*result))
 

@@ -7,7 +7,7 @@ from ..recipe_base import (
 from ..recipe_base import InstructionScope
 
 
-class TenetGemmBaseRecipe(CompilationRecipe):
+class TenetAxpyBaseRecipe(CompilationRecipe):
     scope = InstructionScope.thread
 
     def get_name(self):
@@ -27,17 +27,13 @@ class TenetGemmBaseRecipe(CompilationRecipe):
             the compute expression can be tracked
             through [output.op.body for output in outputs]
         """
-        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[self.main_capsule_name]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
         return capsule.get_compute_expression(
             self.input_dtypes[self.main_capsule_name],
             self.output_dtypes[self.main_capsule_name],
-            problem_size,
-            trans_A=tA,
-            trans_B=tB,
-            trans_C=tC,
+            problem_size
         )
 
     def get_capsule_compute_expression(self, compute_key, shape_key, capsule_key):
@@ -48,22 +44,18 @@ class TenetGemmBaseRecipe(CompilationRecipe):
             the compute expression can be tracked
             through [output.op.body for output in outputs]
         """
-        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
-        m, n, k = problem_size
-        A_shape = (m, k) if not tA else (k, m)
-        B_shape = (k, n) if not tB else (n, k)
-        C_shape = (m, n) if not tC else (m, n)
-        if capsule_key == "mma":
+        m, = problem_size
+        A_shape = (1,)
+        B_shape = (m, 1)
+        C_shape = (m,)
+        if capsule_key == "mul":
             return capsule.get_compute_expression(
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
-                problem_size,
-                trans_A=tA,
-                trans_B=tB,
-                trans_C=tC,
+                problem_size
             )
         elif capsule_key == "load_a":
             return capsule.get_compute_expression(
@@ -106,12 +98,11 @@ class TenetGemmBaseRecipe(CompilationRecipe):
             through [output.op.body for output in outputs]
         """
         assert len(capsule_keys) > 0
-        tA, tB, tC = [x == "t" for x in compute_key]
         problem_size = self.get_problem_size(shape_key)
-        m, n, k = problem_size
-        A_shape = (m, k) if not tA else (k, m)
-        B_shape = (k, n) if not tB else (n, k)
-        C_shape = (m, n) if not tC else (m, n)
+        m, = problem_size
+        A_shape = (1,)
+        B_shape = (m, 1)
+        C_shape = (m,)
         cache = {
             "a": tvm.te.placeholder(A_shape, name="A", dtype=self.input_dtypes["a"][0]),
             "b": tvm.te.placeholder(B_shape, name="B", dtype=self.input_dtypes["b"][0]),
@@ -132,15 +123,12 @@ class TenetGemmBaseRecipe(CompilationRecipe):
                     assert parent in cache
                     inputs.extend(cache[parent])
 
-                if capsule_key == "mma":
+                if capsule_key == "mul":
                     _, ret = capsule.get_compute_expression_with_inputs(
                         inputs,
                         self.input_dtypes[capsule_key],
                         self.output_dtypes[capsule_key],
-                        problem_size,
-                        trans_A=tA,
-                        trans_B=tB,
-                        trans_C=tC,
+                        problem_size
                     )
                 elif capsule_key == "load_a":
                     _, ret = capsule.get_compute_expression_with_inputs(
@@ -197,7 +185,7 @@ class TenetGemmBaseRecipe(CompilationRecipe):
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
-        if capsule_key == "mma":
+        if capsule_key == "mul":
             raise RuntimeError("Can't get expression with customized shape for main capsule.")
         elif capsule_key == "load_a":
             assert len(input_shapes) == 1
@@ -244,8 +232,7 @@ class TenetGemmBaseRecipe(CompilationRecipe):
         Returns:
         input_shapes, output_shapes: list of list/tuple of int
         """
-        m, n, k = [int(x) for x in shape_key.split("x")]
-        return [m, n, k]
+        return [int(shape_key)]
 
     def get_intrinsic(self, compute_key, shape_key, capsule_key, **kwargs):
         """
@@ -253,61 +240,45 @@ class TenetGemmBaseRecipe(CompilationRecipe):
         Returns:
         tvm.te.TensorIntrin
         """
-        tA, tB, tC = [x == "t" for x in compute_key]
         capsule_class = self.capsules[capsule_key]
         capsule = capsule_class(self.get_name())
         problem_size = self.get_problem_size(shape_key)
-        m, n, k = problem_size
-        A_shape = (m, k) if not tA else (k, m)
-        B_shape = (k, n) if not tB else (n, k)
-        C_shape = (m, n) if not tC else (m, n)
+        m, = problem_size
+        A_shape = (1,)
+        B_shape = (m, 1)
+        C_shape = (m,)
         if capsule_key == "load_a":
-            ldm = m if tA else k
-            layout = "tenet::gemm::col_major" if tA else "tenet::gemm::row_major"
             return capsule.get_intrinsic(
                 [A_shape],
                 [A_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
                 problem_size,
-                ldm,
-                layout,
                 **kwargs
             )
         elif capsule_key == "load_b":
-            ldm = k if tB else n
-            layout = "tenet::gemm::col_major" if tB else "tenet::gemm::row_major"
             return capsule.get_intrinsic(
                 [B_shape],
                 [B_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
                 problem_size,
-                ldm,
-                layout,
                 **kwargs
             )
-        elif capsule_key == "mma":
+        elif capsule_key == "mul":
             return capsule.get_intrinsic(
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
                 problem_size,
-                trans_A=tA,
-                trans_B=tB,
-                trans_C=tC,
                 **kwargs
             )
         elif capsule_key == "store":
-            ldm = m if tC else n
-            layout = "tenet::gemm::mem_col_major" if tB else "tenet::gemm::mem_row_major"
             return capsule.get_intrinsic(
                 [C_shape],
                 [C_shape],
                 self.input_dtypes[capsule_key],
                 self.output_dtypes[capsule_key],
                 problem_size,
-                ldm,
-                layout,
                 **kwargs
             )
         else:
@@ -330,76 +301,33 @@ class TenetGemmBaseRecipe(CompilationRecipe):
                     tenet::gemm::matrix_a, 16, 16, 16,
                     tenet::gemm::row_major, 16>
         """
-        assert "storage_shape" in attributes
-        storage_shape = attributes["storage_shape"]
-        m, n, k = [int(x) for x in storage_shape.split(", ")]
-        if scope == "tenet::gemm::matrix_a":
-            assert "storage_layout" in attributes
-            storage_layout = attributes["storage_layout"]
-            storage = (
-                "tenet::gemm::fragment<"
-                + scope
-                + ", "
-                + storage_shape
-                + ", "
-                + dtype
-                + ", "
-                + storage_layout
-                + ">"
-            )
-            assert constant_size % (m * k) == 0
-            storage_size = constant_size // (m * k)
-            return [storage, storage_size]
-        elif scope == "tenet::gemm::matrix_b":
-            assert "storage_layout" in attributes
-            storage_layout = attributes["storage_layout"]
-            storage = (
-                "tenet::gemm::fragment<"
-                + scope
-                + ", "
-                + storage_shape
-                + ", "
-                + dtype
-                + ", "
-                + storage_layout
-                + ">"
-            )
-            assert constant_size % (n * k) == 0
-            storage_size = constant_size // (n * k)
-            return [storage, storage_size]
-        elif scope == "tenet::gemm::accumulator":
-            storage = "tenet::gemm::fragment<" + scope + ", " + storage_shape + ", " + dtype + ">"
-            assert constant_size % (m * n) == 0
-            storage_size = constant_size // (m * n)
-            return [storage, storage_size]
-        else:
-            raise RuntimeError("Unknown scope: %s" % scope)
+        raise NotImplementedError()
 
     def get_header(self):
         return ""
 
 
-@register_recipe("tenet gemm", "tenet_gemm_fp16_fp16")
-class TenetGemmFp16Fp16(TenetGemmBaseRecipe):
+@register_recipe("tenet axpy", "tenet_axpy_fp16_fp16")
+class TenetAxpyFp16Fp16(TenetAxpyBaseRecipe):
     def __init__(self):
         self.capsules = {
-            "load_a": TenetGemmLoadMatrix,
-            "load_b": TenetGemmLoadMatrix,
-            "mma": TenetGemmMma,
-            "store": TenetGemmStoreMatrix,
+            "load_a": TenetAxpyLoadA,
+            "load_b": TenetAxpyLoadVector,
+            "mul": TenetAxpyMul,
+            "store": TenetAxpyStoreVector,
         }
         self.edges = {
-            "mma": ["load_a", "load_b"],
-            "store": ["mma"],
+            "mul": ["load_a", "load_b"],
+            "store": ["mul"],
             "load_a": ["a"],
             "load_b": ["b"],
         }
-        self.main_capsule_name = "mma"
-        self.anchor_point = "mma"
+        self.main_capsule_name = "mul"
+        self.anchor_point = "mul"
         self.input_dtypes = {
             "load_a": ["float16"],
             "load_b": ["float16"],
-            "mma": ["float16", "float16"],
+            "mul": ["float16", "float16"],
             "store": ["float16"],
             "a": ["float16"],
             "b": ["float16"],
@@ -407,24 +335,19 @@ class TenetGemmFp16Fp16(TenetGemmBaseRecipe):
         self.output_dtypes = {
             "load_a": ["float16"],
             "load_b": ["float16"],
-            "mma": ["float16"],
+            "mul": ["float16"],
             "store": ["float16"],
             "a": ["float16"],
             "b": ["float16"],
         }
 
     def get_name(self):
-        return "tenet_gemm_fp16_fp16"
+        return "tenet_axpy_fp16_fp16"
 
     def get_all_compute_keys(self):
         """Return all compute keys. Keys are str"""
-        ret = []
-        choice = ["n", "t"]  # n: not transpose, t: transpose
-        for i in choice:
-            for j in choice:
-                    ret.append(i + j + "n")
-        return ret
+        return ["dummy"]
 
     def get_all_shape_keys(self):
         """Return all shape keys. Keys are str"""
-        return ["16x16x16"]
+        return ["4"]

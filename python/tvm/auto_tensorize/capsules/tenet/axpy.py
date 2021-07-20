@@ -9,8 +9,8 @@ from ..capsule_base import (
 )
 
 
-@register_capsule("tenet gemm", "tenet::gemm::store_matrix")
-class TenetGemmStoreMatrix(MemoryCapsule):
+@register_capsule("tenet axpy", "tenet::axpy::store_vector")
+class TenetAxpyStoreVector(MemoryCapsule):
     def get_params_usage(self):
         """
         ---
@@ -19,7 +19,7 @@ class TenetGemmStoreMatrix(MemoryCapsule):
             help to understand the instruction this capsule contains
         """
         usage = (
-            "tenet::gemm::store_matrix" "Args:",
+            "tenet::axpy::store_vector" "Args:",
             "---",
             "ptr: dst memory pointer",
             "fragment: src fragment",
@@ -35,9 +35,6 @@ class TenetGemmStoreMatrix(MemoryCapsule):
         input_dtypes,
         output_dtypes,
         problem_size,
-        ldm,
-        layout,
-        transpose=False,
         output_scope="global"
     ):
         """
@@ -58,16 +55,15 @@ class TenetGemmStoreMatrix(MemoryCapsule):
         assert len(input_shapes) == 1
         assert len(output_shapes) == 1
         assert len(dtypes) == 1
-        assert len(problem_size) == 3
-        assert len(input_shapes[0]) == 2
-        assert len(output_shapes[0]) == 2
-        assert layout in ["tenet::gemm::mem_row_major", "tenet::gemm::mem_col_major"]
+        assert len(problem_size) == 1
+        assert len(input_shapes[0]) == 1, input_shapes[0]
+        assert len(output_shapes[0]) == 1
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
         )
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
-        store_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
-        data_alignments = [int(elem_bytes * x[1]) for x in input_shapes]
+        store_elems = int(input_shapes[0][0])
+        data_alignments = [int(elem_bytes) for x in input_shapes]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
@@ -76,7 +72,7 @@ class TenetGemmStoreMatrix(MemoryCapsule):
             for x, y in zip(inputs, data_alignments)
         ]
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignments = [int(elem_bytes * x[1]) for x in output_shapes]
+        data_alignments = [int(elem_bytes) for x in output_shapes]
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
@@ -94,17 +90,13 @@ class TenetGemmStoreMatrix(MemoryCapsule):
                 tvm.tir.call_intrin(
                     "handle",
                     "tir.capsule_compile",
-                    "tenet gemm",
+                    "tenet axpy",
                     self.belong_recipe_name,
-                    "tenet::gemm::store_matrix",
+                    "tenet::axpy::store_vector",
                     BA.data,
                     problem_size[0],
-                    problem_size[1],
-                    problem_size[2],
                     BA.elem_offset // store_elems,
-                    BC.access_ptr("w"),
-                    ldm,
-                    layout,
+                    BC.access_ptr("w")
                 )
             )
             return ib.get()
@@ -120,20 +112,16 @@ class TenetGemmStoreMatrix(MemoryCapsule):
         ---
         Returns:
         memory scope info: dict of {tvm.runtime.String, tvm.tir.StringImm}
-            e.g., {storage_scope: wmma::matrix_a}
+            e.g., {storage_scope: local}
         """
         assert isinstance(arg_pos, int)
         ret = {}
         if arg_pos == 0:
-            assert isinstance(args, list) and len(args) == 8
-            ret["storage_scope"] = "tenet::gemm::accumulator"
-            m, n, k = args[1].value, args[2].value, args[3].value
-            ldm = args[6].value
-            layout = args[7].value
-            ret["storage_shape"] = ", ".join([str(x) for x in [m, n, k]])
-            ret["storage_ldm"] = str(ldm)
-            ret["storage_layout"] = layout
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 4
+            ret["storage_scope"] = "local"
+            m = args[1].value
+            ret["storage_shape"] = ", ".join([str(x) for x in [m]])
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
             ret["data_type"] = ""
         return ret
@@ -143,9 +131,9 @@ class TenetGemmStoreMatrix(MemoryCapsule):
         ---
         Returns:
         instruction prefix
-            e.g., tenet::gemm::load_matrix
+            e.g., tenet::axpy::load_matrix
         """
-        return "tenet::gemm::store_matrix"
+        return "tenet::axpy::store_vector"
 
     def assemble_instruction(self, args):
         """
@@ -164,17 +152,11 @@ class TenetGemmStoreMatrix(MemoryCapsule):
         full instruction: str
             the instruction string in full format
         """
-        for v in args:
-            assert isinstance(v, str)
-        args[7] = args[7][1:-1]  # get rid of ""
-        prefix = self.get_instruction_prefix()
-        assert args[7] in ["tenet::gemm::mem_row_major", "tenet::gemm::mem_col_major"]
-        inst = "%s(%s, %s[%s], %s, %s)" % (prefix, args[5], args[0], args[4], args[6], args[7])
-        return inst
+        raise NotImplementedError()
 
 
-@register_capsule("tenet gemm", "tenet::gemm::load_matrix")
-class TenetGemmLoadMatrix(MemoryCapsule):
+@register_capsule("tenet axpy", "tenet::axpy::load_a")
+class TenetAxpyLoadA(MemoryCapsule):
     def get_params_usage(self):
         """
         ---
@@ -183,7 +165,7 @@ class TenetGemmLoadMatrix(MemoryCapsule):
             help to understand the instruction this capsule contains
         """
         usage = (
-            "tenet::gemm::load_matrix" "Args:",
+            "tenet::axpy::load_a" "Args:",
             "---",
             "fragment: dst fragment",
             "ptr: src memory pointer",
@@ -199,8 +181,6 @@ class TenetGemmLoadMatrix(MemoryCapsule):
         input_dtypes,
         output_dtypes,
         problem_size,
-        ldm,
-        layout,
         scope="shared",
     ):
         """
@@ -221,22 +201,16 @@ class TenetGemmLoadMatrix(MemoryCapsule):
         assert len(input_shapes) == 1
         assert len(output_shapes) == 1
         assert len(dtypes) == 1
-        assert len(problem_size) == 3
-        assert len(input_shapes[0]) == 2
-        assert len(output_shapes[0]) == 2
-        assert layout in [
-            "tenet::gemm::row_major",
-            "tenet::gemm::col_major",
-            "tenet::gemm::mem_row_major",
-            "tenet::gemm::mem_col_major",
-        ]
-        m, n, k = problem_size
+        assert len(problem_size) == 1
+        assert len(input_shapes[0]) == 1
+        assert len(output_shapes[0]) == 1
+        m, = problem_size
         inputs, outputs = self.get_compute_expression(
             input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
         )
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
-        load_elems = int(input_shapes[0][0]) * int(input_shapes[0][1])
-        data_alignments = [int(elem_bytes * x[1]) for x in input_shapes]
+        load_elems = int(input_shapes[0][0])
+        data_alignments = [int(elem_bytes) for x in input_shapes]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
             tvm.tir.decl_buffer(
@@ -245,7 +219,7 @@ class TenetGemmLoadMatrix(MemoryCapsule):
             for x, y in zip(inputs, data_alignments)
         ]
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignments = [int(elem_bytes * x[1]) for x in output_shapes]
+        data_alignments = [int(elem_bytes) for x in output_shapes]
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
@@ -263,17 +237,13 @@ class TenetGemmLoadMatrix(MemoryCapsule):
                 tvm.tir.call_intrin(
                     "handle",
                     "tir.capsule_compile",
-                    "tenet gemm",
+                    "tenet axpy",
                     self.belong_recipe_name,
-                    "tenet::gemm::load_matrix",
+                    "tenet::axpy::load_a",
                     BC.data,
                     problem_size[0],
-                    problem_size[1],
-                    problem_size[2],
                     BC.elem_offset // load_elems,
-                    BA.access_ptr("r"),
-                    ldm,
-                    layout,
+                    BA.access_ptr("r")
                 )
             )
             return ib.get()
@@ -289,19 +259,15 @@ class TenetGemmLoadMatrix(MemoryCapsule):
         ---
         Returns:
         memory scope info: dict of {tvm.runtime.String, tvm.tir.StringImm}
-            e.g., {storage_scope: gemm::matrix_a}
+            e.g., {storage_scope: local}
         """
         assert isinstance(arg_pos, int)
         ret = {}
         if arg_pos == 0:
-            assert isinstance(args, list) and len(args) == 8
-            m, n, k = args[1].value, args[2].value, args[3].value
-            ldm = args[6].value
-            layout = args[7].value
-            ret["storage_shape"] = ", ".join([str(x) for x in [m, n, k]])
-            ret["storage_ldm"] = str(ldm)
-            ret["storage_layout"] = layout
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 4
+            m = args[1].value
+            ret["storage_shape"] = ", ".join([str(x) for x in [m]])
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
             ret["data_type"] = ""
         return ret
@@ -311,9 +277,9 @@ class TenetGemmLoadMatrix(MemoryCapsule):
         ---
         Returns:
         instruction prefix
-            e.g., tenet::gemm::load_matrix
+            e.g., tenet::axpy::load_a
         """
-        return "tenet::gemm::load_matrix"
+        return "tenet::axpy::load_a"
 
     def assemble_instruction(self, args):
         """
@@ -332,21 +298,11 @@ class TenetGemmLoadMatrix(MemoryCapsule):
         full instruction: str
             the instruction string in full format
         """
-        for v in args:
-            assert isinstance(v, str)
-        args[7] = args[7][1:-1]  # get rid of ""
-        prefix = self.get_instruction_prefix()
-        if args[7] in ["tenet::gemm::mem_row_major", "tenet::gemm::mem_col_major"]:
-            inst = "%s(%s[%s], %s, %s, %s)" % (prefix, args[0], args[4], args[5], args[6], args[7])
-        elif args[7] in ["tenet::gemm::row_major", "tenet::gemm::col_major"]:
-            inst = "%s(%s[%s], %s, %s)" % (prefix, args[0], args[4], args[5], args[6])
-        else:
-            raise RuntimeError("Unknown memory layout: %s" % args[7])
-        return inst
+        raise NotImplementedError()
 
 
-@register_capsule("tenet gemm", "tenet::gemm::fill_fragment")
-class TenetGemmFillFragment(ComputeCapsule):
+@register_capsule("tenet axpy", "tenet::axpy::load_vector")
+class TenetAxpyLoadVector(MemoryCapsule):
     def get_params_usage(self):
         """
         ---
@@ -355,12 +311,90 @@ class TenetGemmFillFragment(ComputeCapsule):
             help to understand the instruction this capsule contains
         """
         usage = (
-            "tenet::gemm::fill_fragment" "Args:",
+            "tenet::axpy::load_vector" "Args:",
             "---",
             "fragment: dst fragment",
-            "v: filling value",
+            "ptr: src memory pointer",
+            "ldm: leading dimension length",
+            "optional layout: layout for accumulator",
         )
         return usage
+
+    def get_intrinsic(
+        self,
+        input_shapes,
+        output_shapes,
+        input_dtypes,
+        output_dtypes,
+        problem_size,
+        scope="shared",
+    ):
+        """
+        input_shapes: list of tuple/list of int
+        output_shapes: list of tuple/list of int
+        input_dtypes: list of str
+        output_dtypes: list of str
+        problem_size: list of int
+        ldm: int
+        layout: str
+        ---
+        Returns:
+        intrin: tvm.te.TensorIntrin
+        """
+        input_shapes = [[int(x) for x in y] for y in input_shapes]
+        output_shapes = [[int(x) for x in y] for y in output_shapes]
+        dtypes = [str(x) for x in input_dtypes]
+        assert len(input_shapes) == 1
+        assert len(output_shapes) == 1
+        assert len(dtypes) == 1
+        assert len(problem_size) == 1
+        assert len(input_shapes[0]) == 2
+        assert len(output_shapes[0]) == 2, output_shapes[0]
+        m, = problem_size
+        inputs, outputs = self.get_compute_expression(
+            input_shapes, output_shapes, input_dtypes, output_dtypes, problem_size
+        )
+        elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
+        load_elems = int(input_shapes[0][0])
+        data_alignments = [int(elem_bytes) for x in input_shapes]
+        offset_factor = int(16 / elem_bytes)
+        input_buffers = [
+            tvm.tir.decl_buffer(
+                x.shape, x.dtype, scope=scope, data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(inputs, data_alignments)
+        ]
+        elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
+        data_alignments = [int(elem_bytes) for x in output_shapes]
+        offset_factor = int(16 / elem_bytes)
+        output_buffers = [
+            tvm.tir.decl_buffer(
+                x.shape, x.dtype, scope="local", data_alignment=y, offset_factor=offset_factor
+            )
+            for x, y in zip(outputs, data_alignments)
+        ]
+        bind_map = {x: y for x, y in zip(inputs + outputs, input_buffers + output_buffers)}
+
+        def intrin_func(ins, outs):
+            ib = tvm.tir.ir_builder.create()
+            BA = ins[0]
+            BC = outs[0]
+            ib.emit(
+                tvm.tir.call_intrin(
+                    "handle",
+                    "tir.capsule_compile",
+                    "tenet axpy",
+                    self.belong_recipe_name,
+                    "tenet::axpy::load_vector",
+                    BC.data,
+                    problem_size[0],
+                    BC.elem_offset // load_elems,
+                    BA.access_ptr("r")
+                )
+            )
+            return ib.get()
+
+        return tvm.te.decl_tensor_intrin(outputs[0].op, intrin_func, binds=bind_map)
 
     def get_buffer_memory_scope_info(self, arg_pos=0, args=None):
         """
@@ -371,16 +405,15 @@ class TenetGemmFillFragment(ComputeCapsule):
         ---
         Returns:
         memory scope info: dict of {tvm.runtime.String, tvm.tir.StringImm}
-            e.g., {storage_scope: gemm::matrix_a}
+            e.g., {storage_scope: local}
         """
         assert isinstance(arg_pos, int)
         ret = {}
         if arg_pos == 0:
-            assert isinstance(args, list) and len(args) == 6, args
-            ret["storage_scope"] = "tenet::gemm::accumulator"
-            m, n, k = args[1].value, args[2].value, args[3].value
-            ret["storage_shape"] = ", ".join([str(x) for x in [m, n, k]])
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 4
+            m, = args[1].value,
+            ret["storage_shape"] = ", ".join([str(x) for x in [m]])
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
             ret["data_type"] = ""
         return ret
@@ -390,34 +423,32 @@ class TenetGemmFillFragment(ComputeCapsule):
         ---
         Returns:
         instruction prefix
-            e.g., tenet::gemm::load_matrix
+            e.g., tenet::axpy::load_vector
         """
-        return "tenet::gemm::fill_fragment"
+        return "tenet::axpy::load_vector"
 
     def assemble_instruction(self, args):
         """
         args: list of str
             the arguments in string format
-            args[0]: dst fragment
+            args[0]: fragment name
             args[1]: m
             args[2]: n
             args[3]: k
             args[4]: idx
-            args[5]: v
+            args[5]: source
+            args[6]: ldm
+            args[7]: layout
         ---
         Returns:
         full instruction: str
             the instruction string in full format
         """
-        for v in args:
-            assert isinstance(v, str)
-        prefix = self.get_instruction_prefix()
-        inst = "%s(%s[%s], %s)" % (prefix, args[0], args[4], args[5])
-        return inst
+        raise NotImplementedError()
 
 
-@register_capsule("tenet gemm", "tenet::gemm::mma")
-class TenetGemmMma(ComputeCapsule):
+@register_capsule("tenet axpy", "tenet::axpy::mul")
+class TenetAxpyMul(ComputeCapsule):
     def get_params_usage(self):
         """
         ---
@@ -426,7 +457,7 @@ class TenetGemmMma(ComputeCapsule):
             help to understand the instruction this capsule contains
         """
         usage = (
-            "tenet::gemm::mma" "Args:",
+            "tenet::axpy::mul" "Args:",
             "---",
             "fragment: dst fragment",
             "fragment: a fragment",
@@ -454,39 +485,19 @@ class TenetGemmMma(ComputeCapsule):
         assert isinstance(output_dtypes, (list, tuple))
         assert len(input_dtypes) == 2
         assert len(output_dtypes) == 1
-        assert len(problem_size) == 3
-        m, n, k = [int(x) for x in problem_size]
-        A_shape = (m, k) if not trans_A else (k, m)
-        B_shape = (k, n) if not trans_B else (n, k)
-        C_shape = (m, n) if not trans_C else (n, m)
-        A = tvm.te.placeholder(A_shape, name="gemm_A", dtype=input_dtypes[0])
-        B = tvm.te.placeholder(B_shape, name="gemm_B", dtype=input_dtypes[1])
-        rk = tvm.te.reduce_axis([0, k], name="rk")
-
-        def get_indices(i, j, r, op):
-            aargs = (i, r)
-            bargs = (r, j)
-            if trans_C:
-                aargs = (j, r)
-                bargs = (r, i)
-            if trans_A:
-                aargs = (aargs[1], aargs[0])
-            if trans_B:
-                bargs = (bargs[1], bargs[0])
-            if op == "A":
-                return aargs
-            else:
-                return bargs
+        assert len(problem_size) == 1
+        m, = [int(x) for x in problem_size]
+        A_shape = (1,)
+        B_shape = (m, 1)
+        C_shape = (m,)
+        A = tvm.te.placeholder(A_shape, name="axpy_A", dtype=input_dtypes[0])
+        B = tvm.te.placeholder(B_shape, name="axpy_B", dtype=input_dtypes[1])
+        rk = tvm.te.reduce_axis([0, 1])
 
         C = tvm.te.compute(
             C_shape,
-            lambda i, j: tvm.te.sum(
-                (A(*get_indices(i, j, rk, "A")) * B(*get_indices(i, j, rk, "B"))).astype(
-                    output_dtypes[0]
-                ),
-                axis=rk,
-            ),
-            name="gemm_C",
+            lambda i,: tvm.te.sum((A[rk] * B[i, rk]).astype(output_dtypes[0]), axis=[rk]),
+            name="axpy_C",
         )
         return [A, B], [C]
 
@@ -496,9 +507,6 @@ class TenetGemmMma(ComputeCapsule):
         input_dtypes,
         output_dtypes,
         problem_size,
-        trans_A=False,
-        trans_B=False,
-        trans_C=False,
     ):
         """
         inputs: list of tvm.te.Tensor
@@ -515,36 +523,16 @@ class TenetGemmMma(ComputeCapsule):
         assert isinstance(output_dtypes, (list, tuple))
         assert len(inputs) == 2
         assert len(output_dtypes) == 1
-        assert len(problem_size) == 3
-        m, n, k = [int(x) for x in problem_size]
-        C_shape = (m, n) if not trans_C else (n, m)
+        assert len(problem_size) == 1
+        m, = [int(x) for x in problem_size]
+        C_shape = (m,)
         A, B = inputs
-        rk = tvm.te.reduce_axis([0, k], name="rk")
-
-        def get_indices(i, j, r, op):
-            aargs = (i, r)
-            bargs = (r, j)
-            if trans_C:
-                aargs = (j, r)
-                bargs = (r, i)
-            if trans_A:
-                aargs = (aargs[1], aargs[0])
-            if trans_B:
-                bargs = (bargs[1], bargs[0])
-            if op == "A":
-                return aargs
-            else:
-                return bargs
+        rk = tvm.te.reduce_axis([0, 1])
 
         C = tvm.te.compute(
             C_shape,
-            lambda i, j: tvm.te.sum(
-                (A(*get_indices(i, j, rk, "A")) * B(*get_indices(i, j, rk, "B"))).astype(
-                    output_dtypes[0]
-                ),
-                axis=rk,
-            ),
-            name="gemm_C",
+            lambda i,: tvm.te.sum((A[rk] * B[i, rk]).astype(output_dtypes[0]), axis=[rk]),
+            name="axpy_C",
         )
         return [A, B], [C]
 
@@ -562,24 +550,21 @@ class TenetGemmMma(ComputeCapsule):
         Returns:
         intrin: tvm.te.TensorIntrin
         """
-        assert len(problem_size) == 3
+        assert len(problem_size) == 1
         assert len(output_dtypes) == 1
         assert len(input_dtypes) == 2
         assert input_dtypes[0] == input_dtypes[1]
-        m, n, k = [int(x) for x in problem_size]
+        m, = [int(x) for x in problem_size]
         inputs, outputs = self.get_compute_expression(
             input_dtypes,
             output_dtypes,
-            problem_size,
-            trans_A=trans_A,
-            trans_B=trans_B,
-            trans_C=trans_C,
+            problem_size
         )
 
         elem_bytes = tvm.runtime.DataType(input_dtypes[0]).bits / 8
         data_alignments = [
-            int(elem_bytes * (m if trans_A else k)),
-            int(elem_bytes * (k if trans_B else n)),
+            int(elem_bytes),
+            int(elem_bytes),
         ]
         offset_factor = int(16 / elem_bytes)
         input_buffers = [
@@ -595,7 +580,7 @@ class TenetGemmMma(ComputeCapsule):
         ]
 
         elem_bytes = tvm.runtime.DataType(output_dtypes[0]).bits / 8
-        data_alignment = int(elem_bytes * (m if trans_C else n))
+        data_alignment = int(elem_bytes)
         offset_factor = int(16 / elem_bytes)
         output_buffers = [
             tvm.tir.decl_buffer(
@@ -614,48 +599,26 @@ class TenetGemmMma(ComputeCapsule):
             BA, BB = ins
             (BC,) = outs
 
-            def init():
-                ib = tvm.tir.ir_builder.create()
-                ib.emit(
-                    tvm.tir.call_intrin(
-                        "handle",
-                        "tir.capsule_compile",
-                        "tenet gemm",
-                        self.belong_recipe_name,
-                        "tenet::gemm::fill_fragment",
-                        BC.data,
-                        m,
-                        n,
-                        k,
-                        BC.elem_offset // (m * n),
-                        tvm.tir.const(0.0, output_dtypes[0]),
-                    )
-                )
-                return ib.get()
-
             def update():
                 ib = tvm.tir.ir_builder.create()
                 ib.emit(
                     tvm.tir.call_intrin(
                         "handle",
                         "tir.capsule_compile",
-                        "tenet gemm",
+                        "tenet axpy",
                         self.belong_recipe_name,
-                        "tenet::gemm::mma",
+                        "tenet::axpy::mul",
                         BC.data,
-                        BC.elem_offset // (m * n),
+                        BC.elem_offset // (m),
                         BA.data,
-                        BA.elem_offset // (m * k),
+                        BA.elem_offset,
                         BB.data,
-                        BB.elem_offset // (n * k),
-                        BC.data,
-                        BC.elem_offset // (m * n),
-                        False,
+                        BB.elem_offset // (m)
                     )
                 )
                 return ib.get()
 
-            return update(), init(), update()
+            return update(), None, update()
 
         return tvm.te.decl_tensor_intrin(outputs[0].op, intrin_func, binds=bind_map)
 
@@ -668,29 +631,29 @@ class TenetGemmMma(ComputeCapsule):
         ---
         Returns:
         memory scope info: dict of {tvm.runtime.String, tvm.tir.StringImm}
-            e.g., {storage_scope: gemm::matrix_a}
+            e.g., {storage_scope: local}
         """
         assert isinstance(arg_pos, int)
         ret = {}
         if arg_pos == 0:
-            assert isinstance(args, list) and len(args) == 9
-            ret["storage_scope"] = "tenet::gemm::accumulator"
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 6
+            ret["storage_scope"] = "local"
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
         elif arg_pos == 2:
-            assert isinstance(args, list) and len(args) == 9
-            ret["storage_scope"] = "tenet::gemm::matrix_a"
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 6
+            ret["storage_scope"] = "local"
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
         elif arg_pos == 4:
-            assert isinstance(args, list) and len(args) == 9
-            ret["storage_scope"] = "tenet::gemm::matrix_b"
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 6
+            ret["storage_scope"] = "local"
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
         elif arg_pos == 6:
-            assert isinstance(args, list) and len(args) == 9
-            ret["storage_scope"] = "tenet::gemm::accumulator"
-            ret["target"] = "tenet gemm"
+            assert isinstance(args, list) and len(args) == 6
+            ret["storage_scope"] = "local"
+            ret["target"] = "tenet axpy"
             ret["recipe_mnemonic"] = self.belong_recipe_name
         else:
             return ret
@@ -702,9 +665,9 @@ class TenetGemmMma(ComputeCapsule):
         ---
         Returns:
         instruction prefix
-            e.g., tenet::gemm::load_matrix
+            e.g., tenet::axpy::mul
         """
-        return "tenet::gemm::mma"
+        return "tenet::axpy::mul"
 
     def assemble_instruction(self, args):
         """
@@ -724,18 +687,4 @@ class TenetGemmMma(ComputeCapsule):
         full instruction: str
             the instruction string in full format
         """
-        for v in args:
-            assert isinstance(v, str)
-        prefix = self.get_instruction_prefix()
-        inst = "%s(%s[%s], %s[%s], %s[%s], %s[%s])" % (
-            prefix,
-            args[0],
-            args[1],
-            args[2],
-            args[3],
-            args[4],
-            args[5],
-            args[6],
-            args[7],
-        )
-        return inst
+        raise NotImplementedError()

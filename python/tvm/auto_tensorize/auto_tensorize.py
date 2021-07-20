@@ -526,6 +526,7 @@ def auto_tensorize_v3(
             best_ctx = sch_ctx
             best_params = params
 
+        print(f"Record:{1/best_value} G cycle", flush=True)
         print(
             f"Iteration: {it+1}: {value}/{best_value}({1/best_value*1e3} ms), {str(record)}, {str(params)}", flush=True)
 

@@ -1,8 +1,6 @@
 import tvm
-import pebble
-from pebble import concurrent
+import math
 from concurrent.futures import TimeoutError
-from pebble import ProcessPool, ProcessExpired
 
 
 supported_target = ["cuda", "opencl", "llvm -mcpu=skylake-avx512"]
@@ -118,17 +116,111 @@ class TENET(AcceleratorTarget):
     def __init__(self, arch="gemm"):
         self.arch = arch
 
-    def get_shared_memory_bytes(self):
-        return 48 * 2**12
+    # def get_shared_memory_bytes(self):
+    #     if self.arch == "gemm":
+    #         return 48 * 2**12
+    #     else:
+    #         raise RuntimeError(f"Unknown arch: {self.arch}")
 
-    def get_warp_size(self):
-        return 32
+    # def get_register_bytes_per_thread(self):
+    #     if self.arch == "gemm":
+    #         return 256
+    #     else:
+    #         raise RuntimeError(f"Unknown arch: {self.arch}")
 
-    def get_register_bytes_per_thread(self):
-        return 255 * 32 # greatly relaxed
+    # def max_threads(self):
+    #     if self.arch == "gemm":
+    #         return 1024
+    #     else:
+    #         raise RuntimeError(f"Unknown arch: {self.arch}")
 
-    def max_threads(self):
-        return 1024
+    # def max_blocks(self):
+    #     if self.arch == "gemm":
+    #         return 2**16
+    #     else:
+    #         raise RuntimeError(f"Unknown arch: {self.arch}")
 
-    def max_blocks(self):
-        return 2**16
+    def compute_latency(self):
+        if self.arch == "gemm":
+            return 64
+        elif self.arch == "axpy":
+            return 2
+        elif self.arch == "conv":
+            return 32 + math.log2(16)
+        else:
+            raise RuntimeError(f"Unknown arch: {self.arch}")
+
+    def memory_bandwidth(self, scope):
+        if self.arch == "gemm":
+            bandwith = { # fp16
+                "global": float("inf"),  # not used
+                "shared": 256,
+                "local": 16
+            }
+            return bandwith[scope]
+        elif self.arch == "axpy":
+            bandwith = { # fp16
+                "global": float("inf"),  # not used
+                "shared": 256,
+                "local": 16
+            }
+            return bandwith[scope]
+        elif self.arch == "conv":
+            bandwith = { # fp16
+                "global": float("inf"),  # not used
+                "shared": 256,
+                "local": 16
+            }
+            return bandwith[scope]
+        else:
+            raise RuntimeError(f"Unknown arch: {self.arch}")
+
+    def parallelism(self, level):
+        if self.arch == "gemm":
+            parallelism = {
+                0: 1, # each subcore has one PE array
+                1: 4, # each core has 4 subcores
+                2: 80 # each device has 80 cores
+            }
+            return parallelism[level]
+        elif self.arch == "axpy":
+            parallelism = {
+                0: 1, # each subcore has one PE array
+                1: 4, # each core has 1 subcores
+                2: 80 # each device has 28 cores
+            }
+            return parallelism[level]
+        elif self.arch == "conv":
+            parallelism = {
+                0: 1, # each subcore has one PE array
+                1: 4, # each core has 4 subcores
+                2: 80 # each device has 80 cores
+            }
+            return parallelism[level]
+        else:
+            raise RuntimeError(f"Unknown arch: {self.arch}")
+
+    def memory_size(self, scope):
+        if self.arch == "gemm":
+            size = {
+                "global": 40 * 2**30,  # 40 GB
+                "shared": 64 * 2**10,  # 64 KB
+                "local": 2**13  # 8 KB
+            }
+            return size[scope]
+        if self.arch == "axpy":
+            size = {
+                "global": 40 * 2**30,  # 40 GB
+                "shared": 64 * 2**10,  # 6 KB
+                "local": 2**13  # 8 KB
+            }
+            return size[scope]
+        if self.arch == "conv":
+            size = {
+                "global": 40 * 2**30,  # 40 GB
+                "shared": 64 * 2**10,  # 64 KB
+                "local": 2**13  # 8 KB
+            }
+            return size[scope]
+        else:
+            raise RuntimeError(f"Unknown arch: {self.arch}")
