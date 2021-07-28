@@ -406,6 +406,27 @@ def pebble_local_build_worker(index):
                 )
 
                 func.save(filename)
+
+                parts = str(target).split(" ")
+                assert len(parts) > 1
+                if parts[1] == "cuda":
+                    cuda_filename = os.path.join(
+                        dirname, "tmp_func." + build_func.output_format)
+
+                    try:
+                        # TODO(merrymercy): Port the unroll pass.
+                        with transform.PassContext():
+                            func = build_module.build(
+                                sch, args, target="cuda", target_host=target_host,
+                                name=name
+                            )
+                        func.export_library(cuda_filename, build_func)
+                    # pylint: disable=broad-except
+                    except Exception:
+                        error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
+                        error_msg = auto_scheduler.measure.make_error_msg()
+                
+                    filename = "-***-".join([filename, cuda_filename])
             else:
                 filename = os.path.join(
                     dirname, "tmp_func." + build_func.output_format)
@@ -540,14 +561,57 @@ def pebble_local_run_worker(index):
             )
 
         if str(target).startswith("tenet"):
-            try:
-                func = tenet.load_func(build_res.filename)
-                costs = tenet.evaluate_func(func)
-            except Exception:
-                costs = (MAX_FLOAT,)
-                error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
-                error_msg = auto_scheduler.measure.make_error_msg()
-                # print(error_msg)
+            parts = str(target).split(" ")
+            assert len(parts) > 1
+            if parts[1] == "cuda":
+                filename, cuda_filename = build_res.filename.split("-***-")
+                try:
+                    func = tenet.load_func(filename)
+                    costs = tenet.evaluate_func(func)
+
+                    cuda_func = module.load_module(cuda_filename)
+                    ctx = ndarray.context("cuda", dev_id)
+                    # Limitation:
+                    # We can not get PackFunction directly in the remote mode as it is wrapped
+                    # under the std::function. We could lift the restriction later once we fold
+                    # the PackedFunc as an object. Currently, we pass function name to work
+                    # around it.
+                    f_prepare = "cache_flush_cpu_non_first_arg" if enable_cpu_cache_flush else ""
+                    time_f = cuda_func.time_evaluator(
+                        cuda_func.entry_name if name is None else name,
+                        ctx,
+                        number=number,
+                        repeat=repeat,
+                        min_repeat_ms=min_repeat_ms,
+                        # f_preproc=f_prepare,
+                    )
+                    args = [
+                        ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                    ]
+                    random_fill = tvm.get_global_func(
+                        "tvm.contrib.random.random_fill", True)
+                    assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
+                    for arg in args:
+                        if str(arg.dtype) in ["int4"]:
+                            continue
+                        random_fill(arg)
+                    ctx.sync()
+                    cuda_costs = time_f(*args).results
+
+                except Exception:
+                    costs = (MAX_FLOAT,)
+                    error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
+                    error_msg = auto_scheduler.measure.make_error_msg()
+                    # print(error_msg)
+            else:
+                try:
+                    func = tenet.load_func(build_res.filename)
+                    costs = tenet.evaluate_func(func)
+                except Exception:
+                    costs = (MAX_FLOAT,)
+                    error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_DEVICE
+                    error_msg = auto_scheduler.measure.make_error_msg()
+                    # print(error_msg)
         else:
             try:
                 func = module.load_module(build_res.filename)

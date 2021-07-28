@@ -9,7 +9,8 @@ from .tensorization_phases import (
     CUDAScheduleGenerator, CUDAScheduleApplier,
     CUDAScheduleGeneratorV2, CUDAScheduleApplierV2,
     # CUDAScheduleGeneratorV3, CUDAScheduleApplierV3,
-    CUDAScheduleGeneratorSplitK, CUDAScheduleApplierSplitK)
+    CUDAScheduleGeneratorSplitK, CUDAScheduleApplierSplitK,
+    CUDAScheduleGeneratorTenet, CUDAScheduleApplierTenet)
 from .tensorization_phases import CUDAScheduleGeneratorMultiReduce, \
     CUDAScheduleApplierMultiReduce
 from .tensorization_phases import MaliScheduleGenerator, MaliScheduleApplier
@@ -45,7 +46,14 @@ def auto_tensorize_compute(target_dag, target,
                            transform_policy="all_fit"):
     # refactor target
     measure_opt.target = target
-    match_results = get_match_results(target_dag, target)
+    if str(target).startswith("tenet"):
+        parts = str(target).split(" ")
+        if parts[1] == "cuda":
+            match_results = get_match_results(target_dag, "cuda")
+        else:
+            match_results = get_match_results(target_dag, target)
+    else:
+        match_results = get_match_results(target_dag, target)
 
     if len(match_results) == 0:
         print("This workload has no matched intrinsic for target: %s" %
@@ -149,6 +157,29 @@ def auto_tensorize_schedule(target_dag, target,
         schedule_app = LLVMScheduleApplier(match_result, sc_info)
         # TODO: write a checker for CPU
         checker = EmptyChecker()
+    elif str(target).startswith("tenet"):
+        target = str(target)
+        parts = target.split(" ")
+        assert len(parts) > 1
+        if parts[1] == "cuda":
+            schedule_gen = CUDAScheduleGeneratorTenet(
+                match_result, new_state, log_file=log_file,
+                arch=get_cuda_compute_version(measure_opt.dev_id))
+            if os.path.exists(log_file) and os.path.isfile(log_file):
+                schedule_gen.load_from_file(log_file)
+            sc_info = schedule_gen.get_schedule_compute_info()
+            schedule_app = CUDAScheduleApplierTenet(match_result, sc_info)
+            checker = CUDAProgramChecker(arch=get_cuda_compute_version(measure_opt.dev_id))
+        else:
+            schedule_gen = TenetScheduleGenerator(
+                match_result, new_state, log_file=log_file
+            )
+            if os.path.exists(log_file) and os.path.isfile(log_file):
+                schedule_gen.load_from_file(log_file)
+            sc_info = schedule_gen.get_schedule_compute_info()
+            schedule_app = TenetScheduleApplier(match_result, sc_info)
+            # TODO: write a checker for TENET
+            checker = EmptyChecker()
     else:
         raise RuntimeError("Do not support target: %s" % target)
 
@@ -476,15 +507,28 @@ def auto_tensorize_v3(
                 # TODO: write a checker for CPU
                 checker = EmptyChecker()
             elif str(target).startswith("tenet"):
-                schedule_gen = TenetScheduleGenerator(
-                    match_result, new_state, log_file=current_log_file
-                )
-                if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
-                    schedule_gen.load_from_file(current_log_file)
-                sc_info = schedule_gen.get_schedule_compute_info()
-                schedule_app = TenetScheduleApplier(match_result, sc_info)
-                # TODO: write a checker for TENET
-                checker = EmptyChecker()
+                target = str(target)
+                parts = target.split(" ")
+                assert len(parts) > 1
+                if parts[1] == "cuda":
+                    schedule_gen = CUDAScheduleGeneratorTenet(
+                        match_result, new_state, log_file=current_log_file,
+                        arch=get_cuda_compute_version(measure_opt.dev_id))
+                    if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        schedule_gen.load_from_file(current_log_file)
+                    sc_info = schedule_gen.get_schedule_compute_info()
+                    schedule_app = CUDAScheduleApplierTenet(match_result, sc_info)
+                    checker = CUDAProgramChecker(arch=get_cuda_compute_version(measure_opt.dev_id))
+                else:
+                    schedule_gen = TenetScheduleGenerator(
+                        match_result, new_state, log_file=current_log_file
+                    )
+                    if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
+                        schedule_gen.load_from_file(current_log_file)
+                    sc_info = schedule_gen.get_schedule_compute_info()
+                    schedule_app = TenetScheduleApplier(match_result, sc_info)
+                    # TODO: write a checker for TENET
+                    checker = EmptyChecker()
             else:
                 raise RuntimeError("Do not support target: %s" % target)
 

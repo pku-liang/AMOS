@@ -1,5 +1,6 @@
 import tvm
 import math
+from pebble import ProcessPool
 from concurrent.futures import TimeoutError
 
 
@@ -147,6 +148,8 @@ class TENET(AcceleratorTarget):
             return 2
         elif self.arch == "conv":
             return 32 + math.log2(16)
+        elif self.arch == "cuda":
+            return 64
         else:
             raise RuntimeError(f"Unknown arch: {self.arch}")
 
@@ -169,6 +172,13 @@ class TENET(AcceleratorTarget):
             bandwith = { # fp16
                 "global": float("inf"),  # not used
                 "shared": 256,
+                "local": 16
+            }
+            return bandwith[scope]
+        elif self.arch == "cuda":
+            bandwith = { # fp16
+                "global": 256,  # not used
+                "shared": 10,
                 "local": 16
             }
             return bandwith[scope]
@@ -197,6 +207,13 @@ class TENET(AcceleratorTarget):
                 2: 80 # each device has 80 cores
             }
             return parallelism[level]
+        elif self.arch == "cuda":
+            parallelism = {
+                0: 1, # each subcore has one PE array
+                1: 4, # each core has 4 subcores
+                2: 84 # each device has 80 cores
+            }
+            return parallelism[level]
         else:
             raise RuntimeError(f"Unknown arch: {self.arch}")
 
@@ -220,6 +237,13 @@ class TENET(AcceleratorTarget):
                 "global": 40 * 2**30,  # 40 GB
                 "shared": 64 * 2**10,  # 64 KB
                 "local": 2**13  # 8 KB
+            }
+            return size[scope]
+        if self.arch == "cuda":
+            size = {
+                "global": 16 * 2**30,  # 16 GB
+                "shared": 128 * 2**10,  # 128 KB
+                "local": 64 * 2**10  # 64 KB
             }
             return size[scope]
         else:

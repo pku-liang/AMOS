@@ -158,11 +158,15 @@ def evaluate_func(func):
         real_time_iterations = time_iterations * (space_iterations + parallelism - 1) // parallelism
         if l == 0:
             compute_latency_vector.append(real_time_iterations * evaluate_tenet_accelerator(func.target))
-        elif l < len(func.space_time_loops):
-            compute_latency_vector.append(real_time_iterations * max(memory_latency_vector[l], compute_latency_vector[l-1]))
         else:
-            compute_latency_vector.append(real_time_iterations * compute_latency_vector[l-1])
+            compute_latency_vector.append(
+                (real_time_iterations-1) *
+                max(memory_latency_vector[l-1], compute_latency_vector[l-1])
+                + (memory_latency_vector[l-1] + compute_latency_vector[l-1]))
     print("Show details:", flush=True)
+    print("context:", flush=True)
+    print("space_time_loops:", func.space_time_loops, flush=True)
+    print("memory_size:", func.memory_size, flush=True)
     for l, (c, m) in enumerate(zip(compute_latency_vector, memory_latency_vector)):
         print(f"Level {l}: compute {c/1e9} (G)cycles, memory {m/1e9} (G)cycles", flush=True)
     return (compute_latency_vector[-1]/1e9,)  # G cycle
