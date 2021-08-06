@@ -436,6 +436,8 @@ def auto_tensorize_v3(
             try:
                 entry = gen.get_best_entry()
                 record = entry.record
+                print("Best Mapping:", flush=True)
+                print(record, flush=True)
             except Exception as e:
                 raise RuntimeError("Can't get previous results for test mode.")
         print(f"Choose transform: {record}", flush=True)

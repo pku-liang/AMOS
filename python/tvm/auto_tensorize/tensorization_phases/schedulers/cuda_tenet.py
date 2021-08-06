@@ -703,7 +703,7 @@ class CUDAScheduleApplierTenet(object):
             ## this is intermediate timeloop
             ## surrounding register
             self.tenet_ctx.update_time_loop(
-                2, reduce(
+                1, reduce(
                     lambda x, y: x + y, reordered_reduce_axis[1:-1], []), push_front=False)
             #################################
             ## no innermost timeloop

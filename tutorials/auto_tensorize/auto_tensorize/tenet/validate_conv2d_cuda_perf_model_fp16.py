@@ -1,5 +1,6 @@
 import tvm
 import json
+import numpy as np
 import os
 from tvm import auto_tensorize as at
 from tvm.auto_tensorize import (
@@ -206,6 +207,85 @@ def compare_pairwise():
     print(f"Top1 accuracy: {top1/(num_data*num_data)}", flush=True)
 
 
+def compare_pairwise_percentage():
+
+    def helper(num):
+        ground_truth = []
+        model_predict = []
+        num_data = 0
+        with open("compare.log", "r") as fin:
+            _ = fin.readline()
+            for line in fin:
+                _, g, m = line.split(",")
+                ground_truth.append(float(g))
+                model_predict.append(float(m))
+                num_data += 1
+                if num_data >= num:
+                    break
+        ground_matrix = [[0 for j in range(num_data)] for i in range(num_data)]
+        model_matrix = [[0 for j in range(num_data)] for i in range(num_data)]
+        for i in range(num_data):
+            for j in range(num_data):
+                if ground_truth[i] < ground_truth[j]:
+                    ground_matrix[i][j] = 1
+                if model_predict[i] < model_predict[j]:
+                    model_matrix[i][j] = 1
+
+        # top1 score
+        top1 = 0
+        for i in range(num_data):
+            for j in range(num_data):
+                if model_matrix[i][j] == ground_matrix[i][j]:
+                    top1 += 1
+        
+        return top1/(num_data*num_data)
+
+    resuts = []
+    for i in range(1, 100):
+        res = helper(i)
+        resuts.append(res)
+
+    with open("compare-pairwise-percentage.log", "w") as fout:
+        for res in resuts:
+            fout.write(str(res) + "\n")
+
+
+def compare_recall_percentage():
+    
+    ground_truth = []
+    model_predict = []
+    num_data = 0
+    with open("compare.log", "r") as fin:
+        _ = fin.readline()
+        for line in fin:
+            _, g, m = line.split(",")
+            ground_truth.append(float(g))
+            model_predict.append(float(m))
+            num_data += 1
+        
+    ground_truth = np.argsort(np.array(ground_truth))
+    model_predict = np.argsort(np.array(model_predict))
+        
+    def helper(num):
+        assert num > 0
+        target = set(ground_truth[:num])
+        answer = model_predict[:num]
+        count = 0
+        for ans in answer:
+            if ans in target:
+                count += 1
+        return count / len(target)
+        
+    resuts = []
+    for i in range(1, 100):
+        res = helper(i)
+        resuts.append(res)
+
+    with open("compare-recall-percentage.log", "w") as fout:
+        for res in resuts:
+            fout.write(str(res) + "\n")
+
+
 def run(N, C, H, W, K, R, S, stride,
         padding, dilation, layer):
     return tensorize_tensorcore_fp16fp16(
@@ -333,6 +413,12 @@ if __name__ == "__main__":
                 )
             elif args.mode == "compare":
                 compare_pairwise()
+                cost = 0
+            elif args.mode == "compare-percentage":
+                compare_pairwise_percentage()
+                cost = 0
+            elif args.mode == "compare-recall":
+                compare_recall_percentage()
                 cost = 0
             costs.append(cost)
             # except Exception as e:
