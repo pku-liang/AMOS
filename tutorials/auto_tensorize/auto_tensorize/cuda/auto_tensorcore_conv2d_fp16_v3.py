@@ -52,7 +52,7 @@ def tensorize_tensorcore_fp16fp16(
 
     log_file = "conv2d-fp16-layer-%d-batch-%d.log" % (layer, N)
 
-    trials = 1000
+    trials = 1
     measure_opt = at.MeasureOptions(
         target=target, timeout=10, number=200, min_repeat_ms=500)
 
@@ -73,7 +73,7 @@ def tensorize_tensorcore_fp16fp16(
 
     result = at.auto_tensorize_v3(
         target_dag, target, log_file, log_file, measure_opt,
-        trials=trials, schedule_trials=40, search_batch=20,
+        trials=trials, schedule_trials=1, search_batch=20,
         verbose=True, transform_dump=True)
     if not result.defined():
         print("Can't do tensorize.")
@@ -149,7 +149,7 @@ res18_shapes_b1 = [
 
 if __name__ == "__main__":
     batches = [2**i for i in range(1)]
-    beg = 0
+    beg = 11
     #num = 15
     num = 1
     for batch in batches:

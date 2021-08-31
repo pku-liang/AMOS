@@ -474,6 +474,8 @@ def auto_tensorize_v3(
                         schedule_gen = CUDAScheduleGeneratorV2(
                             match_result, new_state, log_file=current_log_file,
                             arch=get_cuda_compute_version(measure_opt.dev_id))
+                        if verbose:
+                             print(f"All mappings: {schedule_gen.size()}", flush=True)
                         if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
                             schedule_gen.load_from_file(current_log_file)
                         sc_info = schedule_gen.get_schedule_compute_info()

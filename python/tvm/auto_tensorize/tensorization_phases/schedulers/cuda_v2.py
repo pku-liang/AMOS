@@ -4,6 +4,7 @@ from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
 from ...recipes import OperationRole, RecipeStage, InstructionScope
 from ..schedule_base import *
+from functools import reduce
 
 
 class CUDAStateV2(object):
@@ -235,6 +236,9 @@ class CUDAScheduleGeneratorV2(AcceleratorScheduleGenerator):
             self.unroll_output,
             self.unroll_last
         ]
+
+    def size(self):
+        return reduce(lambda x, y: x*y.size(), self.generator_lst, 1)
 
     def init_score_table(self):
         self.score_table = softmax([0.5 for gen in self.generator_lst])

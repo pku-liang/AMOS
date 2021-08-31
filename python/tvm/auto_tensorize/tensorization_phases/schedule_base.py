@@ -33,6 +33,9 @@ class SplitFactorGenerator(CDParamGenerator):
         self.reverse_map = {y: x for x, y in self.factor_map.items()}
         self.init_Q_table()
 
+    def size(self):
+        return len(self.choices)
+
     def move_towards_direction(self, init, d):
         ret = []
         sum_val = reduce(lambda x, y: x + y, init, 0)
@@ -69,6 +72,9 @@ class VectorizeLengthGenerator(CDParamGenerator):
         self.directions = [1, -1]
         self.init_Q_table()
 
+    def size(self):
+        return len(self.choices)
+
     def move_towards_direction(self, init, d):
         des = init + d
         return des
@@ -95,6 +101,9 @@ class UnrollStepGenerator(CDParamGenerator):
         self.directions = [1, -1]
         self.init_Q_table()
 
+    def size(self):
+        return len(self.choices)
+
     def move_towards_direction(self, init, d):
         des = init + d
         return des
@@ -117,6 +126,9 @@ class InlineGenerator(CDParamGenerator):
         self.choices = [0, 1]
         self.directions = [1, -1]
         self.init_Q_table()
+
+    def size(self):
+        return len(self.choices)
 
     def move_towards_direction(self, init, d):
         des = init + d
@@ -143,6 +155,9 @@ class SplitKGenerator(CDParamGenerator):
         self.reverse_map = {y: x for x, y in zip(self.choices, self.steps)}
         self.directions = [1, -1]
         self.init_Q_table()
+
+    def size(self):
+        return len(self.choices)
 
     def move_towards_direction(self, init, d):
         des = init + d
