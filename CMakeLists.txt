@@ -210,6 +210,7 @@ file(GLOB_RECURSE COMPILER_SRCS
     src/auto_tensorize/*.cc
     src/node/*.cc
     src/ir/*.cc
+    src/nas/*.cc
     src/arith/*.cc
     src/te/*.cc
     src/tg/*.cc
