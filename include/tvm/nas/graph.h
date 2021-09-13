@@ -1,376 +1,180 @@
 #pragma once
 
+#include <tvm/te/operation.h>
+#include <tvm/tir/expr.h>
+#include <tvm/tir/expr_functor.h>
+#include <tvm/te/tensor.h>
 #include <tvm/runtime/object.h>
-#include <tvm/runtime/data_type.h>
-#include <tvm/runtime/container.h>
-#include <tvm/node/node.h>
-#include <tvm/ir/expr.h>
+
 #include <string>
+#include <vector>
 
 namespace tvm {
 
-using namespace tvm::runtime;
-
 namespace nas {
 
+
+class SubstituteTensor : public tir::ExprMutator {
+ public:
+  using tir::ExprMutator::VisitExpr;
+
+  SubstituteTensor(Array<te::Tensor> org, Array<te::Tensor> replace) : org_(org), replace_(replace) {}
+ private:
+  Array<te::Tensor> org_;
+  Array<te::Tensor> replace_;
+ protected:
+ using tir::ExprMutator::VisitExpr_;
+  // list of functions to override.
+  PrimExpr VisitExpr_(const tir::ProducerLoadNode* op) override;
+};
+
+// fwd decl for LayerNode
+class LayerNode;
+// fwd decl for LayerTensor
+class LayerTensor;
+
+/*!
+ * \brief Layer class.
+ */
+class Layer : public ObjectRef {
+ public:
+  // TVM_DEFINE_OBJECT_REF_METHODS(Layer, ObjectRef, LayerNode);
+  // TVM_DEFINE_OBJECT_REF_COW_METHOD(LayerNode);
+
+  /*! \brief default constructor  */
+  Layer() {}
+  explicit Layer(ObjectPtr<Object> n) : ObjectRef(n) {}
+  /*!
+   * \brief access the internal node container
+   * \return the pointer to the internal node container
+   */
+  inline const LayerNode* operator->() const;
+  /*!
+   * \brief The constructor.
+   * \param name The name of layer
+   * \param ops The op of this layer
+   * \param inputs The inputs of this layer
+   * \param weights The weights of this layer
+   * \param const_scalars The constant scalars
+   * \param const_tensors The constant tensors
+   * \param gradients The gradients of this layer
+   */
+  TVM_DLL Layer(std::string name, Array<te::Operation> ops, Array<te::Tensor> inputs,
+                Array<te::Tensor> weights, Array<PrimExpr> const_scalars,
+                Array<te::Tensor> const_tensors, Array<te::Tensor> gradients);
+  /*!
+   * \brief Self-checking if the given compute is valid.
+   */
+  void check_validity();
+  /*!
+   * \brief The constructor.
+   * \param inputs The input tensors.
+   */
+  std::vector<LayerTensor> produce_outputs(std::vector<LayerTensor> layer_inputs);
+  /*! \brief specify container node */
+  using ContainerType = LayerNode;
+};
+
 /////////////////////////////////////
-// Definitions for Tensors
-// Tensor represents for edge
-// tensor is related with op through name
-// rather than pointer
+// Definitions for tensor between layers
 ////////////////////////////////////
 
 /*!
- * \brief A base class for tensor.
+ * \brief LayerTensorNode class.
  */
-class DataBaseNode : public Object {
+class LayerTensorNode : public Object {
  public:
- /*! \brief The name of tensor */
-  std::string name;
+  /*! \brief The name of layer (optional) */
+  std::string name{"layer_tensor"};
+  /*! \brief The layer that produces this tensor, can be nullptr */
+  Layer layer{nullptr};
+  /*! \brief The real tensor wrapped */
+  te::Tensor tensor;
+  /*! \brief The ordinal number of this tensor */
+  int value_idx{0};
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("name", &name);
+    v->Visit("layer", &layer);
+    v->Visit("tensor", &tensor);
+    v->Visit("value_idx", &value_idx);
   }
 
-  static constexpr const char* _type_key = "nast.DataBase";
-  TVM_DECLARE_BASE_OBJECT_INFO(DataBaseNode, Object);
+  static constexpr const char* _type_key = "nas.LayerTensor";
+  TVM_DECLARE_FINAL_OBJECT_INFO(LayerTensorNode, Object);
 };
 
-
-class DataBase : public ObjectRef {
+class LayerTensor : public ObjectRef {
  public:
   /*!
    * \brief The constructor.
-   * \param name The name of tensor
+   * \param name The name of layer
+   * \param layer The layer
+   * \param tensor The tensor
+   * \param value_idx The value index
    */
-  TVM_DLL DataBase(std::string name);
+  TVM_DLL LayerTensor(std::string name, Layer layer, te::Tensor tensor, int value_idx);
 
-  TVM_DEFINE_OBJECT_REF_METHODS(DataBase, ObjectRef, DataBaseNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(DataBaseNode);
-};
-
-
-/*!
- * \brief A class for tensor.
- */
-class TensorNode : public DataBaseNode {
- public:
-  /*! \brief The data type of state */
-  DataType dtype;
-  /*! \brief The shape of state */
-  Array<PrimExpr> shape;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("dtype", &dtype);
-    v->Visit("shape", &shape);
-  }
-
-  static constexpr const char* _type_key = "nast.Tensor";
-  TVM_DECLARE_FINAL_OBJECT_INFO(TensorNode, DataBaseNode);
-};
-
-
-class Tensor : public DataBase {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of tensor
-   * \param dtype The data type of tensor
-   * \param shape The shape of tensor
-   */
-  TVM_DLL Tensor(std::string name, DataType dtype, Array<PrimExpr> shape);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(Tensor, DataBase, TensorNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(TensorNode);
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(LayerTensor, ObjectRef, LayerTensorNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(LayerTensorNode);
 };
 
 
 /////////////////////////////////////
-// Definitions for Operations
-// Operation defines single node
+// Definitions for layer
 ////////////////////////////////////
 
 /*!
- * \brief A base class for operation.
+ * \brief LayerNode class.
  */
-class OperationBaseNode : public Object {
+class LayerNode : public Object {
  public:
- /*! \brief The name of operation */
-  std::string name;
-  /*! \brief The input tensors */
-  Array<Tensor> input_tensors;
+  /*! \brief The name of layer (optional) */
+  std::string name{"layer"};
+  /*! \brief The op within this layer, required */
+  Array<te::Operation> ops;
+  /*! \brief The inputs of this layer, can by [] */
+  Array<te::Tensor> inputs;
+  /*! \brief The weights of this layer, can by [] */
+  Array<te::Tensor> weights;
+  /*! \brief The const scalar values of this layer, can by [] */
+  Array<PrimExpr> const_scalars;
+  /*! \brief The const tensors of this layer, can by [] */
+  Array<te::Tensor> const_tensors;
+  /*! \brief The gradients of this layer, can by [] */
+  Array<te::Tensor> gradients;
+  /*! \brief The input layer tensors */
+  Array<LayerTensor> input_layer_tensors_;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("name", &name);
-    v->Visit("input_tensors", &input_tensors);
+    v->Visit("ops", &ops);
+    v->Visit("inputs", &inputs);
+    v->Visit("weights", &weights);
+    v->Visit("const_scalars", &const_scalars);
+    v->Visit("const_tensors", &const_tensors);
+    v->Visit("gradients", &gradients);
+    v->Visit("input_layer_tensors", &input_layer_tensors_);
   }
-
-  static constexpr const char* _type_key = "nast.OperationBase";
-  TVM_DECLARE_BASE_OBJECT_INFO(OperationBaseNode, Object);
-};
-
-
-class OperationBase : public ObjectRef {
- public:
   /*!
-   * \brief The constructor.
-   * \param name The name of operation
+   * \brief Get the input tensors.
    */
-  TVM_DLL OperationBase(std::string name);
+  Array<LayerTensor> InputTensors() const;
 
-  TVM_DEFINE_OBJECT_REF_METHODS(OperationBase, ObjectRef, OperationBaseNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(OperationBaseNode);
+  static constexpr const char* _type_key = "nas.Layer";
+  TVM_DECLARE_FINAL_OBJECT_INFO(LayerNode, Object);
 };
 
 
-/*!
- * \brief Operation that has no weights.
- */
-class StatelessOpNode : public OperationBaseNode {
- public:
-  static constexpr const char* _type_key = "nast.StatelessOp";
-  TVM_DECLARE_BASE_OBJECT_INFO(StatelessOpNode, OperationBaseNode);
-};
-
-
-class StatelessOp : public OperationBase {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   */
-  TVM_DLL StatelessOp(std::string name);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(StatelessOp, OperationBase, StatelessOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(StatelessOpNode);
-};
-
-
-/*!
- * \brief State of an operation, usually a tensor-like array.
- */
-class StateNode : public Object {
- public:
- /*! \brief The name of operation */
-  std::string name;
-  /*! \brief The data type of state */
-  DataType dtype;
-  /*! \brief The shape of state */
-  Array<PrimExpr> shape;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("name", &name);
-    v->Visit("dtype", &dtype);
-    v->Visit("shape", &shape);
-  }
-
-  static constexpr const char* _type_key = "nast.State";
-  TVM_DECLARE_FINAL_OBJECT_INFO(StateNode, Object);
-};
-
-
-class State : public ObjectRef {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   * \param dtype data type of state
-   * \param shape shape of state
-   */
-  TVM_DLL State(std::string name, DataType dtype, Array<PrimExpr> shape);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(State, ObjectRef, StateNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(StateNode);
-};
-
-
-/*!
- * \brief Operation that has weights.
- */
-class StateOpNode : public OperationBaseNode {
- public:
- /*! \brief The state of this operation */
-  Array<State> states;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("states", &states);
-  }
-
-  static constexpr const char* _type_key = "nast.StateOp";
-  TVM_DECLARE_BASE_OBJECT_INFO(StateOpNode, OperationBaseNode);
-};
-
-
-class StateOp : public OperationBase {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   * \param states the states in this op
-   */
-  TVM_DLL StateOp(std::string name, Array<State> states);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(StateOp, OperationBase, StateOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(StateOpNode);
-};
-
-
-/*!
- * \brief Operation that defines constant values.
- */
-class ConstantOpNode : public StatelessOpNode {
- public:
-  /*! \brief The data type of state */
-  DataType dtype;
-  /*! \brief The shape of state */
-  Array<PrimExpr> shape;
-  /*! \brief The constant values, length equal to shape */
-  Array<PrimExpr> array_data;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("dtype", &dtype);
-    v->Visit("shape", &shape);
-    v->Visit("array_data", &array_data);
-  }
-
-  static constexpr const char* _type_key = "nast.ConstantOp";
-  TVM_DECLARE_FINAL_OBJECT_INFO(ConstantOpNode, StatelessOpNode);
-};
-
-
-class ConstantOp : public StatelessOp {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   */
-  TVM_DLL ConstantOp(std::string name, DataType dtype, Array<PrimExpr> shape, Array<PrimExpr> array_data);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(ConstantOp, StatelessOp, ConstantOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(ConstantOpNode);
-};
-
-
-/*!
- * \brief Operation that performs pure computation.
- */
-class FunctionOpNode : public StatelessOpNode {
- public:
- /*! \brief The axis */
-  Array<PrimExpr> axis;
-  /*! \brief The reduce_axis */
-  Array<PrimExpr> reduce_axis;
-  /*! \brief The body */
-  PrimExpr body;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("axis", &axis);
-    v->Visit("reduce_axis", &reduce_axis);
-    v->Visit("body", &body);
-  }
-
-  static constexpr const char* _type_key = "nast.FunctionOp";
-  TVM_DECLARE_FINAL_OBJECT_INFO(FunctionOpNode, StatelessOpNode);
-};
-
-
-class FunctionOp : public StatelessOp {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   * \param axis The axis of compute
-   * \param reduce_axis the reduce_axis of compute
-   * \param body the body of compute
-   */
-  TVM_DLL FunctionOp(std::string name, Array<PrimExpr> axis, Array<PrimExpr> reduce_axis, PrimExpr body);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(FunctionOp, StatelessOp, FunctionOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(FunctionOpNode);
-};
-
-
-/*!
- * \brief Operation that defines non-constant values.
- */
-class PlaceholderOpNode : public StateOpNode {
- public:
-  /*! \brief The data type of state */
-  DataType dtype;
-  /*! \brief The shape of state */
-  Array<PrimExpr> shape;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("dtype", &dtype);
-    v->Visit("shape", &shape);
-  }
-  
-  static constexpr const char* _type_key = "nast.PlaceholderOp";
-  TVM_DECLARE_FINAL_OBJECT_INFO(PlaceholderOpNode, StateOpNode);
-};
-
-
-class PlaceholderOp : public StateOp {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   * \param states The states
-   * \param dtype The data type
-   * \param shape The shape
-   */
-  TVM_DLL PlaceholderOp(std::string name, Array<State> states, DataType dtype, Array<PrimExpr> shape);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(PlaceholderOp, StateOp, PlaceholderOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(PlaceholderOpNode);
-};
-
-
-/*!
- * \brief Operation for computation with weights.
- */
-class ComputeOpNode : public StateOpNode {
- public:
-  /*! \brief The axis */
-  Array<PrimExpr> axis;
-  /*! \brief The reduce_axis */
-  Array<PrimExpr> reduce_axis;
-  /*! \brief The body */
-  PrimExpr body;
-
-  void VisitAttrs(tvm::AttrVisitor* v) {
-    v->Visit("axis", &axis);
-    v->Visit("reduce_axis", &reduce_axis);
-    v->Visit("body", &body);
-  }
-
-  static constexpr const char* _type_key = "nast.ComputeOp";
-  TVM_DECLARE_FINAL_OBJECT_INFO(ComputeOpNode, StateOpNode);
-};
-
-
-class ComputeOp : public StateOp {
- public:
-  /*!
-   * \brief The constructor.
-   * \param name The name of operation
-   * \param states The states
-   * \param axis The axis of compute
-   * \param reduce_axis the reduce_axis of compute
-   * \param body the body of compute
-   */
-  TVM_DLL ComputeOp(std::string name, Array<State> states, Array<PrimExpr> axis, Array<PrimExpr> reduce_axis, PrimExpr body);
-
-  TVM_DEFINE_OBJECT_REF_METHODS(ComputeOp, StateOp, ComputeOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(ComputeOpNode);
-};
-
+inline const LayerNode* Layer::operator->() const {
+  return static_cast<const LayerNode*>(get());
+}
 
 /////////////////////////////////////
 // Definitions for Graph
 // Graph = <NodeSet, EdgeSet>
 // NodeSet and EdgeSet can be ommited
-// we only record the output ops
+// we only record the output layers
 ////////////////////////////////////
 
 /*!
@@ -378,19 +182,19 @@ class ComputeOp : public StateOp {
  */
 class GraphNode : public Object {
  public:
- /*! \brief The name of graph */
+  /*! \brief The name of graph */
   std::string name;
-  Array<OperationBase> out_ops;
+  /*! \brief The output tensors */
+  Array<LayerTensor> out_tensors;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("name", &name);
-    v->Visit("out_ops", &out_ops);
+    v->Visit("out_tensors", &out_tensors);
   }
 
-  static constexpr const char* _type_key = "nast.Graph";
+  static constexpr const char* _type_key = "nas.Graph";
   TVM_DECLARE_BASE_OBJECT_INFO(GraphNode, Object);
 };
-
 
 class Graph : public ObjectRef {
  public:
@@ -398,14 +202,12 @@ class Graph : public ObjectRef {
    * \brief The constructor.
    * \param name The name of tensor
    */
-  TVM_DLL Graph(std::string name, Array<OperationBase> out_ops);
+  TVM_DLL Graph(std::string name, Array<LayerTensor> out_tensors);
 
   TVM_DEFINE_OBJECT_REF_METHODS(Graph, ObjectRef, GraphNode);
   TVM_DEFINE_OBJECT_REF_COW_METHOD(GraphNode);
 };
 
-
 }  // namespace nas
-
 
 }  // namespace tvm
