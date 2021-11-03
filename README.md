@@ -37,7 +37,3 @@ export PYTHONPATH=$PYTHONPATH:/path/to/amos/python
 cd tutorials/auto_tensorize/auto_tensorize/cuda
 python auto_tensorcore_conv2d_fp16.py
 ```
-
-
-## Notes:
-The branch name is rockman, which is the previous name of AMOS.
