@@ -25,7 +25,10 @@ import numpy as np
 import xgboost as xgb
 from xgboost.core import EarlyStopException
 from xgboost.callback import _fmt_metric
-from xgboost.training import aggcv
+try:
+    from xgboost.training import aggcv
+except ImportError:
+    from xgboost.callback import _aggcv as aggcv
 
 from tvm.autotvm.tuner.metric import max_curve
 from .cost_model import PythonBasedModel
