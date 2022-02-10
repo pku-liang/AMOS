@@ -115,6 +115,7 @@ yolo_shapes_b1 = [
 
 res18_shapes_b1 = [
     # resnet-18
+    # (batch, C, H, W, K, _, R, S, _, stride, padding, dilation, groups)
     (1, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
     (1, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
     (1, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2

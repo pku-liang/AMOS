@@ -626,10 +626,12 @@ class AutoScheduleGraphDispatch(object):
   @classmethod
   def add_task(cls, name, subgraph, measure_option,
     scheduler_option="auto_tensorize"):
+    use_at = 0
     next_id = len(AutoScheduleGraphDispatch.working_set)
     if scheduler_option == "auto_tensorize":
       if AutoTensorizeContextV2.can_use(name, subgraph, measure_option):
         ctx = AutoTensorizeContextV2(name, subgraph, measure_option)
+        use_at = 1
       else:
         # fallback to TG
         print("Fallback to TG")
@@ -648,7 +650,7 @@ class AutoScheduleGraphDispatch(object):
     # else:
     #   perf = at.MAX_FLOAT
     AutoScheduleGraphDispatch.results[next_id] = (sch, args, perf)
-    return next_id, ctx
+    return next_id, ctx, use_at
 
   @classmethod
   def remove_task(cls, task_id):
@@ -702,15 +704,22 @@ class AutoScheduleMultiGraphContext(object):
     self.beta = {}
     self.X = {}
     self.gamma = gamma
+    self.use_at_set = set()
+    self.subgraph_count = {}
     graphs = tg.get_graphs_from_tir_multi_graph(tir_multi_graph)
     graphs = OrderedDict(
       sorted([(x.value, y) for x, y in graphs.items()], key=lambda x: x[0]))
     for key, subgraph in graphs.items():
       new_name = name + ":" + str(key)
       if subgraph.tag in self.graph_tag_to_tid:
+        self.subgraph_count[subgraph.tag] += 1
         continue
-      tid, ctx = AutoScheduleGraphDispatch.add_task(
+      else:
+        self.subgraph_count[subgraph.tag] = 1
+      tid, ctx, use_at = AutoScheduleGraphDispatch.add_task(
         new_name, subgraph, measure_option, scheduler_option=scheduler_option)
+      if use_at:
+        self.use_at_set.add(subgraph.tag)
       sch, args, perf = AutoScheduleGraphDispatch.query_schedule(tid)
       self.performance_trace[tid] = [perf]
       self.C[tid] = perf
@@ -760,6 +769,13 @@ class AutoScheduleMultiGraphContext(object):
       lst[-1] = perf  # only reserve one
 
   def get_schedules(self):
+    total = 0
+    mapped = 0
+    for k, v in self.subgraph_count.items():
+      total += v
+      if k in self.use_at_set:
+        mapped += v
+    print("[NOTICE] totally", total, "subgraphs, mapped", mapped, "subgraphs, ratio=", mapped/total * 100.0, "%")
     ret = {}
     graphs = tg.get_graphs_from_tir_multi_graph(self.tir_multi_graph)
     graphs = OrderedDict({x.value: y for x, y in graphs.items()})
