@@ -180,7 +180,7 @@ class UnfoldChoiceGenerator(CDParamGenerator):
             self.unfolds = unified_unfolds
         else:
             self.unfolds = bi_product(num_items)
-        print(f"Totally {len(self.unfolds)} different choices for layout transformation", flush=True)
+        print(f"Totally {len(self.unfolds)} different mappings for this matching", flush=True)
         # self.unfolds = [[1 for _ in range(num_items)]]
         self.choices = list(range(len(self.unfolds)))
         self.reverse_map = {self.to_hashable(
@@ -231,7 +231,7 @@ class Record(object):
         return {"unfold": self.unfold_choice}
 
     def as_key(self):
-        return tuple(self.unfold_choice[0])
+        return "(" + ",".join(map(str, self.unfold_choice[0])) + ")"
 
     def __str__(self):
         return json.dumps(self.to_json())
@@ -268,6 +268,12 @@ class TransformGenerator(SAEntryGenerator):
 
     def record_from_json(self, obj):
         return self.record_cls(obj["unfold"])
+    
+    def get_all(self):
+        ret = []
+        for unfold in self.unfold_gen.get_all():
+            ret.append(self.record_cls(unfold))
+        return ret
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:

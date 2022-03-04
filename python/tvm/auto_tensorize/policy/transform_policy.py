@@ -13,9 +13,7 @@ def all_fit(match_results):
         target_volume = 1
         for iv, tv_lst in match_result.axis_map.items():
             intrin_extent = int(iv.dom.extent)
-            ext = reduce(
-                lambda x, y:
-                    x * int(y.dom.extent), tv_lst, 1)
+            ext = reduce(lambda x, y: x * int(y.dom.extent), tv_lst, 1)
             target_volume *= ext
             iterations = (ext + intrin_extent) - 1 // intrin_extent
             effective_volume *= iterations * intrin_extent
@@ -31,18 +29,17 @@ def all_fit(match_results):
     gen = TransformGenerator(chosen_match)
     record = gen.get(policy="random")
     # here is transform policy
-    record.unfold_choice = (
-        [1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
+    record.unfold_choice = ([1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
     # app = TransformApplier(match_result, verbose=False)
     # new_state = app.apply(record)
     return chosen_match, record
+
 
 def first_fit(match_results):
     for match_result in match_results:
         if not len(match_result.axis_map.values()):
             continue
-        choices = bi_product(
-            len(list(match_result.axis_map.values())[0]))
+        choices = bi_product(len(list(match_result.axis_map.values())[0]))
         # random permutation
         np.random.shuffle(choices)
         gen = TransformGenerator(match_result)
@@ -67,8 +64,7 @@ def first_fit(match_results):
                     found = False
                     break
             if found:
-                record.unfold_choice = (
-                    bit_vec, record.unfold_choice[1])
+                record.unfold_choice = (bit_vec, record.unfold_choice[1])
                 return match_result, record
     assert match_result is not None
     assert record is not None
@@ -84,9 +80,7 @@ def default_score_func(*args, **kwargs):
     total_volume = 1
     org_volume = 1
     for k, lst in value_map.items():
-        ext = reduce(
-                lambda x, y: 
-                    x * int(y.dom.extent), lst, 1)
+        ext = reduce(lambda x, y: x * int(y.dom.extent), lst, 1)
         intrin_extent = int(k.dom.extent)
         tiles = (ext + intrin_extent - 1) / intrin_extent
         total_volume *= tiles * intrin_extent
@@ -117,8 +111,7 @@ def best_fit(match_results, score_func=default_score_func):
 
     def helper1(idx):
         match_result = match_results[idx]
-        choices = bi_product(
-            len(list(match_result.axis_map.values())[0]))
+        choices = bi_product(len(list(match_result.axis_map.values())[0]))
         args = [(match_result, choice) for choice in choices]
         score_lst = list(map(helper2, args))
         best_ind = np.argmin(score_lst)
@@ -133,6 +126,18 @@ def best_fit(match_results, score_func=default_score_func):
     gen = TransformGenerator(match_result)
     record = gen.get(policy="random")
     # here is transform policy
-    record.unfold_choice = (
-        choice, record.unfold_choice[1])
+    record.unfold_choice = (choice, record.unfold_choice[1])
+    return match_result, record
+
+
+def choose_one(match_results, match_id, mapping_id):
+    assert match_id < len(match_results)
+    match_result = match_results[match_id]
+    gen = TransformGenerator(match_result)
+    mappings = gen.get_all()
+    print("List all possible mappings for this matching", flush=True)
+    for i, m in enumerate(mappings):
+        print(i, ":", str(m), flush=True)
+    assert mapping_id < len(mappings)
+    record = mappings[mapping_id]
     return match_result, record

@@ -65,19 +65,18 @@ def tensorize_axpy_fp16fp16(
     # schedule_log_file,
     # measure_opt,
     # trials=200,
-    # schedule_trials=20,
     # builder=pebble_local_builder_build,
     # runner=pebble_local_runner_run,
     # verbose=False,
     # verbose_schedule=False,
     # transform_dump=False,
-    # search_batch=5,
+    # search_group_size=5,
     # desired_compute_key=None,
     # desired_shape_key=None
 
     result = at.auto_tensorize_v3(
         target_dag, target, log_file, log_file, measure_opt,
-        trials=trials, schedule_trials=40, search_batch=20,
+        trials=trials, search_group_size=20,
         verbose=True, transform_dump=True)
     if not result.defined():
         print("Can't do tensorize.")

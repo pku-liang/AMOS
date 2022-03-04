@@ -70,7 +70,7 @@ def tensorize_tensorcore_s8s8(
     print("Begin tensorize...")
     result = at.auto_tensorize(
         target_dag, target, log_file, measure_opt, trials=trials, verbose=True,
-        transform_dump=True, runner=at.pebble_rpc_runner_run, search_batch=8)
+        transform_dump=True, runner=at.pebble_rpc_runner_run, search_group_size=8)
     if not result.defined():
         print("Can't do tensorize.")
         return

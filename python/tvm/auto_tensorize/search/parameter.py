@@ -104,6 +104,12 @@ class CDParamGenerator(ParamGenerator):
             raise RuntimeError("Unknown policy: %s" % policy)
         return self.map_from_hidden(des), direction
 
+    def get_all(self):
+        ret = []
+        for choice in self.choices:
+            ret.append((self.map_from_hidden(choice), -1))
+        return ret
+
     def diameter(self):
         raise NotImplementedError()
 
@@ -143,9 +149,15 @@ class EntryGenerator(object):
 
 
 class SAEntryGenerator(EntryGenerator):
-    def __init__(self, eps, record_cls, steps=1,
-                 log_file="sa_entry_generator_record.log",
-                 allow_repeat=False, topk=20):
+    def __init__(
+        self,
+        eps,
+        record_cls,
+        steps=1,
+        log_file="sa_entry_generator_record.log",
+        allow_repeat=False,
+        topk=20,
+    ):
         self.eps = eps
         self.entries = []
         self.visited = {}
@@ -178,7 +190,7 @@ class SAEntryGenerator(EntryGenerator):
 
     def greedy(self, cnt):
         p = np.random.random()
-        q = (self.eps / (cnt//100+1))
+        q = self.eps / (cnt // 100 + 1)
         return p > q
 
     def sa_select_entry(self, max_num=20):
@@ -189,7 +201,7 @@ class SAEntryGenerator(EntryGenerator):
         ps = list(map(lambda x: self.calculate_p(x.value, best_value), cand))
 
         num_cand = len(cand)
-        for i in range((max_num + 3)//4):
+        for i in range((max_num + 3) // 4):
             choice = np.random.randint(0, num_cand)
             if np.random.random() < ps[choice]:
                 return cand[choice]
@@ -211,7 +223,7 @@ class SAEntryGenerator(EntryGenerator):
             if policy == "random" or not self.entries:
                 record = self.get_record(policy="random")
             elif policy == "q":
-                if self.greedy(i+1):
+                if self.greedy(i + 1):
                     entry = self.sa_select_entry(max_num=self.topk_num)
                     record = self.get_record(entry=entry, policy="q")
                 else:
@@ -231,6 +243,9 @@ class SAEntryGenerator(EntryGenerator):
                 self.feedback(record, self.visited[str(record)])
         print("It seems hard to find new candidates...", flush=True)
         return self.entries[0].record
+
+    def get_all(self):
+        raise NotImplementedError()
 
     def update_score_table(self, value):
         if self.last_choice is not None:
@@ -288,8 +303,10 @@ class SAEntryGenerator(EntryGenerator):
                 value = obj["value"]
                 best = max(value, best)
                 self.feedback(record, value, False)
-        print("Load %d entries! The best known is %f ms" % (
-            count, 1/(best+1e-10)*1e3), flush=True)
+        print(
+            "Load %d entries! The best known is %f ms" % (count, 1 / (best + 1e-10) * 1e3),
+            flush=True,
+        )
 
     def get_best_entry(self):
         assert self.entries
@@ -330,7 +347,8 @@ class SAEntryGenerator(EntryGenerator):
                         #     continue
                         self.last_choice = i
                         for next_record in self.get_records_mutate_one_generator(
-                                record, gen_x, self.steps):
+                            record, gen_x, self.steps
+                        ):
                             if str(next_record) not in self.visited:
                                 if self.valid(next_record):
                                     has_output = True
@@ -359,11 +377,20 @@ class SAEntryGenerator(EntryGenerator):
 
 
 def find_optimized_parameters(
-    match_results, schedule_gen, schedule_app,
-        measure_opt, checker, trials, batch_size=16,
-        policy="", builder=tg_parallel_builder_build,
-        runner=pebble_local_runner_run, verbose=False,
-        build_parallel=1, run_parallel=1):
+    match_results,
+    schedule_gen,
+    schedule_app,
+    measure_opt,
+    checker,
+    trials,
+    search_group_size=16,
+    policy="",
+    builder=tg_parallel_builder_build,
+    runner=pebble_local_runner_run,
+    verbose=False,
+    build_parallel=1,
+    run_parallel=1,
+):
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
@@ -373,17 +400,23 @@ def find_optimized_parameters(
     if measure_opt.use_rpc:
         assert 0
         runner = pebble_rpc_runner_run
-    batch_num = (trials + batch_size - 1) // batch_size
-    print("Total search tirals:", trials,
-          "\nbatch size:", batch_size,
-          "\nbatch num:", batch_num, flush=True)
+    search_group_num = (trials + search_group_size - 1) // search_group_size
+    print(
+        "Total search tirals:",
+        trials,
+        "\nbatch size:",
+        search_group_size,
+        "\nbatch num:",
+        search_group_num,
+        flush=True,
+    )
     tic = time.time()
-    for b in range(batch_num):
+    for b in range(search_group_num):
         print("Search round:", b, flush=True)
         schedule_gen.refresh()
         params_lst = []
-        for i in range(batch_size):
-            if b * batch_size + i < trials:
+        for i in range(search_group_size):
+            if b * search_group_size + i < trials:
                 # params = schedule_gen.get(policy=policy)
                 params = schedule_gen.get_next(policy=policy)
                 # my_params = {
@@ -392,9 +425,9 @@ def find_optimized_parameters(
                 params_lst.append(params)
         assert params_lst
         build_results = builder(
-            schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel)
-        run_results = runner(
-            build_results, measure_opt, n_parallel=run_parallel)
+            schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
+        )
+        run_results = runner(build_results, measure_opt, n_parallel=run_parallel)
         for params, res in zip(params_lst, run_results):
             if verbose:
                 print(res)
@@ -411,21 +444,29 @@ def find_optimized_parameters(
                 # print("Re-evaluate: %f ms" % cost, flush=True)
                 best_value = value
                 best_params = params
-        print("Current best timecost: ", 1/best_value*1e3, "ms", flush=True)
+        print("Current best timecost: ", 1 / best_value * 1e3, "ms", flush=True)
         if best_params is not None:
             print("Current best params:\n", best_params.to_json(), flush=True)
     toc = time.time()
-    print("Search %d trials costs %f seconds" %
-          (trials, toc - tic), flush=True)
+    print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
 
 
 def find_optimized_parameters_v2(
-    match_results, schedule_gen, schedule_app,
-        measure_opt, checker, trials, batch_size=5,
-        policy="", builder=tg_parallel_builder_build,
-        runner=pebble_local_runner_run, verbose=False,
-        build_parallel=1, run_parallel=1):
+    match_results,
+    schedule_gen,
+    schedule_app,
+    measure_opt,
+    checker,
+    trials,
+    search_group_size=5,
+    policy="",
+    builder=tg_parallel_builder_build,
+    runner=pebble_local_runner_run,
+    verbose=False,
+    build_parallel=1,
+    run_parallel=1,
+):
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
@@ -434,29 +475,35 @@ def find_optimized_parameters_v2(
         best_params = top1.record
     if measure_opt.use_rpc:
         runner = pebble_rpc_runner_run
-    batch_num = (trials + batch_size - 1) // batch_size
+    search_group_num = (trials + search_group_size - 1) // search_group_size
     if verbose:
-        print("Total search tirals:", trials,
-              "\nbatch size:", batch_size,
-              "\nbatch num:", batch_num, flush=True)
+        print(
+            "Total search tirals:",
+            trials,
+            "\nbatch size:",
+            search_group_size,
+            "\nbatch num:",
+            search_group_num,
+            flush=True,
+        )
     tic = time.time()
     while True:
-        for b in range(batch_num):
+        for b in range(search_group_num):
             if verbose:
                 print("Search round:", b, flush=True)
             schedule_gen.refresh()
             params_lst = []
-            for i in range(batch_size):
-                if b * batch_size + i < trials:
+            for i in range(search_group_size):
+                if b * search_group_size + i < trials:
                     # params = schedule_gen.get(policy=policy)
                     params = schedule_gen.get_next(policy=policy)
                     # print(str(params))
                     params_lst.append(params)
             assert params_lst
             build_results = builder(
-                schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel)
-            run_results = runner(
-                build_results, measure_opt, n_parallel=run_parallel)
+                schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
+            )
+            run_results = runner(build_results, measure_opt, n_parallel=run_parallel)
 
             max_value = 1 / MAX_FLOAT
             for params, res in zip(params_lst, run_results):
@@ -478,16 +525,13 @@ def find_optimized_parameters_v2(
                     best_params = params
 
             if verbose:
-                print("Current best timecost: ", 1 /
-                      best_value*1e3, "ms", flush=True)
+                print("Current best timecost: ", 1 / best_value * 1e3, "ms", flush=True)
             else:
-                print(f"round={b+1}: {max_value}/{best_value}", flush=True)
+                print(f"iteration={b+1}: {max_value}/{best_value}", flush=True)
             if best_params is not None and verbose:
-                print("Current best params:\n",
-                      best_params.to_json(), flush=True)
+                print("Current best params:\n", best_params.to_json(), flush=True)
         yield best_value, best_params
     toc = time.time()
     if verbose:
-        print("Search %d trials costs %f seconds" %
-              (trials, toc - tic), flush=True)
+        print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
