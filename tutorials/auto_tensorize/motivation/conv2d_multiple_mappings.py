@@ -192,7 +192,7 @@ def test1():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
 
     possible_mappings = list(itertools.product([0, 1], repeat=7))
 
@@ -214,7 +214,7 @@ def test1():
         record = gen.get()
         record.unfold_choice = (mapping, record.unfold_choice[1])
         # print(record.to_json())
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         schedule_gen = at.CUDAScheduleGeneratorV2(match_result, new_state)

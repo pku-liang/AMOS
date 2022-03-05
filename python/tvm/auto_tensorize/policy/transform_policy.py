@@ -1,7 +1,7 @@
 from functools import reduce
 from ..utils import bi_product
 import numpy as np
-from ..tensorization_phases import TransformGenerator, TransformApplier
+from ..tensorization_phases import MappingGenerator, MappingApplier
 
 
 def all_fit(match_results):
@@ -26,11 +26,11 @@ def all_fit(match_results):
                 minimum_padding = padding_volume
                 chosen_match = match_result
 
-    gen = TransformGenerator(chosen_match)
+    gen = MappingGenerator(chosen_match)
     record = gen.get(policy="random")
     # here is transform policy
     record.unfold_choice = ([1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
-    # app = TransformApplier(match_result, verbose=False)
+    # app = MappingApplier(match_result, verbose=False)
     # new_state = app.apply(record)
     return chosen_match, record
 
@@ -42,7 +42,7 @@ def first_fit(match_results):
         choices = bi_product(len(list(match_result.axis_map.values())[0]))
         # random permutation
         np.random.shuffle(choices)
-        gen = TransformGenerator(match_result)
+        gen = MappingGenerator(match_result)
         record = gen.get(policy="random")
         for bit_vec in choices:
             if reduce(lambda x, y: x + y, bit_vec, 0) == 0:
@@ -123,7 +123,7 @@ def best_fit(match_results, score_func=default_score_func):
     assert len(results) > 0
     # choose the minimal one
     match_result, choice, score = results[0]
-    gen = TransformGenerator(match_result)
+    gen = MappingGenerator(match_result)
     record = gen.get(policy="random")
     # here is transform policy
     record.unfold_choice = (choice, record.unfold_choice[1])
@@ -133,7 +133,7 @@ def best_fit(match_results, score_func=default_score_func):
 def choose_one(match_results, match_id, mapping_id):
     assert match_id < len(match_results)
     match_result = match_results[match_id]
-    gen = TransformGenerator(match_result)
+    gen = MappingGenerator(match_result)
     mappings = gen.get_all()
     print("List all possible mappings for this matching", flush=True)
     for i, m in enumerate(mappings):

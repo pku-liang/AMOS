@@ -409,11 +409,11 @@ class AutoTensorizeContextV2(object):
     assert len(match_results) > 0
     self.match_result = match_results[0]
 
-    self.gen = at.TransformGenerator(
+    self.gen = at.MappingGenerator(
         self.match_result, log_file=self.log_name, allow_repeat=True)
     if os.path.exists(self.log_name) and os.path.isfile(self.log_name):
         self.gen.load_from_file(self.log_name)
-    self.app = at.TransformApplier(self.match_result, verbose=True)
+    self.app = at.MappingApplier(self.match_result, verbose=True)
 
     class ScheduleContext:
         def __init__(self, schedule_gen, schedule_app, sc_info, checker, generate_schedule):

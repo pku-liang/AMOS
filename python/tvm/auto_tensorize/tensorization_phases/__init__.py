@@ -5,8 +5,8 @@ from .compute_transform import (
     transform_main_op,
     TransformState,
     TransformRequest,
-    TransformGenerator,
+    MappingGenerator,
     substitute_inputs,
-    TransformApplier,
+    MappingApplier,
 )
 from .schedulers import *

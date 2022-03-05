@@ -94,12 +94,12 @@ def test1():
         recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     policy = "random"
     for i in range(100):
         record = gen.get(policy=policy)
         print(record.to_json())
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         # print("Compare new state and old state:")
@@ -163,11 +163,11 @@ def test2():
         recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     for i in range(1):
         record = gen.get()
         print(record.to_json())
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         # print("Compare new state and old state:")
@@ -243,12 +243,12 @@ def test3():
         recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     print(len(gen.unfold_gen.choices))
     for i in range(10):
         record = gen.get_next()
         print(record.to_json())
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         new_target_dag = new_state.target_dag

@@ -145,12 +145,12 @@ def test1():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     for i in range(1):
         record = gen.get()
         record.unfold_choice = ([1, 0, 0, 0, 0, 0, 1], record.unfold_choice[1])
         print(record.to_json())
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         # print("Compare new state and old state:")
@@ -531,7 +531,7 @@ def test2():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
@@ -541,7 +541,7 @@ def test2():
         for k, v in record.to_json().items():
             print(k, "=", v)
 
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         schedule_gen = at.CUDAScheduleGenerator(match_result, new_state)
@@ -968,7 +968,7 @@ def test3():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
@@ -978,7 +978,7 @@ def test3():
         for k, v in record.to_json().items():
             print(k, "=", v)
 
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         schedule_gen = at.CUDAScheduleGenerator(match_result, new_state)
@@ -1225,7 +1225,7 @@ def test4():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
@@ -1235,7 +1235,7 @@ def test4():
         for k, v in record.to_json().items():
             print(k, "=", v)
 
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         schedule_gen = at.CUDAScheduleGenerator(match_result, new_state)
@@ -1343,7 +1343,7 @@ def test5():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
@@ -1353,7 +1353,7 @@ def test5():
         for k, v in record.to_json().items():
             print(k, "=", v)
 
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         schedule_gen = at.CUDAScheduleGeneratorSplitK(match_result, new_state)
@@ -1471,7 +1471,7 @@ def test6():
         axis_map, target_dag, intrin_dag
     )
 
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
@@ -1481,7 +1481,7 @@ def test6():
         for k, v in record.to_json().items():
             print(k, "=", v)
 
-        app = at.TransformApplier(match_result)
+        app = at.MappingApplier(match_result)
         new_state = app.apply(record)
 
         schedule_gen = at.LLVMScheduleGenerator(match_result, new_state)

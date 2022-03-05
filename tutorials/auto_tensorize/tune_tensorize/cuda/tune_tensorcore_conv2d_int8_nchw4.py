@@ -83,11 +83,11 @@ def tensorize_tensorcore_s8s8(
     )
 
     # fix transform decisions
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     record = gen.get(policy="random")
     print(record.to_json())
     record.unfold_choice = ([1 for _ in range(20)], record.unfold_choice[1])
-    app = at.TransformApplier(match_result)
+    app = at.MappingApplier(match_result)
     new_state = app.apply(record)
 
     log_file = "Yolo-layer-%d-batch-%d-%s-%s.log" % (

@@ -1,6 +1,7 @@
 import tvm
 import os
 from tvm import auto_tensorize as at
+import numpy as np
 
 
 def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
@@ -44,18 +45,25 @@ def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation
     target = "cuda"
 
     log_file = "conv2d-fp16-layer-%d-batch-%d.log" % (layer, N)
+    log_dir = "conv2d-fp16-layer-%d-batch-%d" % (layer, N)
 
+    # Set the trals in tuning
+    # 2000 is a good choice
+    # We use 20 just for a quick tutorial
+    # If you have already tuned and gotten a log file
+    # You can set it as 0 to bypass tuning
     trials = 0
-    measure_opt = at.MeasureOptions(target=target, timeout=10, number=200, min_repeat_ms=500)
+    measure_opt = at.MeasureOptions(target=target, timeout=100, number=200, min_repeat_ms=500)
 
     result = at.auto_tensorize_v4(
         target_dag,
         target,
         log_file,
         measure_opt,
+        schedule_log_dir=log_dir,
         trials=trials,
-        search_group_size=20,
-        transform_dump=False,
+        search_group_size=5,
+        transform_dump=True,
     )
     if not result.defined():
         print("Can't do tensorize.")
@@ -70,6 +78,40 @@ def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation
 
     cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
     print("Cost is %f ms" % cost)
+
+    # retrieve schedule from the record
+    target_dag = schedule_app.target_dag
+    inputs = target_dag.get_inputs()
+    args = inputs + list(target_dag.tensors)
+    sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
+    sch = schedule_app.apply(sch, params)
+    print(tvm.lower(sch, args, simple_mode=True))
+    func = tvm.build(sch, args, target)
+
+    # test correctness
+    # Fp16 precision is not as accurate as Fp32
+    # So we use atol=0.1, rtol=0.1
+    A, B = inputs
+    (Conv,) = target_dag.tensors
+    A_np = np.random.uniform(-1, 1, [int(x) for x in A.shape]).astype(A.dtype)
+    B_np = np.random.uniform(-1, 1, [int(x) for x in B.shape]).astype(B.dtype)
+    Conv_np = np.random.uniform(-1, 1, [int(x) for x in Conv.shape]).astype(Conv.dtype)
+
+    # use scipy convolve2d api
+    from tvm.topi.testing import conv2d_nchw_python
+
+    Conv_golden = conv2d_nchw_python(A_np, B_np, stride, padding)
+
+    ctx = tvm.context(target, 0)
+    A_tvm = tvm.nd.array(A_np, ctx)
+    B_tvm = tvm.nd.array(B_np, ctx)
+    Conv_tvm = tvm.nd.array(Conv_np, ctx)
+    func(A_tvm, B_tvm, Conv_tvm)
+
+    from tvm import testing
+
+    testing.assert_allclose(Conv_golden, Conv_tvm.asnumpy(), atol=1e-1, rtol=1e-1)
+    print("Correctness check passed!")
     return cost
 
 

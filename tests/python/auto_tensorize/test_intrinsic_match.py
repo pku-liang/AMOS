@@ -273,10 +273,10 @@ def test4(
     # )
 
     # fix transform decisions
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     record = gen.get(policy="random")
     record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
-    app = at.TransformApplier(match_result)
+    app = at.MappingApplier(match_result)
     new_state = app.apply(record)
 
     log_file = "Yolo-layer-%d-batch-%d-%s-%s.log" % (
@@ -335,10 +335,10 @@ def test5(
     match_result = match_results[0]
 
     # fix transform decisions
-    gen = at.TransformGenerator(match_result)
+    gen = at.MappingGenerator(match_result)
     record = gen.get(policy="random")
     record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
-    app = at.TransformApplier(match_result)
+    app = at.MappingApplier(match_result)
     new_state = app.apply(record)
 
     log_file = "Yolo-layer-%d-batch-%d-%s-%s.log" % (

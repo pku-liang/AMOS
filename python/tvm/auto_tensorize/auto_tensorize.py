@@ -5,7 +5,7 @@ from .search.measure import MAX_FLOAT
 import tvm
 import tvm._ffi
 from .search import pebble_local_builder_build, pebble_local_runner_run
-from .tensorization_phases import get_match_results, TransformGenerator, TransformApplier
+from .tensorization_phases import get_match_results, MappingGenerator, MappingApplier
 from .tensorization_phases import (
     CUDAScheduleGenerator,
     CUDAScheduleApplier,
@@ -94,7 +94,7 @@ def auto_tensorize_compute(
     for i, v in match_result.axis_map.items():
         print(i.var, ":", [x.var for x in v], flush=True)
     print("Selected mapping:", str(record), flush=True)
-    app = TransformApplier(match_result, verbose=transform_dump)
+    app = MappingApplier(match_result, verbose=transform_dump)
     new_state = app.apply(record)
 
     if transform_dump:
@@ -319,11 +319,11 @@ def auto_tensorize_v2(
         for k, v in match_result.axis_map.items():
             print(k, ":", v, flush=True)
 
-    gen = TransformGenerator(match_result)
+    gen = MappingGenerator(match_result)
     record = gen.get(policy="random")
     # here is transform policy
     record.unfold_choice = ([1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
-    app = TransformApplier(match_result, verbose=transform_dump)
+    app = MappingApplier(match_result, verbose=transform_dump)
     new_state = app.apply(record)
 
     if transform_dump:
@@ -428,10 +428,10 @@ def auto_tensorize_v3(
         for k, v in match_result.axis_map.items():
             print(k, ":", v, flush=True)
 
-    gen = TransformGenerator(match_result, log_file=transform_log_file, allow_repeat=True)
+    gen = MappingGenerator(match_result, log_file=transform_log_file, allow_repeat=True)
     if os.path.exists(transform_log_file) and os.path.isfile(transform_log_file):
         gen.load_from_file(transform_log_file)
-    app = TransformApplier(match_result, verbose=transform_dump)
+    app = MappingApplier(match_result, verbose=transform_dump)
 
     class ScheduleContext:
         def __init__(self, schedule_gen, schedule_app, sc_info, checker, generate_schedule):
@@ -687,10 +687,10 @@ def auto_tensorize_v4(
         print("No match result matches desired shape key:", desired_shape_key, flush=True)
         return AutoTensorizeResult()
 
-    # Here we are supposed to use TransformGenerator to
+    # Here we are supposed to use MappingGenerator to
     # search for a good transformation.
     # However, we expose the searching logic directly here.
-    # TODO: merge the following logics into TransformGenerator
+    # TODO: merge the following logics into MappingGenerator
     all_matches = []
     all_mappings = []
     appliers = []
@@ -703,7 +703,7 @@ def auto_tensorize_v4(
     total_mappings = 0
     for match_result in shape_key_match_results:
         all_matches.append(match_result)
-        gen = TransformGenerator(match_result)
+        gen = MappingGenerator(match_result)
         mappings = gen.get_all()
         all_mappings.append(mappings)
         total_matchings += 1
@@ -711,7 +711,7 @@ def auto_tensorize_v4(
         total_mappings += len(mappings)
         mapping_weights.append([1.0 / len(mappings) for m in mappings])
         weights_updates.append([0.0 for m in mappings])
-        app = TransformApplier(match_result, verbose=transform_dump)
+        app = MappingApplier(match_result, verbose=transform_dump)
         appliers.append(app)
     if total_mappings == 0:
         print("Can't find any mappings!", flush=True)
@@ -778,15 +778,6 @@ def auto_tensorize_v4(
 
                 # transform compute
                 new_state = app.apply(record, drop_output=drop_output)
-                if transform_dump:
-                    print("Dump IR after transform:", flush=True)
-                    new_target_dag = new_state.target_dag
-                    new_inputs = new_target_dag.get_inputs()
-                    sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
-                    print(
-                        tvm.lower(sch, new_inputs + list(new_target_dag.tensors), simple_mode=True),
-                        flush=True,
-                    )
                 # prepare tune log file
                 record_key = record.as_key()
                 current_log_file = os.path.join(
@@ -939,6 +930,15 @@ def auto_tensorize_v4(
                     best_value = value
                     best_ctx = sch_ctx
                     best_params = params
+                    if transform_dump:
+                        print("Dump IR after transform:", flush=True)
+                        new_target_dag = new_state.target_dag
+                        new_inputs = new_target_dag.get_inputs()
+                        sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
+                        print(
+                            tvm.lower(sch, new_inputs + list(new_target_dag.tensors), simple_mode=True),
+                            flush=True,
+                        )
 
                 print(f"Best record value:{best_value} (larger is better)", flush=True)
                 print(

@@ -237,13 +237,13 @@ class Record(object):
         return json.dumps(self.to_json())
 
 
-class TransformGenerator(SAEntryGenerator):
+class MappingGenerator(SAEntryGenerator):
     def __init__(
         self, intrin_match_result, eps=1e-1,
         log_file="transform_schedule_generator.log",
         steps=1, allow_repeat=False, topk=3
     ):
-        super(TransformGenerator, self).__init__(eps, Record,
+        super(MappingGenerator, self).__init__(eps, Record,
                                                  steps=steps, log_file=log_file, allow_repeat=allow_repeat, topk=topk)
         self.init_param_generator(intrin_match_result)
         self.init_score_table()
@@ -310,7 +310,7 @@ class TransformGenerator(SAEntryGenerator):
         self.unfold_gen.feedback(*entry.record.unfold_choice, value)
 
 
-class TransformApplier(object):
+class MappingApplier(object):
     def __init__(self, intrin_match_result, verbose=False):
         assert isinstance(intrin_match_result, IntrinMatchResult)
         self.init_state = TransformState(
