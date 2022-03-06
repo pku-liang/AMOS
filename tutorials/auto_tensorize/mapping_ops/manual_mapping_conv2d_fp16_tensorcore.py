@@ -127,7 +127,7 @@ def run(N, C, H, W, K, R, S, stride, padding, dilation, layer):
 if __name__ == "__main__":
     batch = 1
     layer_id = 0
-    N, H, W, K, C, R, S, stride, padding, dilation = batch, 28, 28, 15, 128, 3, 3, 1, 1, 1
+    N, H, W, K, C, R, S, stride, padding, dilation = batch, 28, 28, 128, 128, 3, 3, 1, 1, 1
     print("Problem size:")
     print(N, C, H, W, K, R, S, stride, padding)
     cost = run(N, C, H, W, K, R, S, stride, padding, dilation, layer_id)
