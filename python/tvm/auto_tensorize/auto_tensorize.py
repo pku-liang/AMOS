@@ -458,7 +458,17 @@ def auto_tensorize_v3(
     beg = time.time()
     for it in range(iterations):
         if not pure_test:
-            record = gen.get_next(policy="random")
+            feasible = False
+            while not feasible:
+                record = gen.get_next(policy="random")
+                try:
+                    tmp_app = MappingApplier(match_result)
+                    tmp_app.apply(record, drop_output=drop_output)
+                    feasible = True
+                except RuntimeError as e:
+                    print("Catch an infeasible mapping:", flush=True)
+                    print(record, flush=True)
+                
         else:
             try:
                 entry = gen.get_best_entry()
@@ -705,6 +715,18 @@ def auto_tensorize_v4(
         all_matches.append(match_result)
         gen = MappingGenerator(match_result)
         mappings = gen.get_all()
+        # filter out infeasible mappings
+        feasible_mappings = []
+        tmp_app = MappingApplier(match_result)
+        for mapping in mappings:
+            try:
+                tmp_app.apply(mapping, drop_output=drop_output)
+                feasible_mappings.append(mapping)
+            except RuntimeError as e:
+                print("Catch an infeasible mapping:", flush=True)
+                print(mapping, flush=True)
+        mappings = feasible_mappings
+        # record the feasible mappings
         all_mappings.append(mappings)
         total_matchings += 1
         assert len(mappings) > 0
@@ -955,7 +977,8 @@ def auto_tensorize_v4(
                 new_updates = [
                     delta_weights[i] + momentum * updates[i] for i in range(len(updates))
                 ]
-                exp_scores = [weights[i] + new_updates[i] for i in range(len(new_updates))]
+                new_weights = [weights[i] + new_updates[i] for i in range(len(new_updates))]
+                exp_scores = [math.exp(x) for x in new_weights]
                 sum_exp_scores = sum(exp_scores)
                 new_weights = [x / sum_exp_scores for x in exp_scores]
                 # update into global context

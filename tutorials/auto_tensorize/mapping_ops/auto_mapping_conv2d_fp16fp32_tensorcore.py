@@ -39,7 +39,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation, layer):
+def tensorize_tensorcore_fp16fp32(N, C, H, W, K, R, S, stride, padding, dilation, layer):
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
     target = "cuda"
@@ -63,7 +63,7 @@ def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation
         verbose=False,
         transform_dump=False,
         # you can choose a specific mapping by pointing out its id
-        transform_policy="choose:0,1"
+        transform_policy="choose:0,1",
     )
     if not result.defined():
         print("Can't do tensorize.")
@@ -93,13 +93,11 @@ def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation
     func = tvm.build(sch, args, target)
 
     # test correctness
-    # Fp16 precision is not as accurate as Fp32
-    # So we use atol=0.1, rtol=0.1
     A, B = inputs
     (Conv,) = target_dag.tensors
-    A_np = np.random.uniform(-1, 1, [int(x) for x in A.shape]).astype(A.dtype)
-    B_np = np.random.uniform(-1, 1, [int(x) for x in B.shape]).astype(B.dtype)
-    Conv_np = np.random.uniform(-1, 1, [int(x) for x in Conv.shape]).astype(Conv.dtype)
+    A_np = np.random.uniform(-10, 10, [int(x) for x in A.shape]).astype(A.dtype)
+    B_np = np.random.uniform(-10, 10, [int(x) for x in B.shape]).astype(B.dtype)
+    Conv_np = np.random.uniform(-10, 10, [int(x) for x in Conv.shape]).astype(Conv.dtype)
 
     # use scipy convolve2d api
     from tvm.topi.testing import conv2d_nchw_python
@@ -114,13 +112,13 @@ def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation
 
     from tvm import testing
 
-    testing.assert_allclose(Conv_golden, Conv_tvm.asnumpy(), atol=1e-1, rtol=1e-1)
+    testing.assert_allclose(Conv_golden, Conv_tvm.asnumpy(), atol=1e-2, rtol=1e-2)
     print("Correctness check passed!")
     return cost
 
 
 def run(N, C, H, W, K, R, S, stride, padding, dilation, layer):
-    return tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation, layer)
+    return tensorize_tensorcore_fp16fp32(N, C, H, W, K, R, S, stride, padding, dilation, layer)
 
 
 if __name__ == "__main__":

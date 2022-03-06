@@ -453,7 +453,16 @@ class AutoTensorizeContextV2(object):
     beg = time.time()
     for it in range(iterations):
         if not self.pure_test:
-            record = self.gen.get_next(policy="random")
+            feasible = False
+            while not feasible:
+                record = self.gen.get_next(policy="random")
+                try:
+                    tmp_app = at.MappingApplier(self.match_result)
+                    tmp_app.apply(record, drop_output=self.drop_output)
+                    feasible = True
+                except RuntimeError as e:
+                    print("Catch an infeasible mapping:", flush=True)
+                    print(record, flush=True)
         else:
             try:
                 entry = self.gen.get_best_entry()

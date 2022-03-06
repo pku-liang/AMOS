@@ -3,6 +3,9 @@ import os
 from tvm import auto_tensorize as at
 import numpy as np
 
+"""In this tutorial, we fix manual mapping
+"""
+
 
 def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     kH = (R - 1) * dilation + 1
@@ -31,7 +34,7 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     Conv = tvm.te.compute(
         [N, K, P, Q],
         lambda n, k, p, q: tvm.te.sum(
-            (Pad[n, rc, p * stride + rr, q * stride + rs] * B[k, rc, rr, rs]).astype("float16"),
+            (Pad[n, rc, p * stride + rr, q * stride + rs] * B[k, rc, rr, rs]).astype("float32"),
             axis=[rc, rr, rs],
         ),
         name="Conv",
@@ -39,52 +42,50 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation, layer):
+def tensorize_tensorcore_fp16fp32(
+    N, C, H, W, K, R, S, stride,
+    padding, dilation, layer
+):
+    target = "llvm"
+    recipe = at.WMMAFp16Fp32()
+    compute_key = "nnn"
+    shape_key = "16x16x16"
+    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
-    target = "cuda"
 
-    log_file = "conv2d-fp16-layer-%d-batch-%d.log" % (layer, N)
-    log_dir = "conv2d-fp16-layer-%d-batch-%d" % (layer, N)
-
-    # Set the trals in tuning
-    # 2000 is a good choice
-    # We use 20 just for a quick tutorial
-    # If you have already tuned and gotten a log file
-    # You can set it as 0 to bypass tuning
-    trials = 0
-    measure_opt = at.MeasureOptions(target=target, timeout=100, number=200, min_repeat_ms=500)
-
-    result = at.auto_tensorize_v4(
-        target_dag,
-        target,
-        log_file,
-        measure_opt,
-        schedule_log_dir=log_dir,
-        trials=trials,
-        search_group_size=5,
-        transform_dump=True,
+    # hand-craft the match results
+    main_op_map = {
+        intrin_dag.op_lst[0]: target_dag.op_lst[1]
+    }
+    elem_op_map = {}
+    ii, jj = intrin_dag.op_lst[0].axis
+    kk, = intrin_dag.op_lst[0].reduce_axis
+    n, k, p, q = target_dag.op_lst[1].axis
+    rc, rr, rs = target_dag.op_lst[1].reduce_axis
+    axis_map = {
+        ii: [n, n, n, p, p, q, q],
+        jj: [k, k, k, k, k, k, k],
+        kk: [rc, rr, rs, rc, rs, rc, rr]
+    }
+    match_result = at.IntrinMatchResult(
+        recipe, compute_key, shape_key,
+        main_op_map, elem_op_map,
+        axis_map, target_dag, intrin_dag
     )
-    if not result.defined():
-        print("Can't do tensorize.")
-        return
-    schedule_gen = result.sch_gen
-    schedule_app = result.sch_app
 
-    # we store 1/time_cost in file
-    params, value = result.params, result.perf
-    print(value)
-    print(params.to_json())
-
-    cost = at.evaluate_params(schedule_app, params, measure_opt, dump=False)
-    print("Cost is %f ms" % cost)
-
+    # fix transform decisions
+    gen = at.MappingGenerator(match_result)
+    record = gen.get(policy="random")
+    record.unfold_choice = ([1, 0, 0, 1, 0, 1, 0], record.unfold_choice[1])
+    app = at.MappingApplier(match_result)
+    new_state = app.apply(record)
+    
     # retrieve schedule from the record
-    target_dag = schedule_app.target_dag
+    target_dag = new_state.target_dag
     inputs = target_dag.get_inputs()
     args = inputs + list(target_dag.tensors)
     sch = tvm.te.create_schedule([x.op for x in target_dag.tensors])
-    sch = schedule_app.apply(sch, params)
     print(tvm.lower(sch, args, simple_mode=True))
     func = tvm.build(sch, args, target)
 
@@ -112,11 +113,15 @@ def tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation
 
     testing.assert_allclose(Conv_golden, Conv_tvm.asnumpy(), atol=1e-1, rtol=1e-1)
     print("Correctness check passed!")
+    
+    # time_evaluator = func.time_evaluator(func.entry_name, ctx, number=100)
+    # cost = time_evaluator(A_tvm, B_tvm, Conv_tvm).mean * 1e3
+    cost = -1
     return cost
 
 
 def run(N, C, H, W, K, R, S, stride, padding, dilation, layer):
-    return tensorize_tensorcore_fp16fp16(N, C, H, W, K, R, S, stride, padding, dilation, layer)
+    return tensorize_tensorcore_fp16fp32(N, C, H, W, K, R, S, stride, padding, dilation, layer)
 
 
 if __name__ == "__main__":
