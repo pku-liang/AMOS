@@ -55,6 +55,8 @@ def auto_tensorize_compute(
     measure_opt,
     verbose=False,
     transform_dump=False,
+    transform_strict=True,
+    drop_output=False,
     transform_policy="all_fit",
 ):
     # refactor target
@@ -94,8 +96,8 @@ def auto_tensorize_compute(
     for i, v in match_result.axis_map.items():
         print(i.var, ":", [x.var for x in v], flush=True)
     print("Selected mapping:", str(record), flush=True)
-    app = MappingApplier(match_result, verbose=transform_dump)
-    new_state = app.apply(record)
+    app = MappingApplier(match_result, verbose=transform_dump, strict=transform_strict)
+    new_state = app.apply(record, drop_output=drop_output)
 
     if transform_dump:
         print("Dump IR after transform:", flush=True)
@@ -244,6 +246,8 @@ def auto_tensorize(
     runner=pebble_local_runner_run,
     verbose=False,
     transform_dump=False,
+    transform_strict=True,
+    drop_output=False,
     transform_policy="all_fit",
     search_group_size=16,
     enable_split_K=False,
@@ -255,7 +259,15 @@ def auto_tensorize(
         flush=True,
     )
     match_result, new_state = auto_tensorize_compute(
-        target_dag, target, log_file, measure_opt, verbose, transform_dump, transform_policy
+        target_dag,
+        target,
+        log_file,
+        measure_opt,
+        verbose,
+        transform_dump,
+        transform_strict,
+        drop_output,
+        transform_policy,
     )
 
     return auto_tensorize_schedule(
@@ -379,6 +391,7 @@ def auto_tensorize_v3(
     verbose=False,
     verbose_schedule=False,
     transform_dump=False,
+    transform_strict=True,
     search_group_size=5,
     desired_compute_key=None,
     desired_shape_key=None,
@@ -431,7 +444,7 @@ def auto_tensorize_v3(
     gen = MappingGenerator(match_result, log_file=transform_log_file, allow_repeat=True)
     if os.path.exists(transform_log_file) and os.path.isfile(transform_log_file):
         gen.load_from_file(transform_log_file)
-    app = MappingApplier(match_result, verbose=transform_dump)
+    app = MappingApplier(match_result, verbose=transform_dump, strict=transform_strict)
 
     class ScheduleContext:
         def __init__(self, schedule_gen, schedule_app, sc_info, checker, generate_schedule):
@@ -458,7 +471,17 @@ def auto_tensorize_v3(
     beg = time.time()
     for it in range(iterations):
         if not pure_test:
-            record = gen.get_next(policy="random")
+            feasible = False
+            while not feasible:
+                record = gen.get_next(policy="random")
+                try:
+                    tmp_app = MappingApplier(match_result, strict=transform_strict)
+                    tmp_app.apply(record, drop_output=drop_output)
+                    feasible = True
+                except RuntimeError as e:
+                    print("Catch an infeasible mapping:", flush=True)
+                    print(record, flush=True)
+
         else:
             try:
                 entry = gen.get_best_entry()
@@ -583,7 +606,7 @@ def auto_tensorize_v3(
                     builder=builder,
                     runner=runner,
                     verbose=verbose_schedule,
-                    batch_size=search_group_size,
+                    search_group_size=search_group_size,
                     build_parallel=build_parallel,
                     run_parallel=run_parallel,
                 )
@@ -644,6 +667,7 @@ def auto_tensorize_v4(
     runner=pebble_local_runner_run,
     verbose_schedule=False,
     transform_dump=False,
+    transform_strict=True,
     search_group_size=5,
     desired_compute_key=None,
     desired_shape_key=None,
@@ -698,20 +722,34 @@ def auto_tensorize_v4(
     weights_updates = []
     momentum = 0.8
     if not explore_full_match:
-        shape_key_match_results = shape_key_match_results[:1]
+        # use all_fit logic to choose the one with minimum padding
+        match_result, _ = all_fit(shape_key_match_results)
+        shape_key_match_results = [match_result]
     total_matchings = 0
     total_mappings = 0
     for match_result in shape_key_match_results:
         all_matches.append(match_result)
         gen = MappingGenerator(match_result)
         mappings = gen.get_all()
+        # filter out infeasible mappings
+        feasible_mappings = []
+        tmp_app = MappingApplier(match_result, strict=transform_strict)
+        for mapping in mappings:
+            try:
+                tmp_app.apply(mapping, drop_output=drop_output)
+                feasible_mappings.append(mapping)
+            except RuntimeError as e:
+                print("Catch an infeasible mapping:", flush=True)
+                print(mapping, flush=True)
+        mappings = feasible_mappings
+        # record the feasible mappings
         all_mappings.append(mappings)
         total_matchings += 1
         assert len(mappings) > 0
         total_mappings += len(mappings)
         mapping_weights.append([1.0 / len(mappings) for m in mappings])
         weights_updates.append([0.0 for m in mappings])
-        app = MappingApplier(match_result, verbose=transform_dump)
+        app = MappingApplier(match_result, verbose=transform_dump, strict=transform_strict)
         appliers.append(app)
     if total_mappings == 0:
         print("Can't find any mappings!", flush=True)
@@ -936,7 +974,9 @@ def auto_tensorize_v4(
                         new_inputs = new_target_dag.get_inputs()
                         sch = tvm.te.create_schedule([x.op for x in new_target_dag.tensors])
                         print(
-                            tvm.lower(sch, new_inputs + list(new_target_dag.tensors), simple_mode=True),
+                            tvm.lower(
+                                sch, new_inputs + list(new_target_dag.tensors), simple_mode=True
+                            ),
                             flush=True,
                         )
 
@@ -955,7 +995,8 @@ def auto_tensorize_v4(
                 new_updates = [
                     delta_weights[i] + momentum * updates[i] for i in range(len(updates))
                 ]
-                exp_scores = [weights[i] + new_updates[i] for i in range(len(new_updates))]
+                new_weights = [weights[i] + new_updates[i] for i in range(len(new_updates))]
+                exp_scores = [math.exp(x) for x in new_weights]
                 sum_exp_scores = sum(exp_scores)
                 new_weights = [x / sum_exp_scores for x in exp_scores]
                 # update into global context

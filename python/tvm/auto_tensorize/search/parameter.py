@@ -172,7 +172,7 @@ class SAEntryGenerator(EntryGenerator):
         self.gen = self._get_next(self.allow_repeat)
 
     def init_logger(self):
-        if self.log_file is not None:
+        if self.log_file is not None and self.log_file != "":
             print("Logging to %s..." % self.log_file, flush=True)
             self.logger = open(self.log_file, "a")
         else:

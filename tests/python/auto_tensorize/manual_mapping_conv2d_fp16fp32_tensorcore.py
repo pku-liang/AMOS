@@ -77,7 +77,7 @@ def tensorize_tensorcore_fp16fp32(
     # fix transform decisions
     gen = at.MappingGenerator(match_result)
     record = gen.get(policy="random")
-    record.unfold_choice = ([0, 0, 0, 0, 1, 0, 1], record.unfold_choice[1])
+    record.unfold_choice = ([1, 0, 0, 1, 0, 1, 0], record.unfold_choice[1])
     app = at.MappingApplier(match_result)
     new_state = app.apply(record)
     

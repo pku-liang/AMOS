@@ -41,7 +41,16 @@ class TransformRequest(Object):
     time_loops:
     """
 
-    def __init__(self, name, axis_map, reverse_axis_map, space_loops, time_loops, padding=False, drop_output=False):
+    def __init__(
+        self,
+        name,
+        axis_map,
+        reverse_axis_map,
+        space_loops,
+        time_loops,
+        padding=False,
+        drop_output=False,
+    ):
         self.__init_handle_by_constructor__(
             _ffi_api.TransformRequest,
             name,
@@ -50,7 +59,7 @@ class TransformRequest(Object):
             space_loops,
             time_loops,
             padding,
-            drop_output
+            drop_output,
         )
 
     def __str__(self):
@@ -62,10 +71,8 @@ class TransformRequest(Object):
         ret += "\tReverse Axis Map:\n"
         for k, v in self.reverse_axis_map.items():
             ret += "\t\t" + str(k) + ":" + str(v) + "\n"
-        ret += "\tSpace Loops:\n\t\t" + \
-            "\n\t\t".join([str(x) for x in self.space_loops])
-        ret += "\n\tTime Loops:\n\t\t" + \
-            "\n\t\t".join([str(x) for x in self.time_loops])
+        ret += "\tSpace Loops:\n\t\t" + "\n\t\t".join([str(x) for x in self.space_loops])
+        ret += "\n\tTime Loops:\n\t\t" + "\n\t\t".join([str(x) for x in self.time_loops])
         ret += "\n\tPadding: " + str(self.need_padding)
         ret += "\n\tDrop Output " + str(self.drop_output)
         ret += ")\n"
@@ -85,8 +92,7 @@ def infer_range(vars_to_infer, original_vars, original_range_map):
     -------
 
     """
-    range_map = _ffi_api.InferRange(
-        vars_to_infer, original_vars, original_range_map)
+    range_map = _ffi_api.InferRange(vars_to_infer, original_vars, original_range_map)
     return range_map
 
 
@@ -143,7 +149,7 @@ class UnfoldChoiceGenerator(CDParamGenerator):
                 visited.add(merged_tuple)
                 results.append(bit_vec)
 
-        if unify and num_items <= 10:
+        if unify and num_items <= 15:
             # when just a few choices
 
             unfolds = bi_product(num_items)
@@ -169,9 +175,7 @@ class UnfoldChoiceGenerator(CDParamGenerator):
                 if choose:
                     unfolds.append([1 if j == i else 0 for j in range(num_items)])
             if not unfolds:
-                unfolds = [
-                    [1 if j == i else 0 for j in range(num_items)]
-                        for i in range(num_items)]
+                unfolds = [[1 if j == i else 0 for j in range(num_items)] for i in range(num_items)]
             unfolds.append([1 for i in range(num_items)])
             visited = set()
             unified_unfolds = []
@@ -183,8 +187,7 @@ class UnfoldChoiceGenerator(CDParamGenerator):
         print(f"Totally {len(self.unfolds)} different mappings for this matching", flush=True)
         # self.unfolds = [[1 for _ in range(num_items)]]
         self.choices = list(range(len(self.unfolds)))
-        self.reverse_map = {self.to_hashable(
-            k): v for v, k in enumerate(self.unfolds)}
+        self.reverse_map = {self.to_hashable(k): v for v, k in enumerate(self.unfolds)}
 
         self.directions = [1, 0, -1]
         # self.directions = [0]
@@ -239,12 +242,17 @@ class Record(object):
 
 class MappingGenerator(SAEntryGenerator):
     def __init__(
-        self, intrin_match_result, eps=1e-1,
+        self,
+        intrin_match_result,
+        eps=1e-1,
         log_file="transform_schedule_generator.log",
-        steps=1, allow_repeat=False, topk=3
+        steps=1,
+        allow_repeat=False,
+        topk=3,
     ):
-        super(MappingGenerator, self).__init__(eps, Record,
-                                                 steps=steps, log_file=log_file, allow_repeat=allow_repeat, topk=topk)
+        super(MappingGenerator, self).__init__(
+            eps, Record, steps=steps, log_file=log_file, allow_repeat=allow_repeat, topk=topk
+        )
         self.init_param_generator(intrin_match_result)
         self.init_score_table()
 
@@ -268,7 +276,7 @@ class MappingGenerator(SAEntryGenerator):
 
     def record_from_json(self, obj):
         return self.record_cls(obj["unfold"])
-    
+
     def get_all(self):
         ret = []
         for unfold in self.unfold_gen.get_all():
@@ -280,8 +288,7 @@ class MappingGenerator(SAEntryGenerator):
             return self.record_cls(self.unfold_gen.get(policy=policy))
         else:
             return self.record_cls(
-                self.unfold_gen.get(
-                    hint=entry.record.unfold_choice[0], policy=policy)
+                self.unfold_gen.get(hint=entry.record.unfold_choice[0], policy=policy)
             )
 
     def get_records_mutate_one_generator(self, record, to_mutate, steps):
@@ -311,7 +318,7 @@ class MappingGenerator(SAEntryGenerator):
 
 
 class MappingApplier(object):
-    def __init__(self, intrin_match_result, verbose=False):
+    def __init__(self, intrin_match_result, verbose=False, strict=True):
         assert isinstance(intrin_match_result, IntrinMatchResult)
         self.init_state = TransformState(
             intrin_match_result.main_op_map,
@@ -321,6 +328,7 @@ class MappingApplier(object):
             intrin_match_result.intrin_dag,
         )
         self.verbose = verbose
+        self.strict = strict
 
     def apply_unfold(self, record, state, drop_output=False):
         # unfold
@@ -331,14 +339,12 @@ class MappingApplier(object):
             target_main_op = v
         assert intrin_main_op is not None
         assert target_main_op is not None
-        intrin_axis = list(intrin_main_op.axis) + \
-            list(intrin_main_op.reduce_axis)
+        intrin_axis = list(intrin_main_op.axis) + list(intrin_main_op.reduce_axis)
         # make sure everytime the unfold axes are the same order
         intrin_axis_pos = {}
         for i, axis in enumerate(intrin_axis):
             intrin_axis_pos[axis] = i
-        target_axis = list(target_main_op.axis) + \
-            list(target_main_op.reduce_axis)
+        target_axis = list(target_main_op.axis) + list(target_main_op.reduce_axis)
         unfold_choice = record.unfold_choice[0]
         choices = []
         tmp = []
@@ -367,9 +373,7 @@ class MappingApplier(object):
             return ret
 
         def sort_axis(axes):
-            return sorted(
-                axes, key=lambda x:
-                intrin_axis_pos[x] if x in intrin_axis_pos else 0)
+            return sorted(axes, key=lambda x: intrin_axis_pos[x] if x in intrin_axis_pos else 0)
 
         for axis, choice in zip(intrin_axis, choices):
             # sort axes according to original positions
@@ -403,7 +407,8 @@ class MappingApplier(object):
                 time_loops.append(axis)
 
         request = TransformRequest(
-            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, drop_output=drop_output)
+            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, drop_output=drop_output
+        )
         if self.verbose:
             print(str(request), flush=True)
         unfold_state = transform_main_op(state, request)
@@ -418,10 +423,8 @@ class MappingApplier(object):
             target_main_op = v
         assert intrin_main_op is not None
         assert target_main_op is not None
-        intrin_axis = list(intrin_main_op.axis) + \
-            list(intrin_main_op.reduce_axis)
-        target_axis = list(target_main_op.axis) + \
-            list(target_main_op.reduce_axis)
+        intrin_axis = list(intrin_main_op.axis) + list(intrin_main_op.reduce_axis)
+        target_axis = list(target_main_op.axis) + list(target_main_op.reduce_axis)
 
         choices = []
         tmp = []
@@ -444,9 +447,17 @@ class MappingApplier(object):
         for axis, choice in zip(intrin_axis, choices):
             factor = int(axis.dom.extent)
             extent = int(choice.dom.extent)
+            if extent < factor and self.strict:
+                raise RuntimeError(
+                    (
+                        "\nThis mapping is infeasible because it attempts to split a"
+                        f" larger dim of extent {factor} from a smaller dim of extent {extent},"
+                        " which will result in incorrect code in TVM."
+                        "\nThis is an internal bug of TVM and should be addressed by the official TVM group.\n"
+                    )
+                )
             outer = (extent + factor - 1) // factor
-            var = tvm.tir.IterVar(
-                [0, outer], axis.var.name + ".o", axis.iter_type)
+            var = tvm.tir.IterVar([0, outer], axis.var.name + ".o", axis.iter_type)
             fwd_axis_map[axis] = choice % factor
             fwd_axis_map[var] = choice // factor
             rvs_axis_map[choice] = var * factor + axis
@@ -464,7 +475,13 @@ class MappingApplier(object):
                 time_loops.append(axis)
 
         request = TransformRequest(
-            name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, padding=need_padding, drop_output=drop_output
+            name,
+            fwd_axis_map,
+            rvs_axis_map,
+            space_loops,
+            time_loops,
+            padding=need_padding,
+            drop_output=drop_output,
         )
         if self.verbose:
             print(str(request), flush=True)

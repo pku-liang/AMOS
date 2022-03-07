@@ -3,22 +3,21 @@ import os
 from tvm import auto_tensorize as at
 
 
-def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
+def conv2d(N, C, H, W, K, R, S, stride, padding):
     pH = H + 2 * padding
     pW = W + 2 * padding
-    A = tvm.te.placeholder([N, C, H, W], dtype="float16", name="A")
-    B = tvm.te.placeholder([K, C, R, S], dtype="float16", name="B")
+    A = tvm.te.placeholder([N, C, H, W], dtype="uint8", name="A")
+    B = tvm.te.placeholder([K, C, R, S], dtype="int8", name="B")
 
     Pad = tvm.te.compute(
         [N, C, pH, pW],
         lambda n, c, h, w: tvm.tir.if_then_else(
-            tvm.tir.all(
-                h >= padding, h - padding < H,
-                w >= padding, w - padding < W),
+            tvm.tir.all(h >= padding, h - padding < H, w >= padding, w - padding < W),
             A[n, c, h - padding, w - padding],
-            tvm.tir.const(0.0, A.dtype)
+            tvm.tir.const(0.0, A.dtype),
         ),
-        name="Pad")
+        name="Pad",
+    )
 
     rc = tvm.te.reduce_axis([0, C], name="rc")
     rr = tvm.te.reduce_axis([0, R], name="rr")
@@ -28,36 +27,51 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     Q = (pW - S) // stride + 1
     Conv = tvm.te.compute(
         [N, K, P, Q],
-        lambda n, k, p, q:
-            tvm.te.sum((Pad[n, rc, p*stride+rr, q*stride+rs] * B[k, rc, rr, rs]
-                        ).astype("float32"), axis=[rc, rr, rs]),
-        name="Conv"
+        lambda n, k, p, q: tvm.te.sum(
+            (
+                Pad[n, rc, p * stride + rr, q * stride + rs].astype("int32")
+                * B[k, rc, rr, rs].astype("int32")
+            ),
+            axis=[rc, rr, rs],
+        ),
+        name="Conv",
     )
-    # bias = tvm.te.placeholder([K], dtype="float32", name="bias")
-    # E = tvm.te.compute(
-    #     [N, K, P, Q],
-    #     lambda bn, bk, bp, bq: Conv[bn, bk, bp, bq] + bias[bk],
-    #     name="E"
-    # )
     return [A, B, Conv]
 
 
-def tensorize_tensorcore_fp16fp16(
-    N, C, H, W, K, R, S, stride,
-    padding, dilation, layer
-):
-    A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
+def tensorize_avx512_u8s8s32(N, C, H, W, K, R, S, stride, padding, layer):
+    A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding)
     target_dag = at.compute_dag_from_tensors([Conv])
-    target = "cuda"
+    target = "llvm -mcpu=skylake-avx512"
 
-    log_file = "conv2d-fp16-fp32-layer-%d-batch-%d.log" % (layer, N)
+    log_dir = "conv2d-u8s8s32-layer-%s" % (layer)
+    log_file = "conv2d-u8s8s32-layer-%s.log" % (layer)
 
-    trials = 2000
+    trials = 1000
     measure_opt = at.MeasureOptions(
-        target=target, timeout=10, number=200, min_repeat_ms=500)
+        target_host="llvm -mcpu=skylake-avx512",
+        target=target,
+        timeout=100,
+        number=200,
+        min_repeat_ms=500,
+    )
 
-    result = at.auto_tensorize(
-        target_dag, target, log_file, measure_opt, trials=trials, verbose=True, transform_dump=True)
+    result = at.auto_tensorize_v4(
+        target_dag,
+        target,
+        log_file,
+        measure_opt,
+        schedule_log_dir=log_dir,
+        trials=trials,
+        search_group_size=10,
+        transform_dump=False,
+        build_parallel=1,
+        run_parallel=1,
+    )
+    # result = at.auto_tensorize(
+    #     target_dag, target, log_file, measure_opt,
+    #     trials=trials, search_group_size=16,
+    #     verbose=False, transform_dump=False)
     if not result.defined():
         print("Can't do tensorize.")
         return
@@ -65,10 +79,10 @@ def tensorize_tensorcore_fp16fp16(
     schedule_app = result.sch_app
 
     # load from file
-    schedule_gen.load_from_file(log_file, clear=True)
-    entry = schedule_gen.get_best_entry()
+    # schedule_gen.load_from_file(log_file, clear=True)
+    # entry = schedule_gen.get_best_entry()
     # we store 1/time_cost in file
-    params, value = entry.record, 1 / entry.value
+    params, value = result.params, result.perf
     print(value)
     print(params.to_json())
 
@@ -77,11 +91,8 @@ def tensorize_tensorcore_fp16fp16(
     return cost
 
 
-def run(N, C, H, W, K, R, S, stride,
-        padding, dilation, layer):
-    return tensorize_tensorcore_fp16fp16(
-        N, C, H, W, K, R, S, stride,
-        padding, dilation, layer)
+def run(N, C, H, W, K, R, S, stride, padding, layer):
+    return tensorize_avx512_u8s8s32(N, C, H, W, K, R, S, stride, padding, layer)
 
 
 yolo_shapes_b1 = [
@@ -131,29 +142,29 @@ res18_shapes_b1 = [
 
 
 if __name__ == "__main__":
-    batches = [2**i for i in range(1)]
+    batches = [2 ** i for i in range(1)]
     beg = 0
-    #num = 15
-    num = 12
+    num = 15
     for batch in batches:
         costs = []
-        #for i, shape in enumerate(yolo_shapes_b1[beg:beg+num]):
-        for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
-            (_, C, H, W, K, _, R, S, _, stride,
-                padding, dilation, _) = shape
+        for i, shape in enumerate(res18_shapes_b1[beg : beg + num]):
+            (_, C, H, W, K, _, R, S, _, stride, padding, dilation, _) = shape
             N = batch
             print("\n\nProblem size:")
             print(N, C, H, W, K, R, S, stride, padding)
-            try:
-                cost = run(
-                    N, C, H, W, K, R, S, stride,
-                    padding, dilation,
-                    i + beg + 1
-                )
-                costs.append(cost)
-            except Exception as e:
-                print("Fail to run\n", str(e))
-                costs.append(float("inf"))
+            cost = run(
+                N,
+                C,
+                H,
+                W,
+                K,
+                R,
+                S,
+                stride,
+                padding,
+                f"({N},{C},{H},{W},{K},{R},{S},{stride},{padding})",
+            )
+            costs.append(cost)
         print("\nBatch=", batch)
         for cost in costs:
             print(cost)
