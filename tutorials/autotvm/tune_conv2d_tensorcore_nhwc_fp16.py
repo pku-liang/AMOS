@@ -68,7 +68,7 @@ from tvm import autotvm
 @autotvm.template("conv2d_nhwc_tensorcore_test")
 def conv2d_nhwc_tensorcore_test(N, H, W, CO, CI, KH, KW, stride, padding):
     data = tvm.te.placeholder((N, H, W, CI), name='data', dtype="float16")
-    kernel = tvm.te.placeholder((CO, KH, KW, CI), name='kernel', dtype="float16")
+    kernel = tvm.te.placeholder((KH, KW, CI, CO), name='kernel', dtype="float16")
     cfg = autotvm.get_config()
 
     conv = topi.cuda.nhwc_tensorcore_cuda(
@@ -133,14 +133,16 @@ def run(name, N, H, W, CO, CI, KH, KW, stride, pad):
             func = tvm.build(s, arg_bufs)
 
     # check correctness
-    a_np = np.random.uniform(size=(N, CI, H, W)).astype(np.float32)
-    w_np = np.random.uniform(size=(CO, CI, KH, KW)).astype(np.float32)
+    a_np = np.random.uniform(size=(N, H, W, CI)).astype(np.float16)
+    w_np = np.random.uniform(size=(KH, KW, CI, CO)).astype(np.float16)
+    c_np = np.random.uniform(size=(N, (H + 2 * pad - KH) // stride + 1, (W + 2 * pad - KW) // stride + 1, CO)).astype(np.float16)
     # c_np = conv2d_nchw_python(a_np, w_np, strides, padding)
 
     ctx = tvm.gpu()
     a_tvm = tvm.nd.array(a_np, ctx=ctx)
     w_tvm = tvm.nd.array(w_np, ctx=ctx)
-    c_tvm = tvm.nd.empty((N, CO, (H + 2 * pad - KH) // stride + 1, (W + 2 * pad - KW) // stride + 1), ctx=ctx)
+    c_tvm = tvm.nd.array(c_np, ctx=ctx)
+    # c_tvm = tvm.nd.empty((N, CO, (H + 2 * pad - KH) // stride + 1, (W + 2 * pad - KW) // stride + 1), ctx=ctx)
     # func(a_tvm, w_tvm, c_tvm)
 
     # tvm.testing.assert_allclose(c_np, c_tvm.asnumpy(), rtol=1e-2)
@@ -157,19 +159,19 @@ def run(name, N, H, W, CO, CI, KH, KW, stride, pad):
 
 res18_shapes_b1 = [
     # resnet-18
-    # (16, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
-    # (16, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
-    # (16, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
-    # (16, 64, 56, 56, 128, 64, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
-    # (16, 64, 56, 56, 128, 64, 1, 1, 1, 2, 0, 1, 1),  # conv5   4
-    # (16, 128, 28, 28, 128, 128, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
-    # (16, 128, 28, 28, 256, 128, 3, 3, 1, 2, 1, 1, 1),  # conv7   6
-    # (16, 128, 28, 28, 256, 128, 1, 1, 1, 2, 0, 1, 1),  # conv8   7
-    # (16, 256, 14, 14, 256, 256, 3, 3, 1, 1, 1, 1, 1),  # conv9   8
-    # (16, 256, 14, 14, 512, 256, 3, 3, 1, 2, 1, 1, 1),  # conv10  9
-    # (16, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
-    # (16, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
-    (256, 512, 7, 7, 512, 512, 1, 1, 1, 1, 0, 1, 1)
+    (16, 3, 224, 224, 64, 3, 7, 7, 1, 2, 3, 1, 1),  # conv1  0
+    (16, 64, 56, 56, 64, 64, 3, 3, 1, 1, 1, 1, 1),  # conv2   1
+    (16, 64, 56, 56, 64, 64, 1, 1, 1, 1, 0, 1, 1),  # conv3   2
+    (16, 64, 56, 56, 128, 64, 3, 3, 1, 2, 1, 1, 1),  # conv4   3
+    (16, 64, 56, 56, 128, 64, 1, 1, 1, 2, 0, 1, 1),  # conv5   4
+    (16, 128, 28, 28, 128, 128, 3, 3, 1, 1, 1, 1, 1),  # conv6   5
+    (16, 128, 28, 28, 256, 128, 3, 3, 1, 2, 1, 1, 1),  # conv7   6
+    (16, 128, 28, 28, 256, 128, 1, 1, 1, 2, 0, 1, 1),  # conv8   7
+    (16, 256, 14, 14, 256, 256, 3, 3, 1, 1, 1, 1, 1),  # conv9   8
+    (16, 256, 14, 14, 512, 256, 3, 3, 1, 2, 1, 1, 1),  # conv10  9
+    (16, 256, 14, 14, 512, 256, 1, 1, 1, 2, 0, 1, 1),  # conv11  10
+    (16, 512, 7, 7, 512, 512, 3, 3, 1, 1, 1, 1, 1),  # conv12  11
+    # (256, 512, 7, 7, 512, 512, 1, 1, 1, 1, 0, 1, 1)
 ]
 
 
@@ -178,6 +180,9 @@ if __name__ == "__main__":
     for i, args in enumerate(res18_shapes_b1):
         name = "resnet-18-layer-" + str(i+1)
         N, CI, H, W, CO, _, KW, KH, _, stride, pad, _, _ = args
+        N = (N + 15) // 16 * 16
+        CI = (CI + 15) // 16 * 16
+        CO = (CO + 15) // 16 * 16
         try:
             cost = run(name, N, H, W, CO, CI, KH, KW, stride, pad)
         except Exception as e:

@@ -149,7 +149,7 @@ class UnfoldChoiceGenerator(CDParamGenerator):
                 visited.add(merged_tuple)
                 results.append(bit_vec)
 
-        if unify and num_items <= 10:
+        if unify and num_items <= 15:
             # when just a few choices
 
             unfolds = bi_product(num_items)
@@ -318,7 +318,7 @@ class MappingGenerator(SAEntryGenerator):
 
 
 class MappingApplier(object):
-    def __init__(self, intrin_match_result, verbose=False):
+    def __init__(self, intrin_match_result, verbose=False, strict=True):
         assert isinstance(intrin_match_result, IntrinMatchResult)
         self.init_state = TransformState(
             intrin_match_result.main_op_map,
@@ -328,6 +328,7 @@ class MappingApplier(object):
             intrin_match_result.intrin_dag,
         )
         self.verbose = verbose
+        self.strict = strict
 
     def apply_unfold(self, record, state, drop_output=False):
         # unfold
@@ -446,12 +447,12 @@ class MappingApplier(object):
         for axis, choice in zip(intrin_axis, choices):
             factor = int(axis.dom.extent)
             extent = int(choice.dom.extent)
-            if extent < factor:
+            if extent < factor and self.strict:
                 raise RuntimeError(
                     (
                         "\nThis mapping is infeasible because it attempts to split a"
-                        f"larger dim of extent {factor} from a smaller dim of extent {extent},"
-                        "which will result in incorrect code in TVM."
+                        f" larger dim of extent {factor} from a smaller dim of extent {extent},"
+                        " which will result in incorrect code in TVM."
                         "\nThis is an internal bug of TVM and should be addressed by the official TVM group.\n"
                     )
                 )
