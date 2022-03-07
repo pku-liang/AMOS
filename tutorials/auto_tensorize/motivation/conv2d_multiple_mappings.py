@@ -150,10 +150,10 @@ def list_to_string(lst):
 def test1():
     print("##########################")
     print("Test 1")
-    recipe = at.WMMAFp16Fp16()
+    hw_abs_dag = at.WMMAFp16Fp16()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     # c1
     A, B, E = conv2d(16, 64, 56, 56, 64, 3, 3, 1, 1, with_bias=False, out_dtype="float16")
     # c5
@@ -187,7 +187,7 @@ def test1():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )

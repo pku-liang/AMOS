@@ -3,7 +3,7 @@
 # https://github.com/apache/incubator-tvm/blob/master/topi/python/topi/nn/dense.py
 # https://docs.tvm.ai/api/python/topi.html?highlight=topi%20dense#topi.nn.batch_matmul
 # https://github.com/apache/incubator-tvm/blob/7bad56b74e057a13c5577d512adf61bc82e2af86/src/relay/transforms/combine_parallel_op_batch.h
-# https://github.com/apache/incubator-tvm/blob/master/topi/recipe/gemm/cuda_gemm_square.py
+# https://github.com/apache/incubator-tvm/blob/master/topi/hw_abs_dag/gemm/cuda_gemm_square.py
 # https://github.com/apache/incubator-tvm/blob/master/topi/python/topi/cuda/dense.py
 # https://github.com/apache/incubator-tvm/blob/ce3f73dbc3f42745523d256beb7d31600e13af34/python/tvm/relay/op/strategy/cuda.py#L421
 

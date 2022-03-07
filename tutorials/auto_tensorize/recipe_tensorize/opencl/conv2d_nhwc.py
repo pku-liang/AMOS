@@ -81,12 +81,12 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     BL = s.cache_write(B, "local")
 
     ################################
-    recipe = at.arm_dot_vlen_local_char4()
+    hw_abs_dag = at.arm_dot_vlen_local_char4()
     compute_key = "" # dummy
     shape_key = ""
     input_names, output_names, nodes, read_graph, feed_graph = \
         at.construct_dag(
-            recipe, compute_key, shape_key, [Apad, W], [B])
+            hw_abs_dag, compute_key, shape_key, [Apad, W], [B])
 
     # tile consts
     tile = 8
@@ -170,7 +170,7 @@ def test_conv_nhwc(batch=1, in_channel=256, out_channel=512, in_size=14, kernel=
     s[WW].bind(tx, thread_x)
     # s[WW].vectorize(fi)  # vectorize memory load
 
-    arm_dot = recipe.get_intrinsic("dummy", str(step), "arm_dot")
+    arm_dot = hw_abs_dag.get_intrinsic("dummy", str(step), "arm_dot")
 
     s[BL].tensorize(rci, arm_dot)
 

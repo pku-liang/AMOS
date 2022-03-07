@@ -130,7 +130,7 @@ std::string CodeGenC::Finish() {
   if (need_special_h_) {
     CHECK(get_header) << "Can't get function auto_tensorize.get_header.";
     String header = (*get_header)(String(special_target),
-                                  String(special_recipe_mnemonic));
+                                  String(special_hw_abs_dag_mnemonic));
     decl_stream << std::string(header) << "\n";
   }
   return decl_stream.str() + stream.str();
@@ -376,13 +376,13 @@ void CodeGenC::PrintSpecialStorage(const VarNode* buffer,
   }
   CHECK(attributes.count(String("target")));
   StringImm target = attributes.at(String("target"));
-  CHECK(attributes.count(String("recipe_mnemonic")));
-  StringImm recipe_mnemonic = attributes.at(String("recipe_mnemonic"));
+  CHECK(attributes.count(String("hw_abs_dag_mnemonic")));
+  StringImm hw_abs_dag_mnemonic = attributes.at(String("hw_abs_dag_mnemonic"));
   need_special_h_ = true;
   special_target = target->value;
-  special_recipe_mnemonic = recipe_mnemonic->value;
+  special_hw_abs_dag_mnemonic = hw_abs_dag_mnemonic->value;
   Array<PrimExpr> ret = (*assemble_storage_scope)(
-    target, recipe_mnemonic, StringImm(dtype), StringImm(scope),
+    target, hw_abs_dag_mnemonic, StringImm(dtype), StringImm(scope),
     constant_size, attributes);
   CHECK(ret.size() == 2U);
   const StringImmNode* storage_string = ret[0].as<StringImmNode>();
@@ -462,7 +462,7 @@ void CodeGenC::PrintSpecialType(const VarNode* buffer, DataType t, std::ostream&
     attributes.Set(buffer_attributes[i], buffer_attributes[i + 1]);
   }
 
-  // Buffer dtype has been specified by capsule (e.g. WMMACastFp32ToTf32)
+  // Buffer dtype has been specified by hw_abs (e.g. WMMACastFp32ToTf32)
   CHECK(attributes.count(String("data_type")));
   StringImm data_type = attributes.at(String("data_type"));
 
@@ -474,11 +474,11 @@ void CodeGenC::PrintSpecialType(const VarNode* buffer, DataType t, std::ostream&
   // Fallback to get_special_dtype
   CHECK(attributes.count(String("target")));
   StringImm target = attributes.at(String("target"));
-  CHECK(attributes.count(String("recipe_mnemonic")));
-  StringImm recipe_mnemonic = attributes.at(String("recipe_mnemonic"));
+  CHECK(attributes.count(String("hw_abs_dag_mnemonic")));
+  StringImm hw_abs_dag_mnemonic = attributes.at(String("hw_abs_dag_mnemonic"));
 
   StringImm orig_dtype = StringImm(runtime::DLDataType2String(DLDataType(t)));
-  std::string dtype_string = (*get_special_dtype)(target, recipe_mnemonic, orig_dtype);
+  std::string dtype_string = (*get_special_dtype)(target, hw_abs_dag_mnemonic, orig_dtype);
 
   if (!dtype_string.empty()) {
     os << dtype_string;
@@ -730,16 +730,16 @@ void CodeGenC::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
       os << " != ";
       this->PrintExpr(op->args[0], os);
       os << ")";
-    } else if (op->op.same_as(builtin::capsule_compile())) {
+    } else if (op->op.same_as(builtin::amos_compute())) {
       CHECK(assemble_instruction) << "Can't get auto_tensorize.assemble_instructions.";
       int arg_size = (int)op->args.size();
       CHECK(arg_size >= 3);
       const StringImmNode* target = op->args[0].as<StringImmNode>();
-      const StringImmNode* recipe_mnemonic = op->args[1].as<StringImmNode>();
-      const StringImmNode* capsule_mnemonic = op->args[2].as<StringImmNode>();
+      const StringImmNode* hw_abs_dag_mnemonic = op->args[1].as<StringImmNode>();
+      const StringImmNode* hw_abs_mnemonic = op->args[2].as<StringImmNode>();
       need_special_h_ = true;
       special_target = target->value;
-      special_recipe_mnemonic = recipe_mnemonic->value;
+      special_hw_abs_dag_mnemonic = hw_abs_dag_mnemonic->value;
       Array<String> arg_strings;
       for (int i = 3; i < arg_size; ++i) {
         std::ostringstream oss;
@@ -747,8 +747,28 @@ void CodeGenC::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
         arg_strings.push_back(String(oss.str()));
       }
       String inst = (*assemble_instruction)(
-        String(target->value), String(recipe_mnemonic->value),
-        String(capsule_mnemonic->value), arg_strings);
+        String(target->value), String(hw_abs_dag_mnemonic->value),
+        String(hw_abs_mnemonic->value), arg_strings);
+      os << inst;
+    } else if (op->op.same_as(builtin::amos_memory())) {
+      CHECK(assemble_instruction) << "Can't get auto_tensorize.assemble_instructions.";
+      int arg_size = (int)op->args.size();
+      CHECK(arg_size >= 3);
+      const StringImmNode* target = op->args[0].as<StringImmNode>();
+      const StringImmNode* hw_abs_dag_mnemonic = op->args[1].as<StringImmNode>();
+      const StringImmNode* hw_abs_mnemonic = op->args[2].as<StringImmNode>();
+      need_special_h_ = true;
+      special_target = target->value;
+      special_hw_abs_dag_mnemonic = hw_abs_dag_mnemonic->value;
+      Array<String> arg_strings;
+      for (int i = 3; i < arg_size; ++i) {
+        std::ostringstream oss;
+        this->PrintExpr(op->args[i], oss);
+        arg_strings.push_back(String(oss.str()));
+      }
+      String inst = (*assemble_instruction)(
+        String(target->value), String(hw_abs_dag_mnemonic->value),
+        String(hw_abs_mnemonic->value), arg_strings);
       os << inst;
     } else {
       LOG(FATAL) << "Unresolved call " << op->op;

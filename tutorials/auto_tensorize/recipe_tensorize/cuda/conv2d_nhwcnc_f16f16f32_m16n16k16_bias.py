@@ -126,18 +126,18 @@ Output = te.compute(
 # ------------
 #
 
-recipe = at.WMMAFp16Fp32Bias()
+hw_abs_dag = at.WMMAFp16Fp32Bias()
 compute_key = "nnn"
 shape_key = "16x16x16"
 input_names, output_names, nodes, read_graph, feed_graph = \
     at.construct_dag(
-        recipe, compute_key, shape_key, [Apad, W], [Conv], [bias], [Output])
+        hw_abs_dag, compute_key, shape_key, [Apad, W], [Conv], [bias], [Output])
 
 output_tensors = reduce(
     lambda x, y: x + y, [nodes[x] for x in output_names], [])
 
 s = tvm.te.create_schedule([x.op for x in output_tensors])
-for cap in recipe.capsules.keys():
+for cap in hw_abs_dag.hw_abs_dict.keys():
     if cap not in output_names:
         tensors = nodes[cap]
         for t in tensors:
@@ -230,12 +230,12 @@ s[WS].bind(to, thread_x)
 s[WS].vectorize(ti)
 # print(tvm.lower(s, [A, W, Conv], simple_mode=True))
 
-load_a = recipe.get_intrinsic(compute_key, shape_key, "load_a")
-load_b = recipe.get_intrinsic(compute_key, shape_key, "load_b")
-load_bias = recipe.get_intrinsic(compute_key, shape_key, "load_bias")
-store = recipe.get_intrinsic(compute_key, shape_key, "store")
-mma = recipe.get_intrinsic(compute_key, shape_key, "mma")
-add_bias = recipe.get_intrinsic(compute_key, shape_key, "bias")
+load_a = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_a")
+load_b = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_b")
+load_bias = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_bias")
+store = hw_abs_dag.get_intrinsic(compute_key, shape_key, "store")
+mma = hw_abs_dag.get_intrinsic(compute_key, shape_key, "mma")
+add_bias = hw_abs_dag.get_intrinsic(compute_key, shape_key, "bias")
 print(load_a)
 print(load_b)
 print(load_bias)

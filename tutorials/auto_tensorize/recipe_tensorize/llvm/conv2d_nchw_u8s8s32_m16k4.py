@@ -71,7 +71,7 @@ def conv2d_nchw(N, C, H, W, K, R, S, CI, KI, stride, padding, dilation):
 
 
 def schedule_conv2d_nvvi(A, B, Output):
-    recipe = at.AVX512SkylakeGemvRecipe()
+    hw_abs_dag = at.AVX512SkylakeGemvhw_abs_dag()
     padded, kernel_vec = Output.op.input_tensors
     data_vec = padded.op.input_tensors[0]
     sch = tvm.te.create_schedule(Output.op)
@@ -148,7 +148,7 @@ def schedule_conv2d_nvvi(A, B, Output):
             ic_s_inner,
         )
 
-    intrin = recipe.get_intrinsic("dummy", "16x4", "gemv")
+    intrin = hw_abs_dag.get_intrinsic("dummy", "16x4", "gemv")
     if intrin is not None:
         sch[CC].tensorize(oc_s_inner, intrin)
     sch[CC].unroll(ow_block)

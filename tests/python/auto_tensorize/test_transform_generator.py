@@ -64,10 +64,10 @@ def get_tvm_arrays(tensors, ctx):
 def test1():
     print("##########################")
     print("Test 1")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -91,7 +91,7 @@ def test1():
         kk: [rc, rr, rs, rc, rs, rc, rr],
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
+        hw_abs_dag, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
     gen = at.MappingGenerator(match_result)
@@ -133,10 +133,10 @@ def test1():
 def test2():
     print("##########################")
     print("Test 2")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -160,7 +160,7 @@ def test2():
         kk: [rc, rr, rs, rc, rs, rc, rr],
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
+        hw_abs_dag, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
     gen = at.MappingGenerator(match_result)
@@ -187,7 +187,7 @@ def test2():
         assert new_target_main_op is not None
 
         new_target_dag = reconstruct_dag_as_intrin(
-            new_target_dag, new_target_main_op, recipe, compute_key, shape_key
+            new_target_dag, new_target_main_op, hw_abs_dag, compute_key, shape_key
         )
         print("new dag len:", len(new_target_dag.op_lst))
 
@@ -213,10 +213,10 @@ def test2():
 def test3():
     print("##########################")
     print("Test 3")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -240,7 +240,7 @@ def test3():
         kk: [rc, rr, rs, rc, rs, rc, rr],
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
+        hw_abs_dag, compute_key, shape_key, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
     )
 
     gen = at.MappingGenerator(match_result)
@@ -258,7 +258,7 @@ def test3():
         assert new_target_main_op is not None
 
         new_target_dag, _ = at.reconstruct_dag_as_intrin(
-            new_target_dag, new_target_main_op, recipe, compute_key, shape_key
+            new_target_dag, new_target_main_op, hw_abs_dag, compute_key, shape_key
         )
 
         new_inputs = new_target_dag.get_inputs()

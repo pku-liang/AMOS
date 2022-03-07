@@ -290,7 +290,7 @@ class CodeGenC : public ExprFunctor<void(const PrimExpr&, std::ostream&)>,
   // whether need special headers
   bool need_special_h_{false};
   std::string special_target{""};
-  std::string special_recipe_mnemonic{""};
+  std::string special_hw_abs_dag_mnemonic{""};
   // binding of let variables. Enables duplicate var defs that map to same value
   std::unordered_map<Var, const LetNode*, ObjectPtrHash, ObjectPtrEqual> let_binding_;
 };

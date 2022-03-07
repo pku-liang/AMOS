@@ -83,10 +83,10 @@ def test1():
     print("##########################")
     print("Test 1")
     N, C, H, W, K, R, S, stride, padding, dilation = 1, 256, 56, 56, 512, 3, 3, 1, 1, 1
-    recipe = at.WMMAFp16Fp16()
+    hw_abs_dag = at.WMMAFp16Fp16()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 
@@ -105,7 +105,7 @@ def test1():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -122,7 +122,7 @@ def test1():
     sc_info = schedule_gen.get_schedule_compute_info()
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 1000
-    measure_opt = at.MeasureOptions(target=recipe.target, timeout=10, number=200, min_repeat_ms=500)
+    measure_opt = at.MeasureOptions(target=hw_abs_dag.target, timeout=10, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 
     # use ansor to find optimized params

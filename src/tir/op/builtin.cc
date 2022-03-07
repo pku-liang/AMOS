@@ -229,8 +229,12 @@ TIR_DEFINE_BUILTIN_FUNC(vectorlow).set_attr<TCallEffectKind>("TCallEffectKind",
 TIR_DEFINE_BUILTIN_FUNC(vectorcombine)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kPure));
 
-// currently no assumption about capsule_compile
-TIR_DEFINE_BUILTIN_FUNC(capsule_compile)
+// currently no assumption about amos_compute
+TIR_DEFINE_BUILTIN_FUNC(amos_compute)
+    .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
+
+// currently no assumption about amos_memory
+TIR_DEFINE_BUILTIN_FUNC(amos_memory)
     .set_attr<TCallEffectKind>("TCallEffectKind", Integer(CallEffectKind::kOpaque));
 
 }  // namespace builtin

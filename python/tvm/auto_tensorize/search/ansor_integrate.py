@@ -20,7 +20,7 @@ def establish_task_ansor(
     target = tvm.target.Target(measure_opt.target)
 
     task = auto_scheduler.create_task(
-        task_name, (), target, recipe=schedule_gen.recipe_stage)
+        task_name, (), target, hw_abs_dag=schedule_gen.hw_abs_dag_stage)
 
     return task
 

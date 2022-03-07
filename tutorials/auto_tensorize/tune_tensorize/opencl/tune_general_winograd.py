@@ -6,7 +6,7 @@ from itertools import product
 from traceback import print_exc
 from contextlib import redirect_stderr
 
-"""In this tutorial, we fix recipe, hand-craft match points,
+"""In this tutorial, we fix hw_abs_dag, hand-craft match points,
     and fix transform decisions, to see how parameters affects performance
 """
 

@@ -10,16 +10,16 @@
 namespace tvm {
 namespace auto_tensorize {
 
-Array<IterVar> RecipeDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
+Array<IterVar> HwAbsDAGMatcher::_extract_axes_from_op(const ComputeOpNode* op,
                                                        bool include_reduce) {
   Array<IterVar> axes;
   for (IterVar axis : op->axis) axes.push_back(axis);
   for (IterVar axis : op->reduce_axis) axes.push_back(axis);
-  // std::cout << __LINE__ << "RecipeDAGMatcher::_extract_axes_from_op " << axes << std::endl;
+  // std::cout << __LINE__ << "HwAbsDAGMatcher::_extract_axes_from_op " << axes << std::endl;
   return std::move(axes);
 }
 
-bool RecipeDAGMatcher::_check_elemwise(const ComputeOpNode* op, Array<Array<PrimExpr>>& indices) {
+bool HwAbsDAGMatcher::_check_elemwise(const ComputeOpNode* op, Array<Array<PrimExpr>>& indices) {
   if (op->reduce_axis.size() != 0) return false;
   Array<IterVar> spatial_axes = _extract_axes_from_op(op, false);
   size_t n_axes = spatial_axes.size();
@@ -36,7 +36,7 @@ bool RecipeDAGMatcher::_check_elemwise(const ComputeOpNode* op, Array<Array<Prim
   return true;
 }
 
-Map<IterVar, Range> RecipeDAGMatcher::_infer_bounds(Operation out) {
+Map<IterVar, Range> HwAbsDAGMatcher::_infer_bounds(Operation out) {
   Array<Operation> out_ops{out};
   Schedule sch = create_schedule(out_ops);
   sch = sch.normalize();
@@ -44,17 +44,17 @@ Map<IterVar, Range> RecipeDAGMatcher::_infer_bounds(Operation out) {
   return bounds;
 }
 
-MatchResult RecipeDAGMatcher::match(Tensor target, Tensor intrin, Operation main_capsule) {
+MatchResult HwAbsDAGMatcher::match(Tensor target, Tensor intrin, Operation main_hw_abs) {
   auto target_bounds = _infer_bounds(target->op);
   auto intrin_bounds = _infer_bounds(intrin->op);
-  bool success = _match(target, intrin, main_capsule, target_bounds, intrin_bounds);
+  bool success = _match(target, intrin, main_hw_abs, target_bounds, intrin_bounds);
   return success ? this->results : MatchResult();
 }
 
-bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsule,
+bool HwAbsDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_hw_abs,
                               Map<IterVar, Range> target_bounds,
                               Map<IterVar, Range> intrin_bounds) {
-  // std::cout << __LINE__ << "RecipeDAGMatcher::_match " << target << " " << intrin << " " <<
+  // std::cout << __LINE__ << "HwAbsDAGMatcher::_match " << target << " " << intrin << " " <<
   // std::endl; std::cout << __LINE__ << "bounds (t&i) " << target_bounds << " " << intrin_bounds <<
   // std::endl;
   if (target->dtype != intrin->dtype) {
@@ -75,11 +75,11 @@ bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsu
   const PrimExpr target_expr = target_op->body[target->value_index];
   const PrimExpr intrin_expr = intrin_op->body[intrin->value_index];
 
-  if (intrin->op.same_as(main_capsule)) {
-    // std::cout << __LINE__ << "Matching main capsule..." << std::endl;
+  if (intrin->op.same_as(main_hw_abs)) {
+    // std::cout << __LINE__ << "Matching main hw_abs..." << std::endl;
     Array<IterVar> intrin_axes = _extract_axes_from_op(intrin_op);
     Array<IterVar> target_axes = _extract_axes_from_op(target_op);
-    CapsuleExprMatcher expr_matcher(buffer_map);
+    HwAbsExprMatcher expr_matcher(buffer_map);
     Array<IterVarMap> possible_index_mappings;
     possible_index_mappings = expr_matcher.match(target_expr, intrin_expr, target_axes, intrin_axes,
                                                  target_bounds, intrin_bounds);
@@ -89,7 +89,7 @@ bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsu
     results.Set(target->op, possible_index_mappings);
   } else {
     // std::cout << __LINE__ << "Checking elementwise..." << std::endl;
-    CapsuleExprMatcher expr_matcher(buffer_map);
+    HwAbsExprMatcher expr_matcher(buffer_map);
     Array<Array<PrimExpr>> target_indices, intrin_indices;
     expr_matcher.extract_indices(target_expr, intrin_expr, target_indices, intrin_indices);
 
@@ -111,7 +111,7 @@ bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsu
   for (size_t i = 0; i < num_inputs; ++i) {
     Tensor target_input_tensor = target_input_tensors[i];
     Tensor intrin_input_tensor = intrin_input_tensors[i];
-    bool success = _match(target_input_tensor, intrin_input_tensor, main_capsule, target_bounds,
+    bool success = _match(target_input_tensor, intrin_input_tensor, main_hw_abs, target_bounds,
                           intrin_bounds);
     if (!success) return false;
   }
@@ -119,7 +119,7 @@ bool RecipeDAGMatcher::_match(Tensor target, Tensor intrin, Operation main_capsu
   return true;
 }
 
-void CapsuleExprMatcher::extract_indices(PrimExpr target, PrimExpr intrin,
+void HwAbsExprMatcher::extract_indices(PrimExpr target, PrimExpr intrin,
                                          Array<Array<PrimExpr>>& target_indices,
                                          Array<Array<PrimExpr>>& intrin_indices) {
   VisitExpr(target, intrin);
@@ -132,7 +132,7 @@ void CapsuleExprMatcher::extract_indices(PrimExpr target, PrimExpr intrin,
   }
 }
 
-void CapsuleExprMatcher::_check_intrin_const_dim() {
+void HwAbsExprMatcher::_check_intrin_const_dim() {
   bool has_const_dim = false;
   for (auto index : intrin_indices) {
     for (auto i : index) {
@@ -146,17 +146,17 @@ void CapsuleExprMatcher::_check_intrin_const_dim() {
   CHECK(!has_const_dim);
 }
 
-Array<IterVarMap> CapsuleExprMatcher::match(PrimExpr target, PrimExpr intrin,
+Array<IterVarMap> HwAbsExprMatcher::match(PrimExpr target, PrimExpr intrin,
                                             Array<IterVar>& target_axes,
                                             Array<IterVar>& intrin_axes,
                                             Map<IterVar, Range> target_bounds,
                                             Map<IterVar, Range> intrin_bounds) {
-  // std::cout << __LINE__ << "CapsuleExprMatcher::match " << target << " " << intrin << " ";
+  // std::cout << __LINE__ << "HwAbsExprMatcher::match " << target << " " << intrin << " ";
   // std::cout << target_axes << " " << intrin_axes << std::endl;
   bool structure_match = VisitExpr(target, intrin);  // buffer and op
   _check_intrin_const_dim();
   if (!structure_match) {
-    // std::cout << __LINE__ << "CapsuleExprMatcher::match " << "structure_match failed" <<
+    // std::cout << __LINE__ << "HwAbsExprMatcher::match " << "structure_match failed" <<
     // std::endl;
     return Array<IterVarMap>();
   }
@@ -310,7 +310,7 @@ Array<IterVarMap> IndexExprMatcher::match(Array<Array<PrimExpr>> target_indices,
 }
 
 TVM_REGISTER_GLOBAL("auto_tensorize.MatchIntrinsic").set_body([](TVMArgs args, TVMRetValue* ret) {
-  MatchResult result = RecipeDAGMatcher().match(args[0], args[1], args[2]);
+  MatchResult result = HwAbsDAGMatcher().match(args[0], args[1], args[2]);
 
   Array<Operation> keys;
   Array<Array<IterVarMap>> values;

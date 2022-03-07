@@ -16,12 +16,12 @@ Tensor get_gemm(int m, int n, int k) {
   return output;
 }
 
-void test_recipe_dag_matcher_gemm() {
+void test_hw_abs_dag_matcher_gemm() {
   auto target = get_gemm(128, 128, 128);
   auto intrin = get_gemm(16, 16, 16);
-  auto main_capsule = intrin->op;
-  auto matcher = RecipeDAGMatcher();
-  auto results = matcher.match(target, intrin, main_capsule);
+  auto main_hw_abs = intrin->op;
+  auto matcher = HwAbsDAGMatcher();
+  auto results = matcher.match(target, intrin, main_hw_abs);
   std::cout << results << std::endl;
 }
 
@@ -39,12 +39,12 @@ Tensor get_conv(int h, int w, int c, int K, int f) {
   return conv;
 }
 
-void test_recipe_dag_matcher_conv() { 
+void test_hw_abs_dag_matcher_conv() { 
   auto target = get_conv(256, 256, 32, 32, 3);
   auto intrin = get_gemm(16, 16, 16);
-  auto main_capsule = intrin->op;
-  auto matcher = RecipeDAGMatcher();
-  auto results = matcher.match(target, intrin, main_capsule);
+  auto main_hw_abs = intrin->op;
+  auto matcher = HwAbsDAGMatcher();
+  auto results = matcher.match(target, intrin, main_hw_abs);
   std::cout << results << std::endl;
 }
 
@@ -52,13 +52,13 @@ Tensor get_dot(int n) {
   // TODO
 }
 
-void test_recipe_dag_matcher_dot() {
+void test_hw_abs_dag_matcher_dot() {
   // TODO
 }
 
 int main() {
-  test_recipe_dag_matcher_gemm();
-  test_recipe_dag_matcher_conv();
-  test_recipe_dag_matcher_dot();
+  test_hw_abs_dag_matcher_gemm();
+  test_hw_abs_dag_matcher_conv();
+  test_hw_abs_dag_matcher_dot();
   return 0;
 }

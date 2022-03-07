@@ -23,10 +23,10 @@ def transformed_gemm(M, N, K, m, n, k, compute_key, shape_key):
         lambda i, j, ii, jj:
             tvm.te.sum((A1[i, k1, ii, k2] * B1[j, k1, jj, k2]).astype(out_dtype), axis=[k1, k2]))
     
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     input_names, output_names, nodes, read_graph, feed_graph = \
         at.construct_dag(
-            recipe, compute_key, shape_key, [A1, B1], [C1], [], [C1])
+            hw_abs_dag, compute_key, shape_key, [A1, B1], [C1], [], [C1])
     output_tensors = reduce(
         lambda x, y: x + y, [nodes[x] for x in output_names], [])
     C1 = output_tensors[0]
@@ -37,7 +37,7 @@ def transformed_gemm(M, N, K, m, n, k, compute_key, shape_key):
 
 def main():
     # Map<te::Operation, String> operation_role_,
-    # String recipe_key_,
+    # String hw_abs_dag_key_,
     # String compute_key_,
     # String shape_key_,
     # Map<te::Operation, IntImm> reserve_inner_axis_count_,
@@ -60,8 +60,8 @@ def main():
         Mma.op: at.OperationRole.main_op,
         store.op: at.OperationRole.output_op
     }
-    recipe_key = "wmma_fp16_fp32"
-    capsule_map = {
+    hw_abs_dag_key = "wmma_fp16_fp32"
+    hw_abs_map = {
         load_A.op: "load_a",
         load_B.op: "load_b",
         Mma.op: "mma",
@@ -86,13 +86,13 @@ def main():
     store_to_shared = {
         store.op: 0
     }
-    recipe_stage = at.RecipeStage(
+    hw_abs_dag_stage = at.HwAbsDAGStage(
         operation_role,
         "cuda",
-        recipe_key,
+        hw_abs_dag_key,
         compute_key,
         shape_key,
-        capsule_map,
+        hw_abs_map,
         reserve_inner_axis_count,
         main_op_reserve_reduce_axis,
         main_op_reserve_reduce_axis_factor,
@@ -110,7 +110,7 @@ def main():
 
     # the last layer in resnet
     task = auto_scheduler.create_task(
-        "dynamic_transformed_gemm", (), target, recipe=recipe_stage)
+        "dynamic_transformed_gemm", (), target, hw_abs_dag=hw_abs_dag_stage)
 
     # Inspect the computational graph
     print(task.compute_dag)

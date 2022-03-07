@@ -2,7 +2,7 @@ import math
 import numpy as np
 import tvm
 from tvm.tir import IterVar
-from .recipes import construct_dag
+from .hw_abs_dag import construct_dag
 from itertools import permutations, product
 from functools import reduce
 from . import _ffi_api
@@ -130,12 +130,12 @@ def substitute_inputs(org_dag, op_map):
     return n
 
 
-def reconstruct_dag_as_intrin(target_dag, main_op, recipe, compute_key, shape_key):
+def reconstruct_dag_as_intrin(target_dag, main_op, hw_abs_dag, compute_key, shape_key):
     inputs = list(main_op.input_tensors)
     outputs = [main_op.output(0)]
     # TODO: consider elem op in dag construction
     input_names, output_names, nodes, read_graph, feed_graph = construct_dag(
-        recipe, compute_key, shape_key, inputs, outputs, [], outputs
+        hw_abs_dag, compute_key, shape_key, inputs, outputs, [], outputs
     )
     output_tensors = reduce(lambda x, y: x + y, [nodes[x] for x in output_names], [])
     output = output_tensors[0]

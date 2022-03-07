@@ -298,16 +298,16 @@ State DoPartialMultiLevelTiling(const State& state, int stage_id, const std::str
           : std::set<std::string>();
 
   std::unordered_map<int, int> fix_factor;
-  CHECK(stage->belong_capsule.defined());
+  CHECK(stage->belong_hw_abs.defined());
   int count_fix = 0;
-  for (auto v : stage->belong_capsule->main_op_reserve_reduce_axis) {
+  for (auto v : stage->belong_hw_abs->main_op_reserve_reduce_axis) {
     fix_factor[v->value] =
-      stage->belong_capsule->main_op_reserve_reduce_axis_factor[count_fix]->value;
+      stage->belong_hw_abs->main_op_reserve_reduce_axis_factor[count_fix]->value;
     count_fix++;
   }
   auto cop = stage->op.as<te::ComputeOpNode>();
   CHECK(cop);
-  int reserve_pos = (int)cop->axis.size() - stage->belong_capsule->reserve_inner_axis_count;
+  int reserve_pos = (int)cop->axis.size() - stage->belong_hw_abs->reserve_inner_axis_count;
 
   int count_spatial = 0, count_reduce = 0;
   for (const auto& iter : state->stages[stage_id]->iters) {
@@ -317,7 +317,7 @@ State DoPartialMultiLevelTiling(const State& state, int stage_id, const std::str
         if (count_spatial >= reserve_pos) {
           space_inner.push_back(iter);
         } else {
-          if ((stage->belong_capsule->operation_role
+          if ((stage->belong_hw_abs->operation_role
             != auto_tensorize::OperationRole::main_op)) {
             if (n_space <= 2) {
               space_levels[0].push_back(iter);
@@ -336,7 +336,7 @@ State DoPartialMultiLevelTiling(const State& state, int stage_id, const std::str
         count_spatial++;
       } else if (iter->iter_kind == IteratorKind::kReduction) {
         CHECK_GE(n_reduce, 1);
-        if ((stage->belong_capsule->operation_role
+        if ((stage->belong_hw_abs->operation_role
           != auto_tensorize::OperationRole::main_op) || !fix_factor.count(count_reduce)) {
           if (n_reduce <= 2) {
             reduce_levels[0].push_back(iter);

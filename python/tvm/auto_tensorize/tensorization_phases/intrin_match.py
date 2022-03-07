@@ -1,5 +1,5 @@
-from ..capsules import ComputeCapsule, ComputeDAG
-from ..recipes import query_recipe
+from ..hw_abstraction import ComputeAbstraction, ComputeDAG
+from ..hw_abs_dag import query_hw_abs_dag
 from ..target import *
 import tvm
 import tvm._ffi
@@ -11,8 +11,8 @@ class IntrinMatchResult(object):
     """
     Args:
     ---
-    recipe: CompilationRecipe
-        the matched recipe
+    hw_abs_dag: HardwareAbstractionDAG
+        the matched hw_abs_dag
     compute_key: str
     shape_key: str
     main_op: dict of {int:int}
@@ -23,7 +23,7 @@ class IntrinMatchResult(object):
 
     def __init__(
         self,
-        recipe,
+        hw_abs_dag,
         compute_key,
         shape_key,
         main_op_map,
@@ -32,7 +32,7 @@ class IntrinMatchResult(object):
         target_dag,
         intrin_dag,
     ):
-        self.recipe = recipe
+        self.hw_abs_dag = hw_abs_dag
         self.compute_key = compute_key
         self.shape_key = shape_key
         self.main_op_map = main_op_map
@@ -41,8 +41,8 @@ class IntrinMatchResult(object):
         self.target_dag = target_dag
         self.intrin_dag = intrin_dag
 
-    def get_recipe(self):
-        return self.recipe
+    def get_hw_abs_dag(self):
+        return self.hw_abs_dag
 
     def get_compute_key(self):
         return self.compute_key
@@ -63,8 +63,8 @@ class IntrinMatchResult(object):
         return self.intrin_dag
 
     def __str__(self):
-        ret = "MatchResult(recipe:%s, compute:%s, shape:%s)" % (
-            self.recipe.get_name(), self.compute_key, self.shape_key)
+        ret = "MatchResult(hw_abs_dag:%s, compute:%s, shape:%s)" % (
+            self.hw_abs_dag.get_name(), self.compute_key, self.shape_key)
         return ret
 
 
@@ -80,8 +80,8 @@ class IntrinMatcher(object):
         return []
 
 
-def intrinsic_match(target: te.Tensor, intrin: te.Tensor, main_capsule: te.TensorComputeOp) -> dict:
-    flattened = _ffi_api.MatchIntrinsic(target, intrin, main_capsule)
+def intrinsic_match(target: te.Tensor, intrin: te.Tensor, main_hw_abs: te.TensorComputeOp) -> dict:
+    flattened = _ffi_api.MatchIntrinsic(target, intrin, main_hw_abs)
     # Map<Operation, Array<Map<IterVar, IterVar>>>
     results = dict(zip(flattened[0], flattened[1]))
 
@@ -114,14 +114,14 @@ def intrinsic_multi_match(target_dag, intrin_dag, main_op):
     return results
 
 
-def get_match_result_with_recipe(target_dag, recipe, compute_key, shape_key):
+def get_match_result_with_hw_abs_dag(target_dag, hw_abs_dag, compute_key, shape_key):
     """
     target_dag: ComputeDAG
-    recipe: CompilationRecipe
+    hw_abs_dag: HardwareAbstractionDAG
     compute_key: str
     shape_key: str
     """
-    intrin_dag, main_tensors = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, main_tensors = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     # target_tensors = list(target_dag.tensors)
     # intrin_tensors = list(intrin_dag.tensors)
     # TODO: (yicheng) remove such constraints, do a general DAG match
@@ -157,7 +157,7 @@ def get_match_result_with_recipe(target_dag, recipe, compute_key, shape_key):
             for tiv, iiv in point.items():
                 axis_map[iiv].append(tiv)
         match_result = IntrinMatchResult(
-            recipe, compute_key, shape_key,
+            hw_abs_dag, compute_key, shape_key,
             main_op_map, elem_op_map,
             axis_map, target_dag, intrin_dag
         )
@@ -171,11 +171,11 @@ def get_match_results(target_dag, target):
     target: str
     """
     ret = []
-    for recipe_cls in query_recipe(target):
-        recipe = recipe_cls()
-        for compute_key in recipe.get_all_compute_keys():
-            for shape_key in recipe.get_all_shape_keys():
+    for hw_abs_dag_cls in query_hw_abs_dag(target):
+        hw_abs_dag = hw_abs_dag_cls()
+        for compute_key in hw_abs_dag.get_all_compute_keys():
+            for shape_key in hw_abs_dag.get_all_shape_keys():
                 ret.extend(
-                    get_match_result_with_recipe(
-                        target_dag, recipe, compute_key, shape_key))
+                    get_match_result_with_hw_abs_dag(
+                        target_dag, hw_abs_dag, compute_key, shape_key))
     return ret

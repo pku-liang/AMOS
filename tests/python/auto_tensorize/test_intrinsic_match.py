@@ -73,12 +73,12 @@ def test1():
     print("Intrin compute:")
     print(intrin_t.op.body[0])
 
-    # recipe = at.WMMAFp16Fp32()
-    # main_capsule = recipe.get_capsule_compute_expression(
-    #   'nnn', '16x16x16', recipe.main_capsule_name)
+    # hw_abs_dag = at.WMMAFp16Fp32()
+    # main_hw_abs = hw_abs_dag.get_hw_abs_compute_expression(
+    #   'nnn', '16x16x16', hw_abs_dag.main_hw_abs_name)
 
     print("Intrinsic match:")
-    # print(at.intrinsic_match(Out, intrin_t, main_capsule[1][0].op))
+    # print(at.intrinsic_match(Out, intrin_t, main_hw_abs[1][0].op))
     print(at.intrinsic_match(Out, intrin_t, intrin_t.op))
 
 
@@ -101,12 +101,12 @@ def test2():
     print("Intrin compute:")
     print(intrin_t.op.body[0])
 
-    # recipe = at.WMMAFp16Fp32()
-    # main_capsule = recipe.get_capsule_compute_expression(
-    #   'nnn', '16x16x16', recipe.main_capsule_name)
+    # hw_abs_dag = at.WMMAFp16Fp32()
+    # main_hw_abs = hw_abs_dag.get_hw_abs_compute_expression(
+    #   'nnn', '16x16x16', hw_abs_dag.main_hw_abs_name)
 
     print("Intrinsic match:")
-    # print(at.intrinsic_match(Out, intrin_t, main_capsule[1][0].op))
+    # print(at.intrinsic_match(Out, intrin_t, main_hw_abs[1][0].op))
     print(at.intrinsic_match(Out, intrin_t, intrin_t.op))
 
     # {
@@ -137,11 +137,11 @@ def test3():
     print("Target compute:")
     print(Out.op.body[0])
 
-    recipe = at.WMMAFp16Fp16()
-    main_capsule = recipe.get_capsule_compute_expression(
-        "nnn", "16x16x16", recipe.main_capsule_name
+    hw_abs_dag = at.WMMAFp16Fp16()
+    main_hw_abs = hw_abs_dag.get_hw_abs_compute_expression(
+        "nnn", "16x16x16", hw_abs_dag.main_hw_abs_name
     )
-    intrin_Out = main_capsule[1][0]
+    intrin_Out = main_hw_abs[1][0]
 
     print("Intrin compute:")
     print(intrin_Out.op.body[0])
@@ -190,8 +190,8 @@ def conv2d(N, C, H, W, K, R, S, stride, padding, dilation):
     return [A, B, Conv]
 
 
-def get_match_result(target_dag, recipe, compute_key, shape_key):
-    intrin_dag, main_tensors = recipe.get_effective_compute_dag(compute_key, shape_key)
+def get_match_result(target_dag, hw_abs_dag, compute_key, shape_key):
+    intrin_dag, main_tensors = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     target_tensors = list(target_dag.tensors)
     intrin_tensors = list(intrin_dag.tensors)
     # TODO: (yicheng) remove such constraints, do a general DAG match
@@ -223,7 +223,7 @@ def get_match_result(target_dag, recipe, compute_key, shape_key):
             for tiv, iiv in point.items():
                 axis_map[iiv].append(tiv)
         match_result = at.IntrinMatchResult(
-            recipe, compute_key, shape_key,
+            hw_abs_dag, compute_key, shape_key,
             main_op_map, elem_op_map,
             axis_map, target_dag, intrin_dag
         )
@@ -238,16 +238,16 @@ def test4(
     padding, dilation, layer) = (
         1, 1024, 14, 14, 1024, 3, 3, 1, 1, 1, 15
     )
-    recipe = at.WMMAFp16Fp16()
+    hw_abs_dag = at.WMMAFp16Fp16()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag, main_outputs = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, main_outputs = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
 
     A, B, Conv = conv2d(N, C, H, W, K, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 
     # get the match result
-    match_results = get_match_result(target_dag, recipe, compute_key, shape_key)
+    match_results = get_match_result(target_dag, hw_abs_dag, compute_key, shape_key)
 
     print(match_results)
     
@@ -267,7 +267,7 @@ def test4(
     #     kk: [rc, rr, rs, rc, rs, rc, rr]
     # }
     # match_result = at.IntrinMatchResult(
-    #     recipe, compute_key, shape_key,
+    #     hw_abs_dag, compute_key, shape_key,
     #     main_op_map, elem_op_map,
     #     axis_map, target_dag, intrin_dag
     # )
@@ -291,7 +291,7 @@ def test4(
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 400
     measure_opt = at.MeasureOptions(
-        target=recipe.target, timeout=10, number=200, min_repeat_ms=500)
+        target=hw_abs_dag.target, timeout=10, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 
     # use tuning to find params
@@ -330,7 +330,7 @@ def test5(
     match_results = at.get_match_results(target_dag, target)
 
     for r in match_results:
-        print(r.recipe, r.compute_key, r.shape_key)
+        print(r.hw_abs_dag, r.compute_key, r.shape_key)
     
     match_result = match_results[0]
 
@@ -353,7 +353,7 @@ def test5(
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 400
     measure_opt = at.MeasureOptions(
-        target=match_result.recipe.target, timeout=10, number=200, min_repeat_ms=500)
+        target=match_result.hw_abs_dag.target, timeout=10, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 
     # use tuning to find params

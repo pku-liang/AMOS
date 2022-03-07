@@ -82,7 +82,7 @@ Stage::Stage(te::Operation op) {
   data_ = std::move(node);
 }
 
-Stage::Stage(te::Operation op, auto_tensorize::CapsuleStage capsule) {
+Stage::Stage(te::Operation op, auto_tensorize::HwAbsStage hw_abs) {
   auto node = make_object<StageNode>();
   if (op->IsInstance<te::ComputeOpNode>()) {
     node->op_type = StageKind::kCompute;
@@ -105,7 +105,7 @@ Stage::Stage(te::Operation op, auto_tensorize::CapsuleStage capsule) {
   node->op = std::move(op);
   node->attrs.auto_unroll_max_step = 0;
   node->attrs.storage_offset = 0;
-  node->belong_capsule = capsule;
+  node->belong_hw_abs = hw_abs;
   data_ = std::move(node);
 }
 
@@ -121,14 +121,14 @@ Stage::Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters,
 }
 
 Stage::Stage(te::Operation op, StageKind op_type, const Array<Iterator>& iters,
-             ComputeAtKind compute_at, StageAttributes attrs, auto_tensorize::CapsuleStage capsule) {
+             ComputeAtKind compute_at, StageAttributes attrs, auto_tensorize::HwAbsStage hw_abs) {
   auto node = make_object<StageNode>();
   node->op = std::move(op);
   node->op_type = op_type;
   node->iters = iters;
   node->compute_at = compute_at;
   node->attrs = attrs;
-  node->belong_capsule = capsule;
+  node->belong_hw_abs = hw_abs;
   data_ = std::move(node);
 }
 
@@ -240,30 +240,30 @@ State::State(const Array<te::Operation>& ops) {
   data_ = std::move(node);
 }
 
-State::State(const Array<te::Operation>& ops, auto_tensorize::RecipeStage recipe) {
+State::State(const Array<te::Operation>& ops, auto_tensorize::HwAbsDAGStage hw_abs_dag) {
   auto node = make_object<StateNode>();
-  std::unordered_set<te::Operation> in_recipe;
-  CHECK(recipe.defined() && recipe.valid());
-  for (auto& kv : recipe->operation_role) {
-    in_recipe.insert(kv.first);
+  std::unordered_set<te::Operation> in_hw_abs_dag;
+  CHECK(hw_abs_dag.defined() && hw_abs_dag.valid());
+  for (auto& kv : hw_abs_dag->operation_role) {
+    in_hw_abs_dag.insert(kv.first);
   }
   for (const auto& op : ops) {
-    if (in_recipe.count(op)) {
-      node->stages.push_back(Stage(op, auto_tensorize::CapsuleStage(
-        recipe->operation_role.at(op),
-        recipe->target,
-        recipe->recipe_key,
-        recipe->compute_key,
-        recipe->shape_key,
-        recipe->capsule_key.at(op),
-        recipe->reserve_inner_axis_count.at(op)->value,
-        recipe->main_op_reserve_reduce_axis,
-        recipe->main_op_reserve_reduce_axis_factor,
-        (recipe->operation_role.at(op) == auto_tensorize::OperationRole::load_op
-          ? bool(recipe->load_from_shared.at(op)->value) : false),
-        (recipe->operation_role.at(op) == auto_tensorize::OperationRole::output_op
-          ? bool(recipe->store_to_shared.at(op)->value) : false),
-        recipe->instruction_scope
+    if (in_hw_abs_dag.count(op)) {
+      node->stages.push_back(Stage(op, auto_tensorize::HwAbsStage(
+        hw_abs_dag->operation_role.at(op),
+        hw_abs_dag->target,
+        hw_abs_dag->hw_abs_dag_key,
+        hw_abs_dag->compute_key,
+        hw_abs_dag->shape_key,
+        hw_abs_dag->hw_abs_key.at(op),
+        hw_abs_dag->reserve_inner_axis_count.at(op)->value,
+        hw_abs_dag->main_op_reserve_reduce_axis,
+        hw_abs_dag->main_op_reserve_reduce_axis_factor,
+        (hw_abs_dag->operation_role.at(op) == auto_tensorize::OperationRole::load_op
+          ? bool(hw_abs_dag->load_from_shared.at(op)->value) : false),
+        (hw_abs_dag->operation_role.at(op) == auto_tensorize::OperationRole::output_op
+          ? bool(hw_abs_dag->store_to_shared.at(op)->value) : false),
+        hw_abs_dag->instruction_scope
       )));
     } else {
       node->stages.push_back(Stage(op));
@@ -394,10 +394,10 @@ void State::set_scope(int stage_id, String scope_name) {
 }
 
 void State::tensorize(int stage_id, const Iterator& it, String target,
-    String recipe_key, String compute_key, String shape_key, String capsule_key) {
+    String hw_abs_dag_key, String compute_key, String shape_key, String hw_abs_key) {
   const Stage& stage = operator->()->stages[stage_id];
   TensorizeStep step = TensorizeStep(
-    stage_id, GetIndex(stage->iters, it), target, recipe_key, compute_key, shape_key, capsule_key);
+    stage_id, GetIndex(stage->iters, it), target, hw_abs_dag_key, compute_key, shape_key, hw_abs_key);
   CopyOnWrite()->transform_steps.push_back(step);
   return step->ApplyToState(this);
 }
@@ -501,9 +501,9 @@ void PrintStage(std::ostream* os, int stage_id, const State& state, size_t base_
   for (size_t j = 0; j < base_indent + indent; ++j) {
     *os << " ";
   }
-  if (stage->belong_capsule.defined()) {
+  if (stage->belong_hw_abs.defined()) {
     *os << stage->op->name
-        << stage->belong_capsule->operation_role << " = ...\n";
+        << stage->belong_hw_abs->operation_role << " = ...\n";
   } else {
     *os << stage->op->name << " = ...\n";
   }

@@ -3,7 +3,7 @@ import os
 from tvm import auto_tensorize as at
 from itertools import product
 
-"""In this tutorial, we fix recipe, hand-craft match points,
+"""In this tutorial, we fix hw_abs_dag, hand-craft match points,
     and fix transform decisions, to see how parameters affects performance
 """
 
@@ -56,10 +56,10 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation):
 def tensorize_tensorcore_fp16fp16(
     N, C, D, H, W, K, KD, R, S, stride, padding, dilation, layer
 ):
-    recipe = at.WMMAFp16Fp16()
+    hw_abs_dag = at.WMMAFp16Fp16()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, Conv = conv3d(N, C, D, H, W, K, KD, R, S, stride, padding, dilation)
     target_dag = at.compute_dag_from_tensors([Conv])
 
@@ -78,7 +78,7 @@ def tensorize_tensorcore_fp16fp16(
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -102,7 +102,7 @@ def tensorize_tensorcore_fp16fp16(
     schedule_app = at.CUDAScheduleApplier(match_result, sc_info)
     trials = 400
     measure_opt = at.MeasureOptions(
-        target=recipe.target, timeout=10, number=200, min_repeat_ms=500)
+        target=hw_abs_dag.target, timeout=10, number=200, min_repeat_ms=500)
     checker = at.CUDAProgramChecker()
 
     # use tuning to find params

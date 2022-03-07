@@ -52,7 +52,7 @@ class ComputeDAG(Object):
         Input/output tensors or workload key for a compute declaration.
     """
 
-    def __init__(self, compute, recipe=None):
+    def __init__(self, compute, hw_abs_dag=None):
         if isinstance(compute, str):
             compute = workload_key_to_tensors(compute)
         elif isinstance(compute, list):
@@ -63,10 +63,10 @@ class ComputeDAG(Object):
             raise ValueError(
                 "Invalid compute: " + compute + " . ComputeDAG expects a string or list of Tensor"
             )
-        if recipe is not None:
-            assert isinstance(recipe, at.RecipeStage)
+        if hw_abs_dag is not None:
+            assert isinstance(hw_abs_dag, at.HwAbsDAGStage)
             self.__init_handle_by_constructor__(
-                _ffi_api.ComputeDAGwithRecipe, compute, recipe)
+                _ffi_api.ComputeDAGforHwAbs, compute, hw_abs_dag)
         else:
             self.__init_handle_by_constructor__(_ffi_api.ComputeDAG, compute)
 

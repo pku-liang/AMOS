@@ -37,7 +37,7 @@
 #include <tvm/auto_scheduler/loop_state.h>
 #include <tvm/runtime/c_runtime_api.h>
 #include <tvm/te/schedule.h>
-#include <tvm/auto_tensorize/recipe.h>
+#include <tvm/auto_tensorize/hw_abs_dag.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -208,10 +208,10 @@ class ComputeDAG : public ObjectRef {
 
   /*! \brief The constructor.
    * \param tensors `te::Tensor`s for a compute declaration.
-   * \param recipe `auto_tensorize::RecipeStage` for recipe.
+   * \param hw_abs_dag `auto_tensorize::HwAbsDAGStage` for hw_abs_dag.
    */
   TVM_DLL explicit ComputeDAG(
-    Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe);
+    Array<te::Tensor> tensors, auto_tensorize::HwAbsDAGStage hw_abs_dag);
 
   /*!
    * \brief Rewrite the layout of placeholder specified by attr `layout_free_placeholders`

@@ -2,7 +2,7 @@ import json
 from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
-from ...recipes import OperationRole, RecipeStage, InstructionScope
+from ...hw_abs_dag import OperationRole, HwAbsDAGStage, InstructionScope
 from ..schedule_base import *
 from ...backend import tenet
 
@@ -72,9 +72,9 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             log_file="tenet_schedule_generator.log", steps=1):
         super(TenetScheduleGenerator, self).__init__(eps, TenetParams,
             steps=steps, log_file=log_file)
-        self.init_recipe(intrin_match_result)
+        self.init_hw_abs_dag(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
-        self.init_recipe_stage(nodes)
+        self.init_hw_abs_dag_stage(nodes)
         # get main op id and output op id
         self.main_op_id = 0
         self.output_op_id = 0
@@ -93,11 +93,11 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         self.init_param_generator()
         self.init_score_table()
 
-    def init_recipe(self, intrin_match_result):
-        recipe = intrin_match_result.recipe
+    def init_hw_abs_dag(self, intrin_match_result):
+        hw_abs_dag = intrin_match_result.hw_abs_dag
         compute_key = intrin_match_result.compute_key
         shape_key = intrin_match_result.shape_key
-        self.recipe = recipe
+        self.hw_abs_dag = hw_abs_dag
         self.compute_key = compute_key
         self.shape_key = shape_key
 
@@ -111,28 +111,28 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         self.target_dag, info = reconstruct_dag_as_intrin(
             transform_state.target_dag,
             target_main_op,
-            self.recipe,
+            self.hw_abs_dag,
             self.compute_key,
             self.shape_key)
-        # nodes: dict {capsule name : new tensor}
+        # nodes: dict {hw_abs name : new tensor}
         (_, _, nodes, _, _) = info
         # get new main op
-        self.main_op = nodes[self.recipe.main_capsule_name][0].op
+        self.main_op = nodes[self.hw_abs_dag.main_hw_abs_name][0].op
         return nodes
 
-    def init_recipe_stage(self, nodes):
+    def init_hw_abs_dag_stage(self, nodes):
         ###################################
-        # fill the recipe stage info
+        # fill the hw_abs_dag stage info
         # analyze the intrinsic dag
         def cond(cur):
-            if cur in self.recipe.capsules:
+            if cur in self.hw_abs_dag.hw_abs_dict:
                 return True
             return False
-        capsule_names, read_graph, feed_graph = self.recipe.serialize_dag(
+        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(
             cond1=cond)
 
         operation_role = {}
-        capsule_map = {}
+        hw_abs_map = {}
         reserve_inner_axis_count = {}
         main_op_reserve_reduce_axis = []
         main_op_reserve_reduce_axis_factor = []
@@ -140,11 +140,11 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         load_from_shared = {}
         store_to_shared = {}
         self.output_op = None
-        for name in capsule_names:
+        for name in hw_abs_names:
             op = nodes[name][0].op
-            capsule_map[op] = name
+            hw_abs_map[op] = name
             spatial_axis, reduce_axis = \
-                self.recipe.get_capsule_compute_reserve_axis(
+                self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
                     self.compute_key, self.shape_key, name)
             reserve_inner_axis_count[op] = len(spatial_axis)
             if name not in read_graph:
@@ -154,7 +154,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
                 operation_role[op] = OperationRole.output_op
                 store_to_shared[op] = 0
                 self.output_op = op
-            elif name == self.recipe.main_capsule_name:
+            elif name == self.hw_abs_dag.main_hw_abs_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
                     main_op_reserve_reduce_axis.append(
@@ -162,27 +162,27 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
                     main_op_reserve_reduce_axis_factor.append(
                         int(red.dom.extent))
         assert self.output_op is not None
-        # construct recipe stage
-        self.recipe_stage = RecipeStage(
+        # construct hw_abs_dag stage
+        self.hw_abs_dag_stage = HwAbsDAGStage(
             operation_role,
-            self.recipe.target,
-            self.recipe.get_name(),
+            self.hw_abs_dag.target,
+            self.hw_abs_dag.get_name(),
             self.compute_key,
             self.shape_key,
-            capsule_map,
+            hw_abs_map,
             reserve_inner_axis_count,
             main_op_reserve_reduce_axis,
             main_op_reserve_reduce_axis_factor,
             load_from_shared,
             store_to_shared,
-            self.recipe.scope
+            self.hw_abs_dag.scope
         )
 
     def init_param_generator(self):
         # for main op reduce split
         self.reduce_splits = []
         reserve_reduce_axis = set()
-        for a in self.recipe_stage.main_op_reserve_reduce_axis:
+        for a in self.hw_abs_dag_stage.main_op_reserve_reduce_axis:
             reserve_reduce_axis.add(int(a))
         # skip the reserved reduce axis
         for i, iv in enumerate(self.main_op.reduce_axis):
@@ -192,7 +192,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
                 self.reduce_splits.append(gen)
         # for output op spatial split
         self.spatial_splits = []
-        reserve_axis_count = int(self.recipe_stage.reserve_inner_axis_count[self.output_op])
+        reserve_axis_count = int(self.hw_abs_dag_stage.reserve_inner_axis_count[self.output_op])
         # skip the reserved spatial axis
         for iv in self.output_op.axis[:-reserve_axis_count]:
             gen = SplitFactorGenerator(
@@ -207,7 +207,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         #                          self.last_op_tiling_parts)]
         # self.inline = InlineGenerator()
         # self.vectorize = VectorizeLengthGenerator(
-        #     self.recipe.target, self.main_op.input_tensors[0].dtype)
+        #     self.hw_abs_dag.target, self.main_op.input_tensors[0].dtype)
         # self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
         # self.unroll_last = UnrollStepGenerator([16, 64, 512, 1500])
         self.generator_lst = [
@@ -233,7 +233,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             self.output_op,
             self.main_op_id,
             self.output_op_id,
-            self.recipe_stage,
+            self.hw_abs_dag_stage,
             spatial_tiling = self.spatial_tiling_parts,
             reduce_tiling = self.reduce_tiling_parts,
             last_tiling = self.last_op_tiling_parts
@@ -379,11 +379,11 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
 class TenetScheduleApplier(object):
     def __init__(self, intrin_match_result, schedule_compute_info, arch=""):
         self.intrin_match_result = intrin_match_result
-        # get match recipe info
-        recipe = intrin_match_result.recipe
+        # get match hw_abs_dag info
+        hw_abs_dag = intrin_match_result.hw_abs_dag
         compute_key = intrin_match_result.compute_key
         shape_key = intrin_match_result.shape_key
-        self.recipe = recipe
+        self.hw_abs_dag = hw_abs_dag
         self.compute_key = compute_key
         self.shape_key = shape_key
 
@@ -392,7 +392,7 @@ class TenetScheduleApplier(object):
         self.output_op = schedule_compute_info.output_op
         self.main_op_id = schedule_compute_info.main_op_id
         self.output_op_id = schedule_compute_info.output_op_id
-        self.recipe_stage = schedule_compute_info.recipe_stage
+        self.hw_abs_dag_stage = schedule_compute_info.hw_abs_dag_stage
         # the state during schedule
         self.state = empty_tenet_state()
         # the parameters during schedule
@@ -474,7 +474,7 @@ class TenetScheduleApplier(object):
         return True
 
     def inline(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
+        if op in self.hw_abs_dag_stage.operation_role:
             return
         else:
             if not op in self.target_dag.feed_graph:
@@ -484,8 +484,8 @@ class TenetScheduleApplier(object):
                 if len(consumers) <= 0:
                     return
                 if len(consumers) == 1 and \
-                    consumers[0] in self.recipe_stage.operation_role and \
-                        self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
+                    consumers[0] in self.hw_abs_dag_stage.operation_role and \
+                        self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op:
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         return
@@ -494,7 +494,7 @@ class TenetScheduleApplier(object):
                 self.state.inlined.add(op)
 
     def cache_read(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
+        if op in self.hw_abs_dag_stage.operation_role:
             return
         # if op in self.state.inlined:
         #     return
@@ -505,8 +505,8 @@ class TenetScheduleApplier(object):
         consumers = self.target_dag.feed_graph[op]
         if len(consumers) <= 0:
             return
-        if consumers[0] in self.recipe_stage.operation_role:
-            if self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
+        if consumers[0] in self.hw_abs_dag_stage.operation_role:
+            if self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op:
                 if len(consumers) == 1:
                     do_cache_read_for_load = True
         if consumers[0] == self.target_dag.op_lst[-1]:
@@ -533,9 +533,9 @@ class TenetScheduleApplier(object):
             # sch[S].vectorize(vectorized)
 
     def set_scope(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
+        if op in self.hw_abs_dag_stage.operation_role:
             # do not set scope for output op
-            if self.recipe_stage.operation_role[op] != OperationRole.output_op:
+            if self.hw_abs_dag_stage.operation_role[op] != OperationRole.output_op:
                 # only handle register level
                 sch[X(op)].set_scope("local")
 
@@ -544,14 +544,14 @@ class TenetScheduleApplier(object):
         if op == self.main_op:
             # prepare spatial axis
             axis = sch[X(op)].op.axis
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
+            reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             spatial_axis_split_parts = [
                 axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
 
             all_reduce_axis = sch[X(op)].op.reduce_axis
             reserve_reduce_axis = []
             split_reduce_axis = []
-            tmp = set([int(x) for x in self.recipe_stage.main_op_reserve_reduce_axis])
+            tmp = set([int(x) for x in self.hw_abs_dag_stage.main_op_reserve_reduce_axis])
             for i, iv in enumerate(all_reduce_axis):
                 if i in tmp:
                     reserve_reduce_axis.append(iv)
@@ -607,7 +607,7 @@ class TenetScheduleApplier(object):
         elif op == self.output_op:
             axis = sch[X(op)].op.axis
             reserve_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
+                self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             split_spatial_axis = axis[:-reserve_spatial_num]
             reserve_spatial_axis = axis[-reserve_spatial_num:]
             spatial_axis_split_factors = self.get_output_op_axis_factors(
@@ -703,8 +703,8 @@ class TenetScheduleApplier(object):
                 if len(consumers) <= 0:
                     return
                 if len(consumers) == 1 and \
-                    consumers[0] in self.recipe_stage.operation_role and \
-                        self.recipe_stage.operation_role[consumers[0]] == OperationRole.load_op:
+                    consumers[0] in self.hw_abs_dag_stage.operation_role and \
+                        self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op:
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         do_tiling = True
@@ -729,26 +729,26 @@ class TenetScheduleApplier(object):
                 # sch[X(op)].bind(thread_level, tx)
 
     def compute_at(self, op_id, op, sch, X):
-        if not op in self.recipe_stage.operation_role:
+        if not op in self.hw_abs_dag_stage.operation_role:
             return
         if op_id < self.main_op_id:
             # compute at to main op
             axis = self.get_main_op_second_outermost_last_reduce_axis()
             sch[X(op)].compute_at(sch[X(self.main_op)], axis)
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
+            reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             self.state.tensorize_iter[op] = sch[X(op)].op.axis[-reserve_spatial_num]
         elif self.main_op_id < op_id < self.output_op_id:
             # compute at to output op
             axis = self.get_output_op_third_innermost_last_axis()
             sch[X(op)].compute_at(sch[X(self.output_op)], axis)
-            reserve_spatial_num = int(self.recipe_stage.reserve_inner_axis_count[op])
+            reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             self.state.tensorize_iter[op] = sch[X(op)].op.axis[-reserve_spatial_num]
 
     def tensorize(self, op_id, op, sch, X):
-        if not op in self.recipe_stage.operation_role:
+        if not op in self.hw_abs_dag_stage.operation_role:
             return
-        intrin = self.recipe.get_intrinsic(
-            self.compute_key, self.shape_key, self.recipe_stage.capsule_key[op])
+        intrin = self.hw_abs_dag.get_intrinsic(
+            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op])
         axis = self.get_tensorize_iter(op)
         sch[X(op)].tensorize(axis, intrin)
     

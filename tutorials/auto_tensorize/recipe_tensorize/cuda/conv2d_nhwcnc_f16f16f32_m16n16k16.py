@@ -118,18 +118,18 @@ Conv = te.compute(
 # ------------
 #
 
-recipe = at.WMMAFp16Fp32()
+hw_abs_dag = at.WMMAFp16Fp32()
 compute_key = "nnn"
 shape_key = "16x16x16"
 input_names, output_names, nodes, read_graph, feed_graph = \
     at.construct_dag(
-        recipe, compute_key, shape_key, [Apad, W], [Conv])
+        hw_abs_dag, compute_key, shape_key, [Apad, W], [Conv])
 
 output_tensors = reduce(
     lambda x, y: x + y, [nodes[x] for x in output_names], [])
 
 s = tvm.te.create_schedule([x.op for x in output_tensors])
-for cap in recipe.capsules.keys():
+for cap in hw_abs_dag.hw_abs_dict.keys():
     if cap not in output_names:
         tensors = nodes[cap]
         for t in tensors:
@@ -215,10 +215,10 @@ s[WS].bind(to, thread_x)
 s[WS].vectorize(ti)
 # print(tvm.lower(s, [A, W, Conv], simple_mode=True))
 
-load_a = recipe.get_intrinsic(compute_key, shape_key, "load_a")
-load_b = recipe.get_intrinsic(compute_key, shape_key, "load_b")
-store = recipe.get_intrinsic(compute_key, shape_key, "store")
-mma = recipe.get_intrinsic(compute_key, shape_key, "mma")
+load_a = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_a")
+load_b = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_b")
+store = hw_abs_dag.get_intrinsic(compute_key, shape_key, "store")
+mma = hw_abs_dag.get_intrinsic(compute_key, shape_key, "mma")
 print(load_a)
 print(load_b)
 print(store)

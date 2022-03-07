@@ -13,7 +13,7 @@ void test_infer_bounds() {
   auto B = placeholder(shape, DataType::Float(32), "B");
   auto C = compute(A->shape, [&A, &B](PrimExpr i) { return A[i] + B[i]; }, "C");
 
-  auto matcher = RecipeDAGMatcher();
+  auto matcher = HwAbsDAGMatcher();
   // Map<IterVar, Range> bounds = matcher._infer_bounds(C->op);
   // std::cout << bounds << std::endl;
 }

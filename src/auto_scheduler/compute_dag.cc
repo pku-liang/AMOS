@@ -670,13 +670,13 @@ ComputeDAG::ComputeDAG(Array<te::Tensor> tensors) {
 
 
 ComputeDAG::ComputeDAG(
-  Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe) {
+  Array<te::Tensor> tensors, auto_tensorize::HwAbsDAGStage hw_abs_dag) {
   auto node = make_object<ComputeDAGNode>();
   node->tensors = std::move(tensors);
   node->access_analyzer = AccessAnalyzer(node->tensors);
   node->ops = node->access_analyzer->ops_topo_order;
   node->flop_ct = FlopEstimator().EstimateFlop(node->ops);
-  node->init_state = State(node->ops, recipe);
+  node->init_state = State(node->ops, hw_abs_dag);
   data_ = std::move(node);
 }
 
@@ -1132,7 +1132,7 @@ State ComputeDAG::InferBound(const State& state) const {
     pstate->stages.Set(
         i, Stage(
           stage->op, stage->op_type, new_iters,
-          stage->compute_at, stage->attrs, stage->belong_capsule));
+          stage->compute_at, stage->attrs, stage->belong_hw_abs));
   }
 
   return ret_state;
@@ -1277,9 +1277,9 @@ TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAG").set_body_typed([](Array<te::Ten
   return ComputeDAG(tensors);
 });
 
-TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGwithRecipe").set_body_typed([](
-  Array<te::Tensor> tensors, auto_tensorize::RecipeStage recipe) {
-  return ComputeDAG(tensors, recipe);
+TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGforHwAbs").set_body_typed([](
+  Array<te::Tensor> tensors, auto_tensorize::HwAbsDAGStage hw_abs_dag) {
+  return ComputeDAG(tensors, hw_abs_dag);
 });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.ComputeDAGApplyStepsFromState")

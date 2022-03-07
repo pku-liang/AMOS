@@ -21,13 +21,13 @@
  * \file auto_tensorize/compute_transform.h
  * \brief Compute transform in the auto_schedule.
  *
- * Recipe.
+ * HW abstraction DAG.
  */
 
 #ifndef TVM_AUTO_TENSORIZE_COMPUTE_TRANSFORM_H_
 #define TVM_AUTO_TENSORIZE_COMPUTE_TRANSFORM_H_
 
-#include <tvm/auto_tensorize/capsule.h>
+#include <tvm/auto_tensorize/hw_abstraction.h>
 #include <tvm/tir/expr_functor.h>
 #include <tvm/tir/stmt_functor.h>
 #include <tvm/arith/int_set.h>

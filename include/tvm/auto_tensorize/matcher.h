@@ -8,7 +8,7 @@
 #ifndef TVM_AUTO_TENSORIZE_MATCHER_H_
 #define TVM_AUTO_TENSORIZE_MATCHER_H_
 
-#include <tvm/auto_tensorize/capsule.h>
+#include <tvm/auto_tensorize/hw_abstraction.h>
 #include <tvm/node/node.h>
 #include <tvm/runtime/container.h>
 #include <tvm/te/operation.h>
@@ -25,24 +25,24 @@ typedef Map<IterVar, IterVar> IterVarMap;
 typedef Map<DataProducer, DataProducer> BufferMap;
 typedef Map<Operation, Array<IterVarMap>> MatchResult;
 
-class RecipeDAGMatcher : public Object {
+class HwAbsDAGMatcher : public Object {
  public:
-  MatchResult match(Tensor target, Tensor intrin, Operation main_capsule);
+  MatchResult match(Tensor target, Tensor intrin, Operation main_hw_abs);
 
  private:
   MatchResult results;
   BufferMap buffer_map;
-  bool _match(Tensor target, Tensor intrin, Operation main_capsule,
+  bool _match(Tensor target, Tensor intrin, Operation main_hw_abs,
               Map<IterVar, Range> target_bounds, Map<IterVar, Range> intrin_bounds);
   Map<IterVar, Range> _infer_bounds(Operation out);
   Array<IterVar> _extract_axes_from_op(const ComputeOpNode* op, bool include_reduce = true);
   bool _check_elemwise(const ComputeOpNode* op, Array<Array<PrimExpr>>& indices);
 };
 
-class CapsuleExprMatcher : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)> {
+class HwAbsExprMatcher : public ExprFunctor<bool(const PrimExpr&, const PrimExpr&)> {
  public:
   using ExprFunctor::VisitExpr;
-  CapsuleExprMatcher(BufferMap& bm) : buffer_map(bm){};
+  HwAbsExprMatcher(BufferMap& bm) : buffer_map(bm){};
   Array<IterVarMap> match(PrimExpr target, PrimExpr intrin, Array<IterVar>& target_axes,
                           Array<IterVar>& intrin_axes, Map<IterVar, Range> target_bounds,
                           Map<IterVar, Range> intrin_bounds);

@@ -189,7 +189,7 @@ def intrin_wmma_load_matrix(scope, operand):
         ib.emit(
             tvm.tir.call_intrin(
                 "handle",
-                "tir.capsule_compile",
+                "tir.amos_memory",
                 "cuda",
                 "wmma_int4_int32",
                 "nvcuda::wmma::load_matrix_sync",
@@ -251,7 +251,7 @@ def intrin_wmma_gemm():
             ib.emit(
                 tvm.tir.call_intrin(
                     "handle",
-                    "tir.capsule_compile",
+                    "tir.amos_compute",
                     "cuda",
                     "wmma_int4_int32",
                     "nvcuda::wmma::fill_fragment",
@@ -270,7 +270,7 @@ def intrin_wmma_gemm():
             ib.emit(
                 tvm.tir.call_intrin(
                     "handle",
-                    "tir.capsule_compile",
+                    "tir.amos_compute",
                     "cuda",
                     "wmma_int4_int32",
                     "nvcuda::wmma::mma_sync",
@@ -309,7 +309,7 @@ def intrin_wmma_store_matrix():
         ib.emit(
             tvm.tir.call_intrin(
                 "handle",
-                "tir.capsule_compile",
+                "tir.amos_memory",
                 "cuda",
                 "wmma_int4_int32",
                 "nvcuda::wmma::store_matrix_sync",

@@ -4,8 +4,8 @@ from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
 from ..compute_transform import TransformState
-from ...capsules.capsule_base import ComputeDAG
-from ...recipes import OperationRole, RecipeStage, InstructionScope
+from ...hw_abstraction.hw_abs_base import ComputeDAG
+from ...hw_abs_dag import OperationRole, HwAbsDAGStage, InstructionScope
 from ..schedule_base import *
 from tvm.tir import IterVar
 from tvm.te import Stage, ComputeOp

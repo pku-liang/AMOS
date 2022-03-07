@@ -28,13 +28,13 @@ def arm_dot_intrin(L, scope="local"):
 
         def _body():
             builder = tir.ir_builder.create()
-            builder.emit(tir.call_intrin("handle", "tir.capsule_compile", "opencl", "arm_dot_vlen_local", f"arm_dot_vlen_{scope}",
+            builder.emit(tir.call_intrin("handle", "tir.amos_compute", "opencl", "arm_dot_vlen_local", f"arm_dot_vlen_{scope}",
                                          aa.access_ptr("r"), bb.access_ptr("r"), cc.access_ptr("w"), L))
             return builder.get()
 
         def _reset():
             builder = tir.ir_builder.create()
-            builder.emit(tir.call_intrin("handle", "tir.capsule_compile", "opencl",
+            builder.emit(tir.call_intrin("handle", "tir.amos_memory", "opencl",
                                          "arm_dot_reset_local", f"arm_dot_reset_{scope}", cc.access_ptr("w")))
             return builder.get()
 

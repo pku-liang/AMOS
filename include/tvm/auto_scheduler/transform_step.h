@@ -859,14 +859,14 @@ class TensorizeStepNode : public StepNode {
   int iter_id;
   /*! \brief The target. */
   String target;
-  /*! \brief The tensorize recipe. */
-  String recipe_key;
+  /*! \brief The tensorize hw_abs_dag. */
+  String hw_abs_dag_key;
   /*! \brief The tensorize compute. */
   String compute_key;
   /*! \brief The tensorize shape. */
   String shape_key;
-  /*! \brief The tensorize capsule. */
-  String capsule_key;
+  /*! \brief The tensorize hw_abs. */
+  String hw_abs_key;
 
   void WriteToRecord(dmlc::JSONWriter* writer) const final;
 
@@ -908,13 +908,13 @@ class TensorizeStep : public Step {
    * \param stage_id The index of the stage to be aligned.
    * \param iter_id
    * \param target
-   * \param recipe_key
+   * \param hw_abs_dag_key
    * \param compute_key
    * \param shape_key
-   * \param capsule_key
+   * \param hw_abs_key
    */
   TensorizeStep(int stage_id, int iter_id, String target,
-                String recipe_key, String compute_key, String shape_key, String capsule_key);
+                String hw_abs_dag_key, String compute_key, String shape_key, String hw_abs_key);
 
   /*!
    * \brief The constructor used to read a step record from JSONReader and create the

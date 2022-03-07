@@ -3,8 +3,8 @@ from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
 from ..compute_transform import TransformState
-from ...capsules.capsule_base import ComputeDAG
-from ...recipes import OperationRole, RecipeStage, InstructionScope
+from ...hw_abstraction.hw_abs_base import ComputeDAG
+from ...hw_abs_dag import OperationRole, HwAbsDAGStage, InstructionScope
 from ..schedule_base import *
 
 
@@ -74,9 +74,9 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         super(MaliScheduleGenerator, self).__init__(eps, MaliParams,
                                                     steps=steps,
                                                     log_file=log_file)
-        self._init_recipe(intrin_match_result)
+        self._init_hw_abs_dag(intrin_match_result)
         nodes = self._init_target_dag(transform_state)
-        self._init_recipe_stage(nodes)
+        self._init_hw_abs_dag_stage(nodes)
         # get main op id and output op id
         self.main_op_id = -1
         self.output_op_id = -1
@@ -95,11 +95,11 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         self.init_param_generator()
         self.init_score_table()
 
-    def _init_recipe(self, intrin_match_result):
-        recipe = intrin_match_result.recipe
+    def _init_hw_abs_dag(self, intrin_match_result):
+        hw_abs_dag = intrin_match_result.hw_abs_dag
         compute_key = intrin_match_result.compute_key
         shape_key = intrin_match_result.shape_key
-        self.recipe = recipe
+        self.hw_abs_dag = hw_abs_dag
         self.compute_key = compute_key
         self.shape_key = shape_key
 
@@ -113,29 +113,29 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         self.target_dag, info = reconstruct_dag_as_intrin(
             transform_state.target_dag,
             target_main_op,
-            self.recipe,
+            self.hw_abs_dag,
             self.compute_key,
             self.shape_key)
-        # nodes: dict {capsule name : new tensor}
+        # nodes: dict {hw_abs name : new tensor}
         (_, _, nodes, _, _) = info
         # get new main op
-        self.main_op = nodes[self.recipe.main_capsule_name][0].op
+        self.main_op = nodes[self.hw_abs_dag.main_hw_abs_name][0].op
         return nodes
 
-    def _init_recipe_stage(self, nodes):
+    def _init_hw_abs_dag_stage(self, nodes):
         ###################################
-        # fill the recipe stage info
+        # fill the hw_abs_dag stage info
         # analyze the intrinsic dag
         def cond(cur):
-            if cur in self.recipe.capsules:
+            if cur in self.hw_abs_dag.hw_abs_dict:
                 return True
             return False
 
-        capsule_names, read_graph, feed_graph = self.recipe.serialize_dag(
+        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(
             cond1=cond)
 
         operation_role = {}
-        capsule_map = {}
+        hw_abs_map = {}
         reserve_inner_axis_count = {}
         main_op_reserve_reduce_axis = []
         main_op_reserve_reduce_axis_factor = []
@@ -143,18 +143,18 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
         load_from_shared = {}
         store_to_shared = {}
         self.output_op = None
-        for name in capsule_names:
+        for name in hw_abs_names:
             op = nodes[name][0].op
-            capsule_map[op] = name
+            hw_abs_map[op] = name
             spatial_axis, reduce_axis = \
-                self.recipe.get_capsule_compute_reserve_axis(
+                self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
                     self.compute_key, self.shape_key, name)
             filtered_axis = []
             for axis in spatial_axis:
                 if int(axis.dom.extent) > 1:
                     filtered_axis.append(axis)
             reserve_inner_axis_count[op] = len(filtered_axis)
-            if name == self.recipe.main_capsule_name:
+            if name == self.hw_abs_dag.main_hw_abs_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
                     main_op_reserve_reduce_axis.append(
@@ -169,26 +169,26 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
                 store_to_shared[op] = 0
                 self.output_op = op
         assert self.output_op is None, "Why OpenCL needs output op"
-        # construct recipe stage
-        self.recipe_stage = RecipeStage(
+        # construct hw_abs_dag stage
+        self.hw_abs_dag_stage = HwAbsDAGStage(
             operation_role,
-            self.recipe.target,
-            self.recipe.get_name(),
+            self.hw_abs_dag.target,
+            self.hw_abs_dag.get_name(),
             self.compute_key,
             self.shape_key,
-            capsule_map,
+            hw_abs_map,
             reserve_inner_axis_count,
             main_op_reserve_reduce_axis,
             main_op_reserve_reduce_axis_factor,
             load_from_shared,
             store_to_shared,
-            self.recipe.scope
+            self.hw_abs_dag.scope
         )
 
     def init_param_generator(self):
         self.reduce_splits = []
         reserve_reduce_axis = set()
-        for a in self.recipe_stage.main_op_reserve_reduce_axis:
+        for a in self.hw_abs_dag_stage.main_op_reserve_reduce_axis:
             reserve_reduce_axis.add(int(a))
         for i, iv in enumerate(self.main_op.reduce_axis):
             if i not in reserve_reduce_axis:
@@ -201,7 +201,7 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
                 int(iv.dom.extent), self.n_spatial_tiling_parts)
             self.spatial_splits.append(gen)
         self.vectorize = VectorizeLengthGenerator(
-            self.recipe.target, self.main_op.input_tensors[0].dtype)
+            self.hw_abs_dag.target, self.main_op.input_tensors[0].dtype)
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
         self.generator_lst = [
             self.vectorize,
@@ -223,7 +223,7 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
             self.output_op,
             self.main_op_id,
             self.output_op_id,
-            self.recipe_stage,
+            self.hw_abs_dag_stage,
             spatial_tiling=self.n_spatial_tiling_parts,
             reduce_tiling=self.n_reduce_tiling_parts,
         )
@@ -333,11 +333,11 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
 class MaliScheduleApplier(object):
     def __init__(self, intrin_match_result, schedule_compute_info, arch="g76"):
         self.intrin_match_result = intrin_match_result
-        # get match recipe info
-        recipe = intrin_match_result.recipe
+        # get match hw_abs_dag info
+        hw_abs_dag = intrin_match_result.hw_abs_dag
         compute_key = intrin_match_result.compute_key
         shape_key = intrin_match_result.shape_key
-        self.recipe = recipe
+        self.hw_abs_dag = hw_abs_dag
         self.compute_key = compute_key
         self.shape_key = shape_key
 
@@ -352,7 +352,7 @@ class MaliScheduleApplier(object):
         self._last_op_id = len(self.target_dag.op_lst) - 1
         self._last_op = self.target_dag.op_lst[-1]
 
-        self.recipe_stage = schedule_compute_info.recipe_stage
+        self.hw_abs_dag_stage = schedule_compute_info.hw_abs_dag_stage
         # the state during schedule
         self.state = empty_mali_state()
         # the parameters during schedule
@@ -521,7 +521,7 @@ class MaliScheduleApplier(object):
         return True
 
     def inline(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
+        if op in self.hw_abs_dag_stage.operation_role:
             return
         else:
             if can_inline(op, self.target_dag):
@@ -529,7 +529,7 @@ class MaliScheduleApplier(object):
                 self.state.inlined_ops.add(op)
 
     def cache_read(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
+        if op in self.hw_abs_dag_stage.operation_role:
             return
         # if op in self.state.inlined_ops:
         #     return
@@ -540,8 +540,8 @@ class MaliScheduleApplier(object):
         consumers = self.target_dag.feed_graph[op]
         if len(consumers) <= 0:
             return
-        if consumers[0] in self.recipe_stage.operation_role:
-            if (self.recipe_stage.operation_role[consumers[0]]
+        if consumers[0] in self.hw_abs_dag_stage.operation_role:
+            if (self.hw_abs_dag_stage.operation_role[consumers[0]]
                     == OperationRole.main_op):
                 if len(consumers) == 1:
                     do_cache_read_for_load = True
@@ -583,9 +583,9 @@ class MaliScheduleApplier(object):
         #     sch[S].bind(warp_level, self.oty)
 
     def set_scope(self, op_id, op, sch, X):
-        if op in self.recipe_stage.operation_role:
+        if op in self.hw_abs_dag_stage.operation_role:
             # do not set scope for output op
-            if self.recipe_stage.operation_role[op] != OperationRole.main_op:
+            if self.hw_abs_dag_stage.operation_role[op] != OperationRole.main_op:
                 # only handle register level
                 sch[X(op)].set_scope("local")
 
@@ -602,7 +602,7 @@ class MaliScheduleApplier(object):
             # prepare spatial axis
             all_spatial_axes = op_stage.op.axis
             reserved_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
+                self.hw_abs_dag_stage.reserve_inner_axis_count[op])
 
             # split spatial axis
             spatial_axis_split_parts = [
@@ -614,7 +614,7 @@ class MaliScheduleApplier(object):
             reserved_reduce_axes = []
             split_reduce_axes = []
             main_op_reserved_reduce_axes = set(
-                int(x) for x in self.recipe_stage.main_op_reserve_reduce_axis)
+                int(x) for x in self.hw_abs_dag_stage.main_op_reserve_reduce_axis)
             for i, iv in enumerate(all_reduce_axis):
                 if i in main_op_reserved_reduce_axes:
                     reserved_reduce_axes.append(iv)
@@ -676,7 +676,7 @@ class MaliScheduleApplier(object):
             #     op_stage.bind(med_fused, tvm.te.thread_axis("vthread"))
             op_stage.bind(fused_axes[-1], self.ty)
             # thread level intrinsic, still bind to thread x
-            if self.recipe_stage.instruction_scope == InstructionScope.thread:
+            if self.hw_abs_dag_stage.instruction_scope == InstructionScope.thread:
                 fused = op_stage.fuse(*reordered_spatial_parts[-2])
                 outer, inner = op_stage.split(fused, nparts=self.warp_size)
                 op_stage.bind(outer, self.tx)
@@ -693,14 +693,14 @@ class MaliScheduleApplier(object):
 
     def compute_at(self, op_id, op, sch, X):
         op_stage: tvm.te.Stage = sch[X(op)]
-        if op not in self.recipe_stage.operation_role:
+        if op not in self.hw_abs_dag_stage.operation_role:
             return
         if op_id < self.main_op_id:
             # compute at to main op
             axis = self.get_main_op_second_outermost_last_reduce_axis()
             op_stage.compute_at(sch[X(self.main_op)], axis)
             reserve_spatial_num = int(
-                self.recipe_stage.reserve_inner_axis_count[op])
+                self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             self.state.tensorized_axis[op] = op_stage.op.axis[
                 -reserve_spatial_num]
 
@@ -738,11 +738,11 @@ class MaliScheduleApplier(object):
     #         self.state.last_op_axis_parts[-1].extend([outer, inner])
 
     def tensorize(self, op_id, op, sch, X):
-        if op not in self.recipe_stage.operation_role:
+        if op not in self.hw_abs_dag_stage.operation_role:
             return
-        intrin = self.recipe.get_intrinsic(
+        intrin = self.hw_abs_dag.get_intrinsic(
             self.compute_key, self.shape_key,
-            self.recipe_stage.capsule_key[op])
+            self.hw_abs_dag_stage.hw_abs_key[op])
         axis = self.get_tensorized_axis(op)
         sch[X(op)].tensorize(axis, intrin)
 

@@ -115,13 +115,13 @@ def schedule_conv_fuse_nhw_crs(Image, Filter, Output):
     tile_K1 = 4
     tile_K2 = 2
 
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = f"{intrin_M}x{intrin_N}x{intrin_K}"
-    load_a = recipe.get_intrinsic(compute_key, shape_key, "load_a")
-    load_b = recipe.get_intrinsic(compute_key, shape_key, "load_b")
-    store = recipe.get_intrinsic(compute_key, shape_key, "store", output_scope="shared")
-    mma = recipe.get_intrinsic(compute_key, shape_key, "mma")
+    load_a = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_a")
+    load_b = hw_abs_dag.get_intrinsic(compute_key, shape_key, "load_b")
+    store = hw_abs_dag.get_intrinsic(compute_key, shape_key, "store", output_scope="shared")
+    mma = hw_abs_dag.get_intrinsic(compute_key, shape_key, "mma")
 
     CC = Output.op.input_tensors[0]
     CCC = CC.op.input_tensors[0]

@@ -505,10 +505,10 @@ inline Iterator GetLastReduceIteratorInOutermostReduceTile(const Stage& stage) {
   CHECK(pop != nullptr);
   std::set<std::string> original_names;
   int reserved =
-    (stage->belong_capsule.defined()
-      && (stage->belong_capsule->operation_role
+    (stage->belong_hw_abs.defined()
+      && (stage->belong_hw_abs->operation_role
           == auto_tensorize::OperationRole::main_op))
-      ? (int)stage->belong_capsule->main_op_reserve_reduce_axis.size() : 0;
+      ? (int)stage->belong_hw_abs->main_op_reserve_reduce_axis.size() : 0;
 
   const std::set<std::string>& no_split_at_inner_name_set =
       stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)
@@ -554,10 +554,10 @@ inline Iterator GetLastReduceIteratorInSubOutermostReduceTile(const Stage& stage
   CHECK(pop != nullptr);
   std::set<std::string> original_names;
   int reserved =
-    (stage->belong_capsule.defined()
-      && (stage->belong_capsule->operation_role
+    (stage->belong_hw_abs.defined()
+      && (stage->belong_hw_abs->operation_role
           == auto_tensorize::OperationRole::main_op))
-      ? (int)stage->belong_capsule->main_op_reserve_reduce_axis.size() : 0;
+      ? (int)stage->belong_hw_abs->main_op_reserve_reduce_axis.size() : 0;
 
   const std::set<std::string>& no_split_at_inner_name_set =
       stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)
@@ -602,10 +602,10 @@ inline Iterator GetLastSpatialIteratorInSubSubInnermostSpatialTile(const Stage& 
   CHECK(pop != nullptr);
   std::set<std::string> original_names;
   int reserved =
-    (stage->belong_capsule.defined()
-      && (stage->belong_capsule->operation_role
+    (stage->belong_hw_abs.defined()
+      && (stage->belong_hw_abs->operation_role
           == auto_tensorize::OperationRole::output_op))
-      ? (int)stage->belong_capsule->reserve_inner_axis_count : 0;
+      ? (int)stage->belong_hw_abs->reserve_inner_axis_count : 0;
 
   const std::set<std::string>& no_split_at_inner_name_set =
       stage->op->attrs.count(SearchPolicyKey::no_split_at_inner)

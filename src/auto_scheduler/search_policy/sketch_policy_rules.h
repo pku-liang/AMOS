@@ -27,7 +27,7 @@
 
 #include <tvm/auto_scheduler/loop_state.h>
 #include <tvm/auto_scheduler/search_task.h>
-#include <tvm/auto_tensorize/recipe.h>
+#include <tvm/auto_tensorize/hw_abs_dag.h>
 
 #include <string>
 #include <utility>

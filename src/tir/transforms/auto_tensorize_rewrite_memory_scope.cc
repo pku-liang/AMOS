@@ -37,7 +37,7 @@
 namespace tvm {
 namespace tir {
 
-// Get memory scope information by query capsule register pool
+// Get memory scope information by query hw_abs register pool
 class MemoryScopeGetter : public StmtExprVisitor {
  public:
   // MemoryScopeInfo
@@ -70,8 +70,8 @@ class MemoryScopeGetter : public StmtExprVisitor {
     }
   };
 
-  const tvm::runtime::PackedFunc* query_capsule_memory_scope =
-      runtime::Registry::Get("auto_tensorize.query_capsule_memory_scope");
+  const tvm::runtime::PackedFunc* query_hardware_abstraction_memory_scope =
+      runtime::Registry::Get("auto_tensorize.query_hardware_abstraction_memory_scope");
   std::unordered_map<const VarNode*, std::vector<MemoryScopeInfo>> memory_info;
 
   MemoryScopeGetter() {}
@@ -84,16 +84,16 @@ class MemoryScopeGetter : public StmtExprVisitor {
   void VisitExpr_(const CallNode* op) final {
     StmtExprVisitor::VisitExpr_(op);
 
-    if (op->op.same_as(builtin::capsule_compile())) {
-      CHECK(query_capsule_memory_scope)
-        << "Can't find auto_tensorize.query_capsule_memory_scope.";
+    if (op->op.same_as(builtin::amos_compute())) {
+      CHECK(query_hardware_abstraction_memory_scope)
+        << "Can't find auto_tensorize.query_hardware_abstraction_memory_scope.";
       CHECK_GE(op->args.size(), 3U);
       const StringImmNode* target = op->args[0].as<StringImmNode>();
-      const StringImmNode* recipe_mnemonic = op->args[1].as<StringImmNode>();
-      const StringImmNode* capsule_mnemonic = op->args[2].as<StringImmNode>();
+      const StringImmNode* hw_abs_dag_mnemonic = op->args[1].as<StringImmNode>();
+      const StringImmNode* hw_abs_mnemonic = op->args[2].as<StringImmNode>();
       CHECK(target);
-      CHECK(recipe_mnemonic);
-      CHECK(capsule_mnemonic);
+      CHECK(hw_abs_dag_mnemonic);
+      CHECK(hw_abs_mnemonic);
 
       Map<PrimExpr, Map<String, StringImm>> ret;
       size_t total_args = op->args.size();
@@ -104,7 +104,40 @@ class MemoryScopeGetter : public StmtExprVisitor {
         const VarNode* buffer_var = op->args[i].as<VarNode>();
         if (buffer_var != nullptr && buffer_vars.count(buffer_var)) {
           ret.Set(op->args[i],
-                  (*query_capsule_memory_scope)(
+                  (*query_hardware_abstraction_memory_scope)(
+                        op->args[0], op->args[1], op->args[2], (int)i-3, other_args));
+        }
+      }
+
+      for (auto kv : ret) {
+        const VarNode* buffer_var = kv.first.as<VarNode>();
+        if (buffer_var != nullptr) {
+          memory_info[buffer_var].push_back(MemoryScopeInfo(kv.second));
+        }
+      }
+    }
+    
+    if (op->op.same_as(builtin::amos_memory())) {
+      CHECK(query_hardware_abstraction_memory_scope)
+        << "Can't find auto_tensorize.query_hardware_abstraction_memory_scope.";
+      CHECK_GE(op->args.size(), 3U);
+      const StringImmNode* target = op->args[0].as<StringImmNode>();
+      const StringImmNode* hw_abs_dag_mnemonic = op->args[1].as<StringImmNode>();
+      const StringImmNode* hw_abs_mnemonic = op->args[2].as<StringImmNode>();
+      CHECK(target);
+      CHECK(hw_abs_dag_mnemonic);
+      CHECK(hw_abs_mnemonic);
+
+      Map<PrimExpr, Map<String, StringImm>> ret;
+      size_t total_args = op->args.size();
+      Array<PrimExpr> other_args;
+      for (size_t i = 3; i < total_args; ++i)
+        other_args.push_back(op->args[i]);
+      for (size_t i = 3; i < total_args; ++i) {
+        const VarNode* buffer_var = op->args[i].as<VarNode>();
+        if (buffer_var != nullptr && buffer_vars.count(buffer_var)) {
+          ret.Set(op->args[i],
+                  (*query_hardware_abstraction_memory_scope)(
                         op->args[0], op->args[1], op->args[2], (int)i-3, other_args));
         }
       }

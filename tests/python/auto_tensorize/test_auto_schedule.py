@@ -108,10 +108,10 @@ def get_tvm_arrays(tensors, ctx):
 def test1():
     print("##########################")
     print("Test 1")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -140,7 +140,7 @@ def test1():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -170,7 +170,7 @@ def test1():
         # assert new_target_main_op is not None
 
         # new_target_dag, _ = at.reconstruct_dag_as_intrin(
-        #     new_target_dag, new_target_main_op, recipe, compute_key, shape_key)
+        #     new_target_dag, new_target_main_op, hw_abs_dag, compute_key, shape_key)
         # print("new dag len:", len(new_target_dag.op_lst))
 
         # print("new dag load A op:",
@@ -494,10 +494,10 @@ def native_local_run_worker():
 def test2():
     print("##########################")
     print("Test 2")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -526,7 +526,7 @@ def test2():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -573,7 +573,7 @@ def test2():
             schedule_app,
             params_lst,
             build_func,
-            recipe.target,
+            hw_abs_dag.target,
             target_host,
             verbose
         )
@@ -581,7 +581,7 @@ def test2():
         build_results = native_local_builder_build(
             schedule_app,
             params_lst,
-            recipe.target,
+            hw_abs_dag.target,
             target_host,
             timeout,
             1,
@@ -598,7 +598,7 @@ def test2():
         enable_cpu_cache_flush = 1
 
         GLOBAL_RUN_INPUTS = (
-            recipe.target,
+            hw_abs_dag.target,
             0,
             build_results,
             timeout,
@@ -931,10 +931,10 @@ def pebble_local_runner_run(
 def test3():
     print("##########################")
     print("Test 3")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -963,7 +963,7 @@ def test3():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -1007,7 +1007,7 @@ def test3():
         build_results = pebble_local_builder_build(
             schedule_app,
             params_lst,
-            recipe.target,
+            hw_abs_dag.target,
             target_host,
             timeout,
             1,
@@ -1024,7 +1024,7 @@ def test3():
         enable_cpu_cache_flush = 1
 
         run_results = pebble_local_runner_run(
-            recipe.target,
+            hw_abs_dag.target,
             0,
             build_results,
             timeout,
@@ -1188,10 +1188,10 @@ def tg_parallel_builder_build(
 def test4():
     print("##########################")
     print("Test 4")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "8x32x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -1220,7 +1220,7 @@ def test4():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -1264,7 +1264,7 @@ def test4():
         build_results = tg_parallel_builder_build(
             schedule_app,
             params_lst,
-            recipe.target,
+            hw_abs_dag.target,
             target_host,
             timeout=timeout,
             build_func=build_func,
@@ -1280,7 +1280,7 @@ def test4():
         enable_cpu_cache_flush = 1
 
         run_results = pebble_local_runner_run(
-            recipe.target,
+            hw_abs_dag.target,
             0,
             build_results,
             timeout,
@@ -1305,10 +1305,10 @@ def test4():
 def test5():
     print("##########################")
     print("Test 5")
-    recipe = at.WMMAFp16Fp32()
+    hw_abs_dag = at.WMMAFp16Fp32()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1, with_bias=False)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -1338,7 +1338,7 @@ def test5():
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -1384,7 +1384,7 @@ def test5():
         # build_results = tg_parallel_builder_build(
         #     schedule_app,
         #     params_lst,
-        #     recipe.target,
+        #     hw_abs_dag.target,
         #     target_host,
         #     timeout=timeout,
         #     build_func=build_func,
@@ -1393,7 +1393,7 @@ def test5():
         build_results = pebble_local_builder_build(
             schedule_app,
             params_lst,
-            recipe.target,
+            hw_abs_dag.target,
             target_host,
             timeout,
             1,
@@ -1409,7 +1409,7 @@ def test5():
         enable_cpu_cache_flush = 1
 
         run_results = pebble_local_runner_run(
-            recipe.target,
+            hw_abs_dag.target,
             0,
             build_results,
             timeout,
@@ -1434,10 +1434,10 @@ def test5():
 def test6():
     print("##########################")
     print("Test 6")
-    recipe = at.AVX512SkylakeGemvRecipe()
+    hw_abs_dag = at.AVX512SkylakeGemvhw_abs_dag()
     compute_key = "dummy"
     shape_key = "16x4"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1, with_bias=False, in_dtype=["uint8", "int8"], out_dtype="int32")
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -1466,7 +1466,7 @@ def test6():
         kk: [rc, rr, rs]
     }
     match_result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         main_op_map, elem_op_map,
         axis_map, target_dag, intrin_dag
     )
@@ -1510,7 +1510,7 @@ def test6():
         # build_results = tg_parallel_builder_build(
         #     schedule_app,
         #     params_lst,
-        #     recipe.target,
+        #     hw_abs_dag.target,
         #     target_host,
         #     timeout=timeout,
         #     build_func=build_func,
@@ -1519,7 +1519,7 @@ def test6():
         build_results = pebble_local_builder_build(
             schedule_app,
             params_lst,
-            recipe.target,
+            hw_abs_dag.target,
             target_host,
             timeout,
             1,
@@ -1535,7 +1535,7 @@ def test6():
         enable_cpu_cache_flush = 1
 
         run_results = pebble_local_runner_run(
-            recipe.target,
+            hw_abs_dag.target,
             0,
             build_results,
             timeout,

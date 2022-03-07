@@ -518,7 +518,7 @@ Iterator FuseStepNode::ApplyToState(State* state) const {
   pstate->stages.Set(stage_id,
                      Stage(
                        stage->op, stage->op_type, new_iters,
-                       stage->compute_at, stage->attrs, stage->belong_capsule));
+                       stage->compute_at, stage->attrs, stage->belong_hw_abs));
 
   // Two vectors are used to represent the iterator relation before and after fuse
   // The original iterators in AttachMap will be updated with the new iterators
@@ -734,7 +734,7 @@ void ReorderStepNode::ApplyToState(State* state) const {
   state->CopyOnWrite()->stages.Set(
       stage_id, Stage(
         stage->op, stage->op_type, iters,
-        stage->compute_at, stage->attrs, stage->belong_capsule));
+        stage->compute_at, stage->attrs, stage->belong_hw_abs));
 }
 
 void ReorderStepNode::ApplyToSchedule(Array<te::Stage>* stages,
@@ -842,7 +842,7 @@ Array<Iterator> ApplySplitToState(State* state, int stage_id, int iter_id,
   pstate->stages.Set(stage_id,
                      Stage(
                        stage->op, stage->op_type, new_iters,
-                       stage->compute_at, stage->attrs, stage->belong_capsule));
+                       stage->compute_at, stage->attrs, stage->belong_hw_abs));
   pstate->concrete &= concrete;
 
   // Two vectors are used to represent the iterator relation before and after split
@@ -1300,15 +1300,15 @@ String SetScopeStepNode::PrintAsPythonAPI(Array<te::Stage>* stages,
 
 /********** Tensorize **********/
 TensorizeStep::TensorizeStep(int stage_id, int iter_id, String target,
-    String recipe_key, String compute_key, String shape_key, String capsule_key) {
+    String hw_abs_dag_key, String compute_key, String shape_key, String hw_abs_key) {
   auto node = make_object<TensorizeStepNode>();
   node->stage_id = stage_id;
   node->iter_id = iter_id;
   node->target = target;
-  node->recipe_key = recipe_key;
+  node->hw_abs_dag_key = hw_abs_dag_key;
   node->compute_key = compute_key;
   node->shape_key = shape_key;
-  node->capsule_key = capsule_key;
+  node->hw_abs_key = hw_abs_key;
   data_ = std::move(node);
 }
 
@@ -1328,9 +1328,9 @@ TensorizeStep::TensorizeStep(dmlc::JSONReader* reader) {
   node->target = target;
   s = reader->NextArrayItem();
   CHECK(s);
-  std::string recipe_key;
-  reader->Read(&recipe_key);
-  node->recipe_key = recipe_key;
+  std::string hw_abs_dag_key;
+  reader->Read(&hw_abs_dag_key);
+  node->hw_abs_dag_key = hw_abs_dag_key;
   s = reader->NextArrayItem();
   CHECK(s);
   std::string compute_key;
@@ -1343,9 +1343,9 @@ TensorizeStep::TensorizeStep(dmlc::JSONReader* reader) {
   node->shape_key = shape_key;
   s = reader->NextArrayItem();
   CHECK(s);
-  std::string capsule_key;
-  reader->Read(&capsule_key);
-  node->capsule_key = capsule_key;
+  std::string hw_abs_key;
+  reader->Read(&hw_abs_key);
+  node->hw_abs_key = hw_abs_key;
   data_ = std::move(node);
 }
 
@@ -1357,13 +1357,13 @@ void TensorizeStepNode::WriteToRecord(dmlc::JSONWriter* writer) const {
   writer->WriteArraySeperator();
   writer->WriteString(target);
   writer->WriteArraySeperator();
-  writer->WriteString(recipe_key);
+  writer->WriteString(hw_abs_dag_key);
   writer->WriteArraySeperator();
   writer->WriteString(compute_key);
   writer->WriteArraySeperator();
   writer->WriteString(shape_key);
   writer->WriteArraySeperator();
-  writer->WriteString(capsule_key);
+  writer->WriteString(hw_abs_key);
 }
 
 void TensorizeStepNode::ApplyToState(State* state) const {
@@ -1386,7 +1386,7 @@ void TensorizeStepNode::ApplyToSchedule(Array<te::Stage>* stages,
   CHECK(get_tensor_intrin) << "Can't find auto_tensorize.get_tensor_intrin.";
 
   te::TensorIntrin intrin = (*get_tensor_intrin)(
-    target, recipe_key, compute_key, shape_key, capsule_key);
+    target, hw_abs_dag_key, compute_key, shape_key, hw_abs_key);
   stage.tensorize(axes[iter_id], intrin);
   stages->Set(stage_id, std::move(stage));
 }
@@ -1398,8 +1398,8 @@ String TensorizeStepNode::PrintAsPythonAPI(Array<te::Stage>* stages,
   const auto& op_name = CleanName(stage->op->name);
   ss << "from tvm import auto_tensorize as at\n";
   ss << op_name + "_intrin = at.get_tensor_intrin("
-     << ", \"" << target << "\", \"" << recipe_key << "\", \"" << compute_key << "\", \"" << shape_key
-     << "\", \"" << capsule_key << "\")\n";
+     << ", \"" << target << "\", \"" << hw_abs_dag_key << "\", \"" << compute_key << "\", \"" << shape_key
+     << "\", \"" << hw_abs_key << "\")\n";
   ss << "s[" << op_name << "].tensorize("
      << CleanName((*stage_to_axes)[stage][iter_id]->var->name_hint, op_name)
      << ", " << op_name + "_intrin)\n";
@@ -1520,7 +1520,7 @@ void ComputeAtStepNode::ApplyToState(State* state) const {
   StateNode* pstate = state->CopyOnWrite();
   pstate->stages.Set(stage_id, Stage(
     stage->op, stage->op_type, std::move(new_iters),
-    ComputeAtKind::kIter, stage->attrs, stage->belong_capsule));
+    ComputeAtKind::kIter, stage->attrs, stage->belong_hw_abs));
   // Update attach map
   pstate->attach_map.SetComputeAtIter(stage_id, target_stage_id, target_iter_id);
 }
@@ -1640,7 +1640,7 @@ void ComputeRootStepNode::ApplyToState(State* state) const {
 
   StateNode* pstate = state->CopyOnWrite();
   pstate->stages.Set(stage_id, Stage(stage->op, stage->op_type, std::move(new_iters),
-                                     ComputeAtKind::kRoot, stage->attrs, stage->belong_capsule));
+                                     ComputeAtKind::kRoot, stage->attrs, stage->belong_hw_abs));
   // Update attach map
   pstate->attach_map.DeleteStage(stage_id);
 }
@@ -1860,14 +1860,14 @@ int CacheWriteStepNode::ApplyToState(State* state, const ComputeDAG& dag) const 
   // Insert a new cache write stage ahead, update the op of the target stage and later stages, then
   // update the stage_id mapping in AttachMap
   Stage curr = pstate->stages[stage_id];
-  if (curr->belong_capsule.defined()) {
-    std::cerr << "Warning: cache write may invalidate the original belong_capsule."
+  if (curr->belong_hw_abs.defined()) {
+    std::cerr << "Warning: cache write may invalidate the original belong_hw_abs."
               << "[op=" << curr->op << "]\n";
   }
   pstate->stages.insert(pstate->stages.begin() + stage_id,
                         Stage(current_compute_dag->ops[stage_id]));
   pstate->stages.Set(stage_id + 1, Stage(
-    current_compute_dag->ops[stage_id + 1], curr->belong_capsule));
+    current_compute_dag->ops[stage_id + 1], curr->belong_hw_abs));
   int next_stage_id = stage_id + 2;
   // TODO(jc94): Fix the cache write bug in TVM and remove added_op == 2 support.
   // TVM's cache_write has a bug with multi outputs. See
@@ -1875,7 +1875,7 @@ int CacheWriteStepNode::ApplyToState(State* state, const ComputeDAG& dag) const 
   // for more details
   if (added_ops == 2) {
     pstate->stages.insert(pstate->stages.begin() + next_stage_id,
-                          Stage(current_compute_dag->ops[next_stage_id], curr->belong_capsule));
+                          Stage(current_compute_dag->ops[next_stage_id], curr->belong_hw_abs));
     next_stage_id++;
   } else if (added_ops > 2) {
     LOG(ERROR) << "Unexpected behavior of CacheWrite.";
@@ -1992,14 +1992,14 @@ int RfactorStepNode::ApplyToState(State* state, const ComputeDAG& dag) const {
   // Insert a new compute stage, update the target stage and later stage, then update the stage_id
   // mapping in AttachMap
   Stage curr = pstate->stages[stage_id];
-  if (curr->belong_capsule.defined()) {
-    std::cerr << "Warning: cache write may invalidate the original belong_capsule."
+  if (curr->belong_hw_abs.defined()) {
+    std::cerr << "Warning: cache write may invalidate the original belong_hw_abs."
               << "[op=" << curr->op << "]\n";
   }
   pstate->stages.insert(pstate->stages.begin() + stage_id,
                         Stage(current_compute_dag->ops[stage_id]));
   // Maintain the compute_at type of the target stage
-  Stage target_stage = Stage(current_compute_dag->ops[stage_id + 1], curr->belong_capsule);
+  Stage target_stage = Stage(current_compute_dag->ops[stage_id + 1], curr->belong_hw_abs);
   target_stage.CopyOnWrite()->compute_at = compute_at_type;
   pstate->stages.Set(stage_id + 1, std::move(target_stage));
   for (size_t i = stage_id + 2; i < pstate->stages.size(); ++i) {

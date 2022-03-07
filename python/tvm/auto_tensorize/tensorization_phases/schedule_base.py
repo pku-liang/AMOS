@@ -7,14 +7,14 @@ from ..search import CDParamGenerator, SAEntryGenerator
 class ScheduleComputeInfo(object):
     def __init__(
         self, target_dag, main_op, output_op,
-            main_op_id, output_op_id, recipe_stage,
+            main_op_id, output_op_id, hw_abs_dag_stage,
             **kwargs):
         self.target_dag = target_dag
         self.main_op = main_op
         self.output_op = output_op
         self.main_op_id = main_op_id
         self.output_op_id = output_op_id
-        self.recipe_stage = recipe_stage
+        self.hw_abs_dag_stage = hw_abs_dag_stage
         self.kwargs = kwargs
 
 

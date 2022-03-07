@@ -44,27 +44,27 @@ def get_tvm_arrays(tensors, ctx):
 def test1():
     print("##########################")
     print("Test 1")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "nnn"
     shape_key = "16x16x16"
 
     def cond(cur):
         return (
-            cur in recipe.capsules and
-            (cur in recipe.capsules and
-             issubclass(recipe.capsules[cur], at.ComputeCapsule)))
-    op_list, read_graph, feed_graph = recipe.serialize_dag(
+            cur in hw_abs_dag.hw_abs_dict and
+            (cur in hw_abs_dag.hw_abs_dict and
+             issubclass(hw_abs_dag.hw_abs_dict[cur], at.ComputeAbstraction)))
+    op_list, read_graph, feed_graph = hw_abs_dag.serialize_dag(
         cond1=cond
     )
     outputs = []
     for x in op_list:
         if x not in feed_graph:
             outputs.append(x)
-    ins, outs, cache = recipe.get_dag_compute_expression_with_inputs(
+    ins, outs, cache = hw_abs_dag.get_dag_compute_expression_with_inputs(
         compute_key, shape_key, outputs, read_graph)
     sch = tvm.te.create_schedule([x.op for x in outs])
     # print(tvm.lower(sch, ins + outs, simple_mode=True))
-    main_intrin_op = cache[recipe.main_capsule_name][0].op
+    main_intrin_op = cache[hw_abs_dag.main_hw_abs_name][0].op
     ii, jj = main_intrin_op.axis
     kk, = main_intrin_op.reduce_axis
 
@@ -74,7 +74,7 @@ def test1():
     rc, rr, rs = Conv.op.reduce_axis
 
     result = at.IntrinMatchResult(
-        recipe, compute_key, shape_key,
+        hw_abs_dag, compute_key, shape_key,
         {0: 0}, {1: 1}, {ii: p, jj: k, kk: rc},
         at.compute_dag_from_tensors([E]),
         at.compute_dag_from_tensors(outs))
@@ -84,10 +84,10 @@ def test1():
 def test2():
     print("##########################")
     print("Test 2")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "nnn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -139,11 +139,11 @@ def test2():
 def test3():
     print("##########################")
     print("Test 3")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -195,10 +195,10 @@ def test3():
 def test4():
     print("##########################")
     print("Test 4")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -267,10 +267,10 @@ def test4():
 def test5():
     print("##########################")
     print("Test 5")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 
@@ -345,10 +345,10 @@ def test5():
 def test6():
     print("##########################")
     print("Test 6")
-    recipe = at.WMMAFp16Fp32Bias()
+    hw_abs_dag = at.WMMAFp16Fp32Bias()
     compute_key = "ntn"
     shape_key = "16x16x16"
-    intrin_dag, _ = recipe.get_effective_compute_dag(compute_key, shape_key)
+    intrin_dag, _ = hw_abs_dag.get_effective_compute_dag(compute_key, shape_key)
     A, B, bias, E = conv2d(1, 128, 14, 14, 64, 3, 3, 1, 1)
     target_dag = at.compute_dag_from_tensors([E])
 

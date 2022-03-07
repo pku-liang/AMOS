@@ -18,37 +18,37 @@
  */
 
 /*!
- * \file auto_tensorize/recipe.cc
- * \brief Recipe for auto_tensorize.
+ * \file auto_tensorize/hw_abs_dag.cc
+ * \brief HW abstraction DAG for auto_tensorize.
  */
 
-#include <tvm/auto_tensorize/recipe.h>
+#include <tvm/auto_tensorize/hw_abs_dag.h>
 
 namespace tvm {
 namespace auto_tensorize {
 
-TVM_REGISTER_NODE_TYPE(RecipeStageNode);
+TVM_REGISTER_NODE_TYPE(HwAbsDAGStageNode);
 
-RecipeStage::RecipeStage(
+HwAbsDAGStage::HwAbsDAGStage(
     Map<te::Operation, String> operation_role_,
     String target_,
-    String recipe_key_,
+    String hw_abs_dag_key_,
     String compute_key_,
     String shape_key_,
-    Map<te::Operation, String> capsule_key_,
+    Map<te::Operation, String> hw_abs_key_,
     Map<te::Operation, IntImm> reserve_inner_axis_count_,
     Array<IntImm> main_op_reserve_reduce_axis_,
     Array<IntImm> main_op_reserve_reduce_axis_factor_,
     Map<te::Operation, IntImm> load_from_shared_,
     Map<te::Operation, IntImm> store_to_shared_,
     String instruction_scope) {
-    auto node = make_object<RecipeStageNode>();
+    auto node = make_object<HwAbsDAGStageNode>();
     node->operation_role = operation_role_;
     node->target = target_;
-    node->recipe_key = recipe_key_;
+    node->hw_abs_dag_key = hw_abs_dag_key_;
     node->compute_key = compute_key_;
     node->shape_key = shape_key_;
-    node->capsule_key = capsule_key_;
+    node->hw_abs_key = hw_abs_key_;
     node->reserve_inner_axis_count = reserve_inner_axis_count_;
     node->main_op_reserve_reduce_axis = main_op_reserve_reduce_axis_;
     node->main_op_reserve_reduce_axis_factor = main_op_reserve_reduce_axis_factor_;
@@ -59,19 +59,19 @@ RecipeStage::RecipeStage(
 }
 
 
-bool RecipeStage::valid() {
+bool HwAbsDAGStage::valid() {
     auto self = (*this);
     if (self->operation_role.size() != self->reserve_inner_axis_count.size()) {
         return false;
     }
-    if (self->operation_role.size() != self->capsule_key.size()) {
+    if (self->operation_role.size() != self->hw_abs_key.size()) {
         return false;
     }
     for (auto& kv : self->operation_role) {
         if (!(self->reserve_inner_axis_count.count(kv.first))) {
             return false;
         }
-        if (!(self->capsule_key.count(kv.first))) {
+        if (!(self->hw_abs_key.count(kv.first))) {
             return false;
         }
     }
@@ -88,19 +88,19 @@ bool RecipeStage::valid() {
             return false;
         }
     }
-    // TODO: add recipe check
+    // TODO: add hw_abs_dag check
     return true;
 }
 
 
-TVM_REGISTER_GLOBAL("auto_tensorize.RecipeStage").set_body_typed(
+TVM_REGISTER_GLOBAL("auto_tensorize.HwAbsDAGStage").set_body_typed(
     [](
         Map<te::Operation, String> operation_role_,
         String target_,
-        String recipe_key_,
+        String hw_abs_dag_key_,
         String compute_key_,
         String shape_key_,
-        Map<te::Operation, String> capsule_key_,
+        Map<te::Operation, String> hw_abs_key_,
         Map<te::Operation, IntImm> reserve_inner_axis_count_,
         Array<IntImm> main_op_reserve_reduce_axis_,
         Array<IntImm> main_op_reserve_reduce_axis_factor_,
@@ -108,13 +108,13 @@ TVM_REGISTER_GLOBAL("auto_tensorize.RecipeStage").set_body_typed(
         Map<te::Operation, IntImm> store_to_shared_,
         String instruction_scope
     ) {
-  return RecipeStage(
+  return HwAbsDAGStage(
       operation_role_,
       target_,
-      recipe_key_,
+      hw_abs_dag_key_,
       compute_key_,
       shape_key_,
-      capsule_key_,
+      hw_abs_key_,
       reserve_inner_axis_count_,
       main_op_reserve_reduce_axis_,
       main_op_reserve_reduce_axis_factor_,

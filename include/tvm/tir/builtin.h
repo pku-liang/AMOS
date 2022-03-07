@@ -550,14 +550,14 @@ TVM_DLL const Op& vectorlow();
 TVM_DLL const Op& vectorcombine();
 
 /*!
- * \brief intrinsic for automatic tensorization.
- *
- *  void capsule_compile(* to be filled *) {
- *    // some comments
- *    the function body;
- *  }
+ * \brief intrinsic for amos compute.
  */
-TVM_DLL const Op& capsule_compile();
+TVM_DLL const Op& amos_compute();
+
+/*!
+ * \brief intrinsic for amos compute.
+ */
+TVM_DLL const Op& amos_memory();
 
 /*! \brief The kind of structure field info used in intrinsic */
 enum TVMStructFieldKind : int {
