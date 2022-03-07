@@ -11,7 +11,8 @@ from .tensorization_phases import (
     CUDAScheduleApplier,
     CUDAScheduleGeneratorV2,
     CUDAScheduleApplierV2,
-    # CUDAScheduleGeneratorV3, CUDAScheduleApplierV3,
+    CUDAScheduleGeneratorV3, 
+    CUDAScheduleApplierV3,
     CUDAScheduleGeneratorSplitK,
     CUDAScheduleApplierSplitK,
     CUDAScheduleGeneratorTenet,
@@ -27,6 +28,7 @@ from .search import (
     MaliProgramChecker,
     find_optimized_parameters,
     find_optimized_parameters_v2,
+    find_optimized_parameters_v3,
 )
 from .target import get_cuda_compute_version
 from .policy import first_fit, best_fit, all_fit, choose_one
@@ -677,6 +679,8 @@ def auto_tensorize_v4(
     build_parallel=1,
     run_parallel=1,
     explore_full_match=False,
+    enable_perf_model=False,
+    perf_percentage=0.5,
 ):
 
     measure_opt.target = target
@@ -837,7 +841,37 @@ def auto_tensorize_v4(
                                 # schedule_app = CUDAScheduleApplierV3(
                                 #     match_result, sc_info)
                             else:
-                                schedule_gen = CUDAScheduleGeneratorV2(
+                                if enable_perf_model:
+                                    schedule_gen = CUDAScheduleGeneratorV3(
+                                        match_result,
+                                        new_state,
+                                        log_file=current_log_file,
+                                        arch=get_cuda_compute_version(measure_opt.dev_id),
+                                    )
+                                    if os.path.exists(current_log_file) and os.path.isfile(
+                                        current_log_file
+                                    ):
+                                        schedule_gen.load_from_file(current_log_file)
+                                    sc_info = schedule_gen.get_schedule_compute_info()
+                                    schedule_app = CUDAScheduleApplierV3(match_result, sc_info)
+                                else:
+                                    schedule_gen = CUDAScheduleGeneratorV2(
+                                        match_result,
+                                        new_state,
+                                        log_file=current_log_file,
+                                        arch=get_cuda_compute_version(measure_opt.dev_id),
+                                    )
+                                    if os.path.exists(current_log_file) and os.path.isfile(
+                                        current_log_file
+                                    ):
+                                        schedule_gen.load_from_file(current_log_file)
+                                    sc_info = schedule_gen.get_schedule_compute_info()
+                                    schedule_app = CUDAScheduleApplierV2(match_result, sc_info)
+                        else:
+                            if enable_perf_model:
+                                raise NotImplementedError()
+                            else:
+                                schedule_gen = CUDAScheduleGeneratorSplitK(
                                     match_result,
                                     new_state,
                                     log_file=current_log_file,
@@ -848,20 +882,7 @@ def auto_tensorize_v4(
                                 ):
                                     schedule_gen.load_from_file(current_log_file)
                                 sc_info = schedule_gen.get_schedule_compute_info()
-                                schedule_app = CUDAScheduleApplierV2(match_result, sc_info)
-                        else:
-                            schedule_gen = CUDAScheduleGeneratorSplitK(
-                                match_result,
-                                new_state,
-                                log_file=current_log_file,
-                                arch=get_cuda_compute_version(measure_opt.dev_id),
-                            )
-                            if os.path.exists(current_log_file) and os.path.isfile(
-                                current_log_file
-                            ):
-                                schedule_gen.load_from_file(current_log_file)
-                            sc_info = schedule_gen.get_schedule_compute_info()
-                            schedule_app = CUDAScheduleApplierSplitK(match_result, sc_info)
+                                schedule_app = CUDAScheduleApplierSplitK(match_result, sc_info)
                         checker = CUDAProgramChecker(
                             arch=get_cuda_compute_version(measure_opt.dev_id)
                         )
@@ -924,20 +945,37 @@ def auto_tensorize_v4(
                     schedule_trials = tune_trials[mapping_id]
                     if schedule_trials and not pure_test:
                         # this returns a generator
-                        generate_schedule = find_optimized_parameters_v2(
-                            match_result,
-                            schedule_gen,
-                            schedule_app,
-                            measure_opt,
-                            checker,
-                            schedule_trials,  # policy="random",
-                            builder=builder,
-                            runner=runner,
-                            verbose=verbose_schedule,
-                            search_group_size=search_group_size,
-                            build_parallel=build_parallel,
-                            run_parallel=run_parallel,
-                        )
+                        if enable_perf_model:
+                            generate_schedule = find_optimized_parameters_v3(
+                                match_result,
+                                schedule_gen,
+                                schedule_app,
+                                measure_opt,
+                                checker,
+                                schedule_trials,  # policy="random",
+                                builder=builder,
+                                runner=runner,
+                                verbose=verbose_schedule,
+                                search_group_size=search_group_size,
+                                build_parallel=build_parallel,
+                                run_parallel=run_parallel,
+                                perf_percentage=perf_percentage,
+                            )
+                        else:
+                            generate_schedule = find_optimized_parameters_v2(
+                                match_result,
+                                schedule_gen,
+                                schedule_app,
+                                measure_opt,
+                                checker,
+                                schedule_trials,  # policy="random",
+                                builder=builder,
+                                runner=runner,
+                                verbose=verbose_schedule,
+                                search_group_size=search_group_size,
+                                build_parallel=build_parallel,
+                                run_parallel=run_parallel,
+                            )
                     else:
                         generate_schedule = None
 

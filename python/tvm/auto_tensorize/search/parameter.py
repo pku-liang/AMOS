@@ -9,6 +9,7 @@ import logging
 import json
 import sys
 import os
+import math
 
 
 class ParamGenerator(object):
@@ -535,3 +536,106 @@ def find_optimized_parameters_v2(
     if verbose:
         print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
+
+def find_optimized_parameters_v3(
+    match_results,
+    schedule_gen,
+    schedule_app,
+    measure_opt,
+    checker,
+    trials,
+    search_group_size=5,
+    policy="",
+    builder=tg_parallel_builder_build,
+    runner=pebble_local_runner_run,
+    verbose=False,
+    build_parallel=1,
+    run_parallel=1,
+    perf_percentage=0.5
+):
+    """
+    Combine the performance model estimation and profiling to find optimized parameters
+
+    Parameters
+    ----------
+    perf_percentage: double = 0.5
+        choose (search_group_size * perf_percentage) candidate params after perfomance model estimation
+    """
+    assert not perf_percentage>1
+    best_value = 1 / MAX_FLOAT
+    best_params = None
+    if schedule_gen.has_entry():
+        top1 = schedule_gen.topk(k=1)[0]
+        best_value = top1.value
+        best_params = top1.record
+    if measure_opt.use_rpc:
+        runner = pebble_rpc_runner_run
+    search_group_num = (trials + search_group_size - 1) // search_group_size
+    if verbose:
+        print(
+            "Total search tirals:",
+            trials,
+            "\nbatch size:",
+            search_group_size,
+            "\nbatch num:",
+            search_group_num,
+            flush=True,
+        )
+    tic = time.time()
+    while True:
+        for b in range(search_group_num):
+            if verbose:
+                print("Search round:", b, flush=True)
+            schedule_gen.refresh()
+            params_lst_perf = []
+            for i in range(search_group_size):
+                if b * search_group_size + i < trials:
+                    # params = schedule_gen.get(policy=policy)
+                    params = schedule_gen.get_next(policy=policy)
+                    # print(str(params))
+                    params_lst_perf.append(params)
+            assert params_lst_perf
+            
+            if verbose:
+                print("performance model estimation...", flush=True)
+            build_results_perf = builder(
+                schedule_app, params_lst_perf, measure_opt, checker, n_parallel=build_parallel, enable_perf_model=True
+            )
+            run_results_perf = runner(build_results_perf, measure_opt, n_parallel=run_parallel, enable_perf_model=True)
+            
+            params_value_lst = [[params, perf_res.costs[0]] # latency
+                                for params, perf_res in zip(params_lst_perf, run_results_perf)]
+            params_value_lst.sort(key=lambda x:x[1])
+            params_lst = list(map(lambda x:x[0], params_value_lst[:math.ceil(len(params_value_lst)*perf_percentage)]))
+            
+            build_results = builder(
+                schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
+            )
+            run_results = runner(build_results, measure_opt, n_parallel=run_parallel)
+
+            max_value = 1 / MAX_FLOAT
+            for params, res in zip(params_lst, run_results):
+                if verbose:
+                    print(res)
+                # use absolute performance
+                value = 1 / np.mean([x.value for x in res.costs])
+                max_value = max(max_value, value)
+                if value > 1 / MAX_FLOAT:  # valid results
+                    schedule_gen.feedback(params, value)
+                if value > best_value:
+                    # print(np.mean([x.value for x in res.costs]))
+                    # cost = evaluate_params(
+                    #     schedule_app,
+                    #     params,
+                    #     measure_opt)
+                    # print("Re-evaluate: %f ms" % cost, flush=True)
+                    best_value = value
+                    best_params = params
+
+            if verbose:
+                print("Current best timecost: ", 1 / best_value * 1e3, "ms", flush=True)
+            else:
+                print(f"iteration={b+1}: {max_value}/{best_value}", flush=True)
+            if best_params is not None and verbose:
+                print("Current best params:\n", best_params.to_json(), flush=True)
+        yield best_value, best_params
