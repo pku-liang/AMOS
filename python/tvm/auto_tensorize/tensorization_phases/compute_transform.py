@@ -152,20 +152,20 @@ class VMappingGenerator(CDParamGenerator):
         if unify and num_items <= 15:
             # when just a few choices
 
-            unfolds = bi_product(num_items)
+            vmaps = bi_product(num_items)
             visited = set()
-            unified_unfolds = []
-            for bit_vec in unfolds:
-                unify_helper(bit_vec, tuples, visited, unified_unfolds)
+            unified_vmaps = []
+            for bit_vec in vmaps:
+                unify_helper(bit_vec, tuples, visited, unified_vmaps)
 
-            self.unfolds = unified_unfolds
+            self.vmaps = unified_vmaps
         elif unify:
             # when too many choices
             # we mainly consider two kinds of choices:
             # 1. single item choice
             # 2. all items
 
-            unfolds = []
+            vmaps = []
             for i, item in enumerate(tuples):
                 choose = True
                 for a, b in zip(item, keys):
@@ -173,21 +173,21 @@ class VMappingGenerator(CDParamGenerator):
                         choose = False
                         break
                 if choose:
-                    unfolds.append([1 if j == i else 0 for j in range(num_items)])
-            if not unfolds:
-                unfolds = [[1 if j == i else 0 for j in range(num_items)] for i in range(num_items)]
-            unfolds.append([1 for i in range(num_items)])
+                    vmaps.append([1 if j == i else 0 for j in range(num_items)])
+            if not vmaps:
+                vmaps = [[1 if j == i else 0 for j in range(num_items)] for i in range(num_items)]
+            vmaps.append([1 for i in range(num_items)])
             visited = set()
-            unified_unfolds = []
-            for bit_vec in unfolds:
-                unify_helper(bit_vec, tuples, visited, unified_unfolds)
-            self.unfolds = unified_unfolds
+            unified_vmaps = []
+            for bit_vec in vmaps:
+                unify_helper(bit_vec, tuples, visited, unified_vmaps)
+            self.vmaps = unified_vmaps
         else:
-            self.unfolds = bi_product(num_items)
-        print(f"Totally {len(self.unfolds)} different mappings for this matching", flush=True)
-        # self.unfolds = [[1 for _ in range(num_items)]]
-        self.choices = list(range(len(self.unfolds)))
-        self.reverse_map = {self.to_hashable(k): v for v, k in enumerate(self.unfolds)}
+            self.vmaps = bi_product(num_items)
+        print(f"Totally {len(self.vmaps)} different mappings for this matching", flush=True)
+        # self.vmaps = [[1 for _ in range(num_items)]]
+        self.choices = list(range(len(self.vmaps)))
+        self.reverse_map = {self.to_hashable(k): v for v, k in enumerate(self.vmaps)}
 
         self.directions = [1, 0, -1]
         # self.directions = [0]
@@ -197,7 +197,7 @@ class VMappingGenerator(CDParamGenerator):
         return self.reverse_map[self.to_hashable(factors)]
 
     def map_from_hidden(self, init):
-        return self.unfolds[init]
+        return self.vmaps[init]
 
     def move_towards_direction(self, init, d):
         des = init + d
@@ -226,15 +226,15 @@ class VMappingGenerator(CDParamGenerator):
 
 
 class Record(object):
-    def __init__(self, unfold_choice):
+    def __init__(self, vmap_choice):
         # choice = (des, direction)
-        self.unfold_choice = unfold_choice
+        self.vmap_choice = vmap_choice
 
     def to_json(self):
-        return {"unfold": self.unfold_choice}
+        return {"vmap": self.vmap_choice}
 
     def as_key(self):
-        return "(" + ",".join(map(str, self.unfold_choice[0])) + ")"
+        return "(" + ",".join(map(str, self.vmap_choice[0])) + ")"
 
     def __str__(self):
         return json.dumps(self.to_json())
@@ -245,7 +245,7 @@ class MappingGenerator(SAEntryGenerator):
         self,
         intrin_match_result,
         eps=1e-1,
-        log_file="transform_schedule_generator.log",
+        log_file=None,
         steps=1,
         allow_repeat=False,
         topk=3,
@@ -271,9 +271,9 @@ class MappingGenerator(SAEntryGenerator):
         #     if match_point_num < 0:
         #         match_point_num = match_len
         #     assert match_point_num == match_len
-        # self.unfold_gen = VMappingGenerator(match_point_num)
-        self.unfold_gen = VMappingGenerator(intrin_match_result.axis_map)
-        self.generator_lst = [self.unfold_gen]
+        # self.vmap_gen = VMappingGenerator(match_point_num)
+        self.vmap_gen = VMappingGenerator(intrin_match_result.axis_map)
+        self.generator_lst = [self.vmap_gen]
 
     def init_score_table(self):
         self.score_table = softmax([0.5 for gen in self.generator_lst])
@@ -282,26 +282,26 @@ class MappingGenerator(SAEntryGenerator):
         return self.generator_lst
 
     def record_from_json(self, obj):
-        return self.record_cls(obj["unfold"])
+        return self.record_cls(obj["vmap"])
 
     def get_all(self):
         ret = []
-        for unfold in self.unfold_gen.get_all():
-            ret.append(self.record_cls(unfold))
+        for vmap in self.vmap_gen.get_all():
+            ret.append(self.record_cls(vmap))
         return ret
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
-            return self.record_cls(self.unfold_gen.get(policy=policy))
+            return self.record_cls(self.vmap_gen.get(policy=policy))
         else:
             return self.record_cls(
-                self.unfold_gen.get(hint=entry.record.unfold_choice[0], policy=policy)
+                self.vmap_gen.get(hint=entry.record.vmap_choice[0], policy=policy)
             )
 
     def get_records_mutate_one_generator(self, record, to_mutate, steps):
-        unfold = record.unfold_choice
+        vmap = record.vmap_choice
 
-        next_unfold = self.unfold_gen.get_next(unfold[0], to_mutate)
+        next_vmap = self.vmap_gen.get_next(vmap[0], to_mutate)
 
         has_mutate = False
 
@@ -315,13 +315,13 @@ class MappingGenerator(SAEntryGenerator):
             return ret
 
         for s in range(steps):
-            unfold = helper(next_unfold, unfold)
+            vmap = helper(next_vmap, vmap)
             if has_mutate:
-                yield self.record_cls(unfold)
+                yield self.record_cls(vmap)
             has_mutate = False
 
     def feedback_value(self, entry, value):
-        self.unfold_gen.feedback(*entry.record.unfold_choice, value)
+        self.vmap_gen.feedback(*entry.record.vmap_choice, value)
 
 
 class MappingApplier(object):
@@ -338,7 +338,7 @@ class MappingApplier(object):
         self.strict = strict
 
     def apply_virtual_mapping(self, record, state, drop_output=False):
-        # unfold
+        # vmap
         intrin_main_op = None
         target_main_op = None
         for k, v in state.main_op_map.items():
@@ -347,12 +347,12 @@ class MappingApplier(object):
         assert intrin_main_op is not None
         assert target_main_op is not None
         intrin_axis = list(intrin_main_op.axis) + list(intrin_main_op.reduce_axis)
-        # make sure everytime the unfold axes are the same order
+        # make sure everytime the vmap axes are the same order
         intrin_axis_pos = {}
         for i, axis in enumerate(intrin_axis):
             intrin_axis_pos[axis] = i
         target_axis = list(target_main_op.axis) + list(target_main_op.reduce_axis)
-        unfold_choice = record.unfold_choice[0]
+        vmap_choice = record.vmap_choice[0]
         choices = []
         tmp = []
         filtered_intrin_axis = []
@@ -362,12 +362,12 @@ class MappingApplier(object):
                 filtered_intrin_axis.append(axis)
         intrin_axis = filtered_intrin_axis
         tmp = list(zip(*tmp))
-        for i, v in enumerate(unfold_choice):
+        for i, v in enumerate(vmap_choice):
             if v == 1:
                 choices.append(tmp[i])
         choices = list(zip(*choices))
 
-        name = ".unfold"
+        name = ".vmap"
         fwd_axis_map = {}
         rvs_axis_map = {}
         space_loops = []
@@ -418,11 +418,11 @@ class MappingApplier(object):
         )
         if self.verbose:
             print(str(request), flush=True)
-        unfold_state = mapping_main_op(state, request)
-        return unfold_state
+        vmap_state = mapping_main_op(state, request)
+        return vmap_state
 
     def apply_concrete_mapping(self, record, state, drop_output=False):
-        # fold
+        # cmap
         intrin_main_op = None
         target_main_op = None
         for k, v in state.main_op_map.items():
@@ -444,7 +444,7 @@ class MappingApplier(object):
         intrin_axis = filtered_intrin_axis
         choices = list(tmp)
 
-        name = ".fold"
+        name = ".cmap"
         fwd_axis_map = {}
         rvs_axis_map = {}
         space_loops = []

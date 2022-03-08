@@ -212,7 +212,7 @@ def test1():
     #             print(f3)
     for mapping in possible_mappings[1:]:
         record = gen.get()
-        record.unfold_choice = (mapping, record.unfold_choice[1])
+        record.vmap_choice = (mapping, record.vmap_choice[1])
         # print(record.to_json())
         app = at.MappingApplier(match_result)
         new_state = app.apply(record)
