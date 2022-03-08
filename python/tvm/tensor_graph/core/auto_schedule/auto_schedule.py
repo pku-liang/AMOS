@@ -1047,12 +1047,14 @@ class AutoTensorizeContextV3(object):
                     schedule_app = self.schedule_context_cache[record_key].schedule_app
                 elif record_key in tmp_schedule_context_cache:
                     schedule_gen, schedule_app = tmp_schedule_context_cache[record_key]
-                else:
+                elif (os.path.exists(current_log_file) and os.path.isfile(current_log_file)):
                     schedule_gen, schedule_app, checker, sc_info = self._get_schedule_ctx(
                         match_result, new_state, current_log_file
                     )
                     # create new tmp schedule context
                     tmp_schedule_context_cache[record_key] = (schedule_gen, schedule_app)
+                else:
+                    continue
                 if schedule_gen.has_entry():
                     entry = schedule_gen.get_best_entry()
                     # we store 1/time_cost in file

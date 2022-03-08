@@ -29,7 +29,7 @@ def all_fit(match_results):
     gen = MappingGenerator(chosen_match)
     record = gen.get(policy="random")
     # here is transform policy
-    record.unfold_choice = ([1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
+    record.vmap_choice = ([1 for _ in record.vmap_choice[0]], record.vmap_choice[1])
     # app = MappingApplier(match_result, verbose=False)
     # new_state = app.apply(record)
     return chosen_match, record
@@ -64,7 +64,7 @@ def first_fit(match_results):
                     found = False
                     break
             if found:
-                record.unfold_choice = (bit_vec, record.unfold_choice[1])
+                record.vmap_choice = (bit_vec, record.vmap_choice[1])
                 return match_result, record
     assert match_result is not None
     assert record is not None
@@ -126,7 +126,7 @@ def best_fit(match_results, score_func=default_score_func):
     gen = MappingGenerator(match_result)
     record = gen.get(policy="random")
     # here is transform policy
-    record.unfold_choice = (choice, record.unfold_choice[1])
+    record.vmap_choice = (choice, record.vmap_choice[1])
     return match_result, record
 
 

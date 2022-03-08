@@ -86,7 +86,7 @@ def tensorize_tensorcore_s8s8(
     gen = at.MappingGenerator(match_result)
     record = gen.get(policy="random")
     print(record.to_json())
-    record.unfold_choice = ([1 for _ in range(20)], record.unfold_choice[1])
+    record.vmap_choice = ([1 for _ in range(20)], record.vmap_choice[1])
     app = at.MappingApplier(match_result)
     new_state = app.apply(record)
 

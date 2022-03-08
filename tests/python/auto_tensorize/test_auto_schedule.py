@@ -148,7 +148,7 @@ def test1():
     gen = at.MappingGenerator(match_result)
     for i in range(1):
         record = gen.get()
-        record.unfold_choice = ([1, 0, 0, 0, 0, 0, 1], record.unfold_choice[1])
+        record.vmap_choice = ([1, 0, 0, 0, 0, 0, 1], record.vmap_choice[1])
         print(record.to_json())
         app = at.MappingApplier(match_result)
         new_state = app.apply(record)
@@ -535,7 +535,7 @@ def test2():
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
-        record.unfold_choice = ([1, 0, 0, 0, 0, 0, 1], record.unfold_choice[1])
+        record.vmap_choice = ([1, 0, 0, 0, 0, 0, 1], record.vmap_choice[1])
  
         print("transform decision:")
         for k, v in record.to_json().items():
@@ -972,7 +972,7 @@ def test3():
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
-        record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+        record.vmap_choice = ([1, 1, 1, 1, 1, 1, 1], record.vmap_choice[1])
  
         print("transform decision:")
         for k, v in record.to_json().items():
@@ -1229,7 +1229,7 @@ def test4():
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
-        record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+        record.vmap_choice = ([1, 1, 1, 1, 1, 1, 1], record.vmap_choice[1])
  
         print("transform decision:")
         for k, v in record.to_json().items():
@@ -1347,7 +1347,7 @@ def test5():
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
-        record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+        record.vmap_choice = ([1, 1, 1, 1, 1, 1, 1], record.vmap_choice[1])
  
         print("transform decision:")
         for k, v in record.to_json().items():
@@ -1475,7 +1475,7 @@ def test6():
     beg = time.time()
     for i in range(1):
         record = gen.get(policy="random")
-        record.unfold_choice = ([1, 1, 1], record.unfold_choice[1])
+        record.vmap_choice = ([1, 1, 1], record.vmap_choice[1])
  
         print("transform decision:")
         for k, v in record.to_json().items():

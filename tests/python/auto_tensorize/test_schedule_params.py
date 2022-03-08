@@ -138,7 +138,7 @@ def test4():
     # fix transform decisions
     gen = at.MappingGenerator(match_result)
     record = gen.get(policy="random")
-    record.unfold_choice = ([1, 1, 1, 1, 1, 1, 1], record.unfold_choice[1])
+    record.vmap_choice = ([1, 1, 1, 1, 1, 1, 1], record.vmap_choice[1])
     app = at.MappingApplier(match_result)
     new_state = app.apply(record)
 
