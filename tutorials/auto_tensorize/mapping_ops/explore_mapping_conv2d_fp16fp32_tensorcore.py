@@ -55,7 +55,7 @@ def tensorize_tensorcore_fp16fp32(N, C, H, W, K, R, S, stride, padding, dilation
     # We use 1200 just for a quick tutorial
     # If you have already tuned and gotten a log file
     # You can set it as 0 to bypass tuning
-    trials = 0
+    trials = 1200
     measure_opt = at.MeasureOptions(target=target, timeout=100, number=200, min_repeat_ms=500)
 
     result = at.auto_tensorize_v4(
