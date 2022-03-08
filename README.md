@@ -424,7 +424,7 @@ extern "C" __global__ void default_function_kernel2(half* __restrict__ Pad_vmap_
 We can see `nvcuda::wmma::mma_sync`, which means that Tensor Core is used.
 There are multiple kernels because some kernels are used to do data transform.
 In some cases, these kernels can also be fused by AMOS.
-The peroformance of this code is `0.031456`ms after 200 tuning. If we wait the full tuning to complete, a better performance can be obtained.
+The peroformance of this code is `0.031456`ms after the early 200 tuning trials (the following 1000 trials are not done yet). If we wait the full tuning to complete, a better performance can be obtained. And on the same device (RTX 3090), the performnace of PyTorch v1.10 + CuDNN v8.2 is `0.10336`ms.
 
 
 
