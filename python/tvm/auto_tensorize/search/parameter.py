@@ -158,7 +158,7 @@ class SAEntryGenerator(EntryGenerator):
         log_file="sa_entry_generator_record.log",
         allow_repeat=False,
         topk=20,
-        verbose_init=True
+        verbose_init=True,
     ):
         self.eps = eps
         self.entries = []
@@ -543,6 +543,7 @@ def find_optimized_parameters_v2(
         print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
 
+
 def find_optimized_parameters_v3(
     match_results,
     schedule_gen,
@@ -557,7 +558,7 @@ def find_optimized_parameters_v3(
     verbose=False,
     build_parallel=1,
     run_parallel=1,
-    perf_percentage=0.5
+    perf_percentage=0.5,
 ):
     """
     Combine the performance model estimation and profiling to find optimized parameters
@@ -567,7 +568,7 @@ def find_optimized_parameters_v3(
     perf_percentage: double = 0.5
         choose (search_group_size * perf_percentage) candidate params after perfomance model estimation
     """
-    assert not perf_percentage>1
+    assert not perf_percentage > 1
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
@@ -601,19 +602,33 @@ def find_optimized_parameters_v3(
                     # print(str(params))
                     params_lst_perf.append(params)
             assert params_lst_perf
-            
+
             if verbose:
                 print("performance model estimation...", flush=True)
             build_results_perf = builder(
-                schedule_app, params_lst_perf, measure_opt, checker, n_parallel=build_parallel, enable_perf_model=True
+                schedule_app,
+                params_lst_perf,
+                measure_opt,
+                checker,
+                n_parallel=build_parallel,
+                enable_perf_model=True,
             )
-            run_results_perf = runner(build_results_perf, measure_opt, n_parallel=run_parallel, enable_perf_model=True)
-            
-            params_value_lst = [[params, perf_res.costs[0]] # latency
-                                for params, perf_res in zip(params_lst_perf, run_results_perf)]
-            params_value_lst.sort(key=lambda x:x[1])
-            params_lst = list(map(lambda x:x[0], params_value_lst[:math.ceil(len(params_value_lst)*perf_percentage)]))
-            
+            run_results_perf = runner(
+                build_results_perf, measure_opt, n_parallel=run_parallel, enable_perf_model=True
+            )
+
+            params_value_lst = [
+                [params, perf_res.costs[0]]  # latency
+                for params, perf_res in zip(params_lst_perf, run_results_perf)
+            ]
+            params_value_lst.sort(key=lambda x: x[1])
+            params_lst = list(
+                map(
+                    lambda x: x[0],
+                    params_value_lst[: math.ceil(len(params_value_lst) * perf_percentage)],
+                )
+            )
+
             build_results = builder(
                 schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
             )

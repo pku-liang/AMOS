@@ -8,9 +8,7 @@ from ...backend import tenet
 
 
 class TenetState(object):
-    def __init__(
-            self, inlined, main_op_reduce_axis,
-            output_op_axis, last_op_axis, tensorize_iter):
+    def __init__(self, inlined, main_op_reduce_axis, output_op_axis, last_op_axis, tensorize_iter):
         self.inlined = inlined
         self.main_op_reduce_axis = main_op_reduce_axis
         self.output_op_axis = output_op_axis
@@ -23,17 +21,12 @@ def empty_tenet_state():
 
 
 class TenetParams(object):
-    def __init__(
-            self, spatial_factors, reduce_factors
-            ):
+    def __init__(self, spatial_factors, reduce_factors):
         self.spatial_factors = spatial_factors
         self.reduce_factors = reduce_factors
 
     def to_json(self):
-        ret = {
-            "spatial_factors": self.spatial_factors,
-            "reduce_factors": self.reduce_factors
-        }
+        ret = {"spatial_factors": self.spatial_factors, "reduce_factors": self.reduce_factors}
         return ret
 
     def from_json(self, obj):
@@ -43,6 +36,7 @@ class TenetParams(object):
     def __str__(self):
         obj = self.to_json()
         new_obj = {}
+
         def handle(v):
             if isinstance(v, list):
                 return [handle(x) for x in v]
@@ -67,11 +61,22 @@ class TenetKernelParamGenerator(CDParamGenerator):
 
 
 class TenetScheduleGenerator(AcceleratorScheduleGenerator):
-    def __init__(self, intrin_match_result, transform_state, eps=0.7,
-            reduce_tiling=3, spatial_tiling=4, last_tiling=3, arch="",
-            log_file="tenet_schedule_generator.log", steps=1, verbose_init=True):
-        super(TenetScheduleGenerator, self).__init__(eps, TenetParams,
-            steps=steps, log_file=log_file, verbose_init=verbose_init)
+    def __init__(
+        self,
+        intrin_match_result,
+        transform_state,
+        eps=0.7,
+        reduce_tiling=3,
+        spatial_tiling=4,
+        last_tiling=3,
+        arch="",
+        log_file="tenet_schedule_generator.log",
+        steps=1,
+        verbose_init=True,
+    ):
+        super(TenetScheduleGenerator, self).__init__(
+            eps, TenetParams, steps=steps, log_file=log_file, verbose_init=verbose_init
+        )
         self.init_hw_abs_dag(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_hw_abs_dag_stage(nodes)
@@ -113,7 +118,8 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             target_main_op,
             self.hw_abs_dag,
             self.compute_key,
-            self.shape_key)
+            self.shape_key,
+        )
         # nodes: dict {hw_abs name : new tensor}
         (_, _, nodes, _, _) = info
         # get new main op
@@ -128,8 +134,8 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             if cur in self.hw_abs_dag.hw_abs_dict:
                 return True
             return False
-        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(
-            cond1=cond)
+
+        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(cond1=cond)
 
         operation_role = {}
         hw_abs_map = {}
@@ -143,9 +149,9 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         for name in hw_abs_names:
             op = nodes[name][0].op
             hw_abs_map[op] = name
-            spatial_axis, reduce_axis = \
-                self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
-                    self.compute_key, self.shape_key, name)
+            spatial_axis, reduce_axis = self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
+                self.compute_key, self.shape_key, name
+            )
             reserve_inner_axis_count[op] = len(spatial_axis)
             if name not in read_graph:
                 operation_role[op] = OperationRole.load_op
@@ -157,10 +163,8 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             elif name == self.hw_abs_dag.main_hw_abs_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
-                    main_op_reserve_reduce_axis.append(
-                        len(op.reduce_axis) - len(reduce_axis) + i)
-                    main_op_reserve_reduce_axis_factor.append(
-                        int(red.dom.extent))
+                    main_op_reserve_reduce_axis.append(len(op.reduce_axis) - len(reduce_axis) + i)
+                    main_op_reserve_reduce_axis_factor.append(int(red.dom.extent))
         assert self.output_op is not None
         # construct hw_abs_dag stage
         self.hw_abs_dag_stage = HwAbsDAGStage(
@@ -175,7 +179,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             main_op_reserve_reduce_axis_factor,
             load_from_shared,
             store_to_shared,
-            self.hw_abs_dag.scope
+            self.hw_abs_dag.scope,
         )
 
     def init_param_generator(self):
@@ -187,16 +191,14 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         # skip the reserved reduce axis
         for i, iv in enumerate(self.main_op.reduce_axis):
             if i not in reserve_reduce_axis:
-                gen = SplitFactorGenerator(
-                    int(iv.dom.extent), self.reduce_tiling_parts)
+                gen = SplitFactorGenerator(int(iv.dom.extent), self.reduce_tiling_parts)
                 self.reduce_splits.append(gen)
         # for output op spatial split
         self.spatial_splits = []
         reserve_axis_count = int(self.hw_abs_dag_stage.reserve_inner_axis_count[self.output_op])
         # skip the reserved spatial axis
         for iv in self.output_op.axis[:-reserve_axis_count]:
-            gen = SplitFactorGenerator(
-                int(iv.dom.extent), self.spatial_tiling_parts)
+            gen = SplitFactorGenerator(int(iv.dom.extent), self.spatial_tiling_parts)
             self.spatial_splits.append(gen)
         # for last op spatial axis
         last_total_extent = 1
@@ -234,9 +236,9 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             self.main_op_id,
             self.output_op_id,
             self.hw_abs_dag_stage,
-            spatial_tiling = self.spatial_tiling_parts,
-            reduce_tiling = self.reduce_tiling_parts,
-            last_tiling = self.last_op_tiling_parts
+            spatial_tiling=self.spatial_tiling_parts,
+            reduce_tiling=self.reduce_tiling_parts,
+            last_tiling=self.last_op_tiling_parts,
         )
 
     def valid(self, record):
@@ -262,7 +264,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
             # obj["last_factors"],
             # obj["output_unroll_step"],
             # obj["last_unroll_step"]
-            )
+        )
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
@@ -274,26 +276,29 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
                 # [gen.get(policy=policy) for gen in self.last_splits],
                 # self.unroll_output.get(policy=policy),
                 # self.unroll_last.get(policy=policy)
-                )
+            )
         else:
             record = self.record_cls(
                 # self.inline.get(hint=entry.record.inline[0], policy="q"),
                 # self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.spatial_splits, entry.record.spatial_factors)],
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.reduce_splits, entry.record.reduce_factors)],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.spatial_splits, entry.record.spatial_factors)
+                ],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.reduce_splits, entry.record.reduce_factors)
+                ],
                 # [gen.get(hint=x[0], policy="q") for gen, x in zip(
                 #     self.last_splits, entry.record.last_factors)],
                 # self.unroll_output.get(
                 #     hint=entry.record.output_unroll_step[0], policy="q"),
                 # self.unroll_last.get(
                 #     hint=entry.record.last_unroll_step[0], policy="q"),
-                )
+            )
         return record
 
-    def get_records_mutate_one_generator(
-        self, record, to_mutate, steps):
+    def get_records_mutate_one_generator(self, record, to_mutate, steps):
         # inline = record.inline
         # vec = record.vectorize
         spatial = record.spatial_factors
@@ -308,13 +313,9 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         # next_vec = self.vectorize.get_next(
         #     vec[0], to_mutate)
         next_spatial = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.spatial_splits, spatial)
+            gen.get_next(x[0], to_mutate) for gen, x in zip(self.spatial_splits, spatial)
         ]
-        next_reduce = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.reduce_splits, reduce)
-        ]
+        next_reduce = [gen.get_next(x[0], to_mutate) for gen, x in zip(self.reduce_splits, reduce)]
         # next_last = [
         #     gen.get_next(x[0], to_mutate) for gen, x in zip(
         #         self.last_splits, last)
@@ -340,12 +341,8 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
         for s in range(steps):
             # inline = helper(next_inline, inline)
             # vec = helper(next_vec, vec)
-            spatial = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)
-            ]
-            reduce = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)
-            ]
+            spatial = [helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)]
+            reduce = [helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)]
             # last = [
             #     helper(_gen, org_val) for _gen, org_val in zip(next_last, last)
             # ]
@@ -360,7 +357,7 @@ class TenetScheduleGenerator(AcceleratorScheduleGenerator):
                     # last,
                     # unroll_output,
                     # unroll_last
-                    )
+                )
             has_mutate = False
 
     def feedback_value(self, entry, value):
@@ -408,7 +405,7 @@ class TenetScheduleApplier(object):
         self.reduce_tiling_parts = schedule_compute_info.kwargs["reduce_tiling"]
         self.spatial_tiling_parts = schedule_compute_info.kwargs["spatial_tiling"]
         self.last_op_tiling_parts = schedule_compute_info.kwargs["last_tiling"]
-        
+
         self.tenet_ctx = None
 
     def initialize_state(self):
@@ -461,7 +458,10 @@ class TenetScheduleApplier(object):
 
     def get_output_op_axis_factors(self, number):
         assert len(self.params.spatial_factors) >= number, (
-            len(self.params.spatial_factors), " vs. ", number)
+            len(self.params.spatial_factors),
+            " vs. ",
+            number,
+        )
         return [x[0] for x in self.params.spatial_factors[:number]]
 
     def get_last_op_axis_factors(self):
@@ -483,9 +483,11 @@ class TenetScheduleApplier(object):
                 consumers = self.target_dag.feed_graph[op]
                 if len(consumers) <= 0:
                     return
-                if len(consumers) == 1 and \
-                    consumers[0] in self.hw_abs_dag_stage.operation_role and \
-                        self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op:
+                if (
+                    len(consumers) == 1
+                    and consumers[0] in self.hw_abs_dag_stage.operation_role
+                    and self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op
+                ):
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         return
@@ -513,10 +515,10 @@ class TenetScheduleApplier(object):
             # the last op
             if len(consumers) == 1:
                 do_cache_read_for_last = True
-        
+
         # can't do both
         assert not (do_cache_read_for_load and do_cache_read_for_last)
-        
+
         if do_cache_read_for_load:
             S = sch.cache_read(X(op).output(0), "shared", [X(x) for x in consumers])
             axis = self.get_main_op_outermost_last_reduce_axis()
@@ -545,8 +547,7 @@ class TenetScheduleApplier(object):
             # prepare spatial axis
             axis = sch[X(op)].op.axis
             reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
-            spatial_axis_split_parts = [
-                axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
+            spatial_axis_split_parts = [axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
 
             all_reduce_axis = sch[X(op)].op.reduce_axis
             reserve_reduce_axis = []
@@ -560,11 +561,9 @@ class TenetScheduleApplier(object):
             reserve_reduce_num = len(reserve_reduce_axis)
             pos = self.get_output_op_third_innermost_last_axis()
             sch[X(op)].compute_at(sch[X(self.output_op)], pos)
-            
+
             reduce_axis_split_parts = []
-            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
-                len(split_reduce_axis)
-            )
+            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(len(split_reduce_axis))
             for iv, factors in zip(split_reduce_axis, reduce_axis_split_factors):
                 part = []
                 for f in reversed(factors[1:]):
@@ -576,16 +575,19 @@ class TenetScheduleApplier(object):
             reordered_reduce_axis = [list(x) for x in zip(*reduce_axis_split_parts)]
             reordered_reduce_axis.append(reserve_reduce_axis)
             assert len(reordered_reduce_axis) > 3, "No enough reduce axis split."
-            ordered_axis = reordered_reduce_axis[:-2] + \
-                           [spatial_axis_split_parts[0]] + \
-                           reordered_reduce_axis[-2:-1] + \
-                           [spatial_axis_split_parts[1]] + \
-                           reordered_reduce_axis[-1:]
+            ordered_axis = (
+                reordered_reduce_axis[:-2]
+                + [spatial_axis_split_parts[0]]
+                + reordered_reduce_axis[-2:-1]
+                + [spatial_axis_split_parts[1]]
+                + reordered_reduce_axis[-1:]
+            )
             ordered_axis = reduce(lambda x, y: x + y, ordered_axis, [])
             sch[X(op)].reorder(*ordered_axis)
             self.state.main_op_reduce_axis = reordered_reduce_axis
             self.state.tensorize_iter[op] = ordered_axis[
-                -(reserve_spatial_num + reserve_reduce_num)]
+                -(reserve_spatial_num + reserve_reduce_num)
+            ]
             #################################
             ## update tenet context
             #################################
@@ -594,25 +596,22 @@ class TenetScheduleApplier(object):
             ## this is outermost timeloop
             ## surrounding shared memory
             self.tenet_ctx.update_time_loop(
-                0, reduce(
-                    lambda x, y: x + y, reordered_reduce_axis[:1], []), push_front=False)
+                0, reduce(lambda x, y: x + y, reordered_reduce_axis[:1], []), push_front=False
+            )
             #################################
             ## this is intermediate timeloop
             ## surrounding register
             self.tenet_ctx.update_time_loop(
-                2, reduce(
-                    lambda x, y: x + y, reordered_reduce_axis[1:-1], []), push_front=False)
+                2, reduce(lambda x, y: x + y, reordered_reduce_axis[1:-1], []), push_front=False
+            )
             #################################
             ## no innermost timeloop
         elif op == self.output_op:
             axis = sch[X(op)].op.axis
-            reserve_spatial_num = int(
-                self.hw_abs_dag_stage.reserve_inner_axis_count[op])
+            reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             split_spatial_axis = axis[:-reserve_spatial_num]
             reserve_spatial_axis = axis[-reserve_spatial_num:]
-            spatial_axis_split_factors = self.get_output_op_axis_factors(
-                len(split_spatial_axis)
-            )
+            spatial_axis_split_factors = self.get_output_op_axis_factors(len(split_spatial_axis))
             spatial_axis_split_parts = []
             for iv, factors in zip(split_spatial_axis, spatial_axis_split_factors):
                 part = []
@@ -622,18 +621,14 @@ class TenetScheduleApplier(object):
                 part.append(iv)
                 part = list(reversed(part))
                 spatial_axis_split_parts.append(part)
-            reordered_spatial_axis = [list(x)
-                                      for x in zip(*spatial_axis_split_parts)]
+            reordered_spatial_axis = [list(x) for x in zip(*spatial_axis_split_parts)]
             reordered_spatial_axis.append(reserve_spatial_axis)
             # reorder
-            ordered_axis = reduce(lambda x, y: x + y,
-                                  reordered_spatial_axis, [])
+            ordered_axis = reduce(lambda x, y: x + y, reordered_spatial_axis, [])
             sch[X(op)].reorder(*ordered_axis)
             # fuse and bind
-            assert len(
-                reordered_spatial_axis) > 3, "No enough spatial axis split."
-            fused_axis = [sch[X(op)].fuse(*part)
-                          for part in reordered_spatial_axis[:-2]]
+            assert len(reordered_spatial_axis) > 3, "No enough spatial axis split."
+            fused_axis = [sch[X(op)].fuse(*part) for part in reordered_spatial_axis[:-2]]
             final_axis = [[x] for x in fused_axis]
             sch[X(op)].bind(fused_axis[0], self.bx)
             # the intermediate bind to vthread
@@ -651,26 +646,21 @@ class TenetScheduleApplier(object):
             #################################
             ## this is outermost spaceloop
             ## surrounding shared memory
-            self.tenet_ctx.set_space_loop(
-                0, final_axis[0])
+            self.tenet_ctx.set_space_loop(0, final_axis[0])
             #################################
             ## this is intermediate spaceloop
             ## surrounding register
-            self.tenet_ctx.set_space_loop(
-                1, final_axis[-3])
+            self.tenet_ctx.set_space_loop(1, final_axis[-3])
             #################################
             ## no innermost spaceloop
             #################################
             ## update time loops
             #################################
             ## this is intermediate timeloop
-            self.tenet_ctx.update_time_loop(
-                0, reduce(
-                    lambda x, y: x + y, final_axis[1:-3], []))
+            self.tenet_ctx.update_time_loop(0, reduce(lambda x, y: x + y, final_axis[1:-3], []))
             #################################
             ## this is innermost timeloop
-            self.tenet_ctx.update_time_loop(
-                2, final_axis[-2])
+            self.tenet_ctx.update_time_loop(2, final_axis[-2])
             #################################
             ## no innermost timeloop
         elif op == self.target_dag.op_lst[-1]:
@@ -702,9 +692,11 @@ class TenetScheduleApplier(object):
                 consumers = self.target_dag.feed_graph[op]
                 if len(consumers) <= 0:
                     return
-                if len(consumers) == 1 and \
-                    consumers[0] in self.hw_abs_dag_stage.operation_role and \
-                        self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op:
+                if (
+                    len(consumers) == 1
+                    and consumers[0] in self.hw_abs_dag_stage.operation_role
+                    and self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.load_op
+                ):
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         do_tiling = True
@@ -748,10 +740,11 @@ class TenetScheduleApplier(object):
         if not op in self.hw_abs_dag_stage.operation_role:
             return
         intrin = self.hw_abs_dag.get_intrinsic(
-            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op])
+            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op]
+        )
         axis = self.get_tensorize_iter(op)
         sch[X(op)].tensorize(axis, intrin)
-    
+
     def apply(self, sch, params, mapping_func=lambda x: x):
         # prepare the tenet context
         self.tenet_ctx = tenet.TenetContext(3)
@@ -766,9 +759,9 @@ class TenetScheduleApplier(object):
             self.set_scope,
             self.tiling,
             self.compute_at,
-            self.tensorize
+            self.tensorize,
         ]
-        
+
         # initialize parameters
         self.initialize_parameters(params)
         # check if parameters are ready

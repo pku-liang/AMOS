@@ -10,9 +10,15 @@ from collections import OrderedDict
 
 class CUDAStateMultiReduce(object):
     def __init__(
-            self, inlined, main_op_reduce_axis,
-            output_op_axis, left_op_spatial_axis_map,
-            left_op_reduce_axis_map, tensorize_iter, op_to_id):
+        self,
+        inlined,
+        main_op_reduce_axis,
+        output_op_axis,
+        left_op_spatial_axis_map,
+        left_op_reduce_axis_map,
+        tensorize_iter,
+        op_to_id,
+    ):
         self.inlined = inlined
         self.main_op_reduce_axis = main_op_reduce_axis
         self.output_op_axis = output_op_axis
@@ -28,9 +34,15 @@ def empty_cuda_state_multi_reduce():
 
 class CUDAParamsMultiReduce(object):
     def __init__(
-            self, vectorize, spatial_factors, reduce_factors,
-            left_spatial_factors_map, left_reduce_factors_map,
-            output_unroll_step, left_op_unroll_step):
+        self,
+        vectorize,
+        spatial_factors,
+        reduce_factors,
+        left_spatial_factors_map,
+        left_reduce_factors_map,
+        output_unroll_step,
+        left_op_unroll_step,
+    ):
         self.vectorize = vectorize
         self.spatial_factors = spatial_factors
         self.reduce_factors = reduce_factors
@@ -47,7 +59,7 @@ class CUDAParamsMultiReduce(object):
             "left_spatial_factors_map": self.left_spatial_factors_map,
             "left_reduce_factors_map": self.left_reduce_factors_map,
             "output_unroll_step": self.output_unroll_step,
-            "left_op_unroll_step": self.left_op_unroll_step
+            "left_op_unroll_step": self.left_op_unroll_step,
         }
         return ret
 
@@ -56,9 +68,11 @@ class CUDAParamsMultiReduce(object):
         self.spatial_factors = obj["spatial_factors"]
         self.reduce_factors = obj["reduce_factors"]
         self.left_spatial_factors_map = OrderedDict(
-            {int(x): y for x, y in obj["left_spatial_factors_map"].items()})
+            {int(x): y for x, y in obj["left_spatial_factors_map"].items()}
+        )
         self.left_reduce_factors_map = OrderedDict(
-            {int(x): y for x, y in obj["left_reduce_factors_map"].items()})
+            {int(x): y for x, y in obj["left_reduce_factors_map"].items()}
+        )
         self.output_unroll_step = obj["output_unroll_step"]
         self.left_unroll_step = obj["left_op_unroll_step"]
 
@@ -81,8 +95,7 @@ class CUDAParamsMultiReduce(object):
 
 
 def empty_cuda_params_multi_reduce():
-    return CUDAParamsMultiReduce(
-        None, [], [], OrderedDict(), OrderedDict(), None, None)
+    return CUDAParamsMultiReduce(None, [], [], OrderedDict(), OrderedDict(), None, None)
 
 
 #####################################################
@@ -100,9 +113,7 @@ def need_tiling(op, dag, threshhold=256):
     assert len(dag.op_lst) > 0
     tile_spatial = True
     tile_reduce = True
-    reduce_domain = reduce(
-        lambda x, y: x * y, [
-            int(iv.dom.extent) for iv in op.reduce_axis], 1)
+    reduce_domain = reduce(lambda x, y: x * y, [int(iv.dom.extent) for iv in op.reduce_axis], 1)
     if can_inline(op, dag):
         tile_reduce = False
         tile_spatial = False
@@ -112,13 +123,23 @@ def need_tiling(op, dag, threshhold=256):
 
 
 class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
-    def __init__(self, intrin_match_result, transform_state, eps=0.9,
-            reduce_tiling=3, spatial_tiling=4,
-            left_reduce_tiling=2, left_spatial_tiling=3, arch=70,
-            log_file="cuda_schedule_generator.log", steps=1,
-            verbose_init=True):
-        super(CUDAScheduleGeneratorMultiReduce, self).__init__(eps, CUDAParamsMultiReduce,
-            steps=steps, log_file=log_file, verbose_init=verbose_init)
+    def __init__(
+        self,
+        intrin_match_result,
+        transform_state,
+        eps=0.9,
+        reduce_tiling=3,
+        spatial_tiling=4,
+        left_reduce_tiling=2,
+        left_spatial_tiling=3,
+        arch=70,
+        log_file="cuda_schedule_generator.log",
+        steps=1,
+        verbose_init=True,
+    ):
+        super(CUDAScheduleGeneratorMultiReduce, self).__init__(
+            eps, CUDAParamsMultiReduce, steps=steps, log_file=log_file, verbose_init=verbose_init
+        )
         self.init_hw_abs_dag(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_hw_abs_dag_stage(nodes)
@@ -161,7 +182,8 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             target_main_op,
             self.hw_abs_dag,
             self.compute_key,
-            self.shape_key)
+            self.shape_key,
+        )
         # nodes: dict {hw abs name : new tensor}
         (_, _, nodes, _, _) = info
         # get new main op
@@ -176,8 +198,8 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             if cur in self.hw_abs_dag.hw_abs_dict:
                 return True
             return False
-        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(
-            cond1=cond)
+
+        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(cond1=cond)
 
         operation_role = {}
         hw_abs_map = {}
@@ -191,9 +213,9 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
         for name in hw_abs_names:
             op = nodes[name][0].op
             hw_abs_map[op] = name
-            spatial_axis, reduce_axis = \
-                self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
-                    self.compute_key, self.shape_key, name)
+            spatial_axis, reduce_axis = self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
+                self.compute_key, self.shape_key, name
+            )
             reserve_inner_axis_count[op] = len(spatial_axis)
             if name not in read_graph:
                 operation_role[op] = OperationRole.load_op
@@ -205,10 +227,8 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             elif name == self.hw_abs_dag.main_hw_abs_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
-                    main_op_reserve_reduce_axis.append(
-                        len(op.reduce_axis) - len(reduce_axis) + i)
-                    main_op_reserve_reduce_axis_factor.append(
-                        int(red.dom.extent))
+                    main_op_reserve_reduce_axis.append(len(op.reduce_axis) - len(reduce_axis) + i)
+                    main_op_reserve_reduce_axis_factor.append(int(red.dom.extent))
         assert self.output_op is not None
         # construct hw_abs_dag stage
         self.hw_abs_dag_stage = HwAbsDAGStage(
@@ -223,7 +243,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             main_op_reserve_reduce_axis_factor,
             load_from_shared,
             store_to_shared,
-            self.hw_abs_dag.scope
+            self.hw_abs_dag.scope,
         )
 
     def init_param_generator(self):
@@ -235,16 +255,14 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
         # skip the reserved reduce axis
         for i, iv in enumerate(self.main_op.reduce_axis):
             if i not in reserve_reduce_axis:
-                gen = SplitFactorGenerator(
-                    int(iv.dom.extent), self.reduce_tiling_parts)
+                gen = SplitFactorGenerator(int(iv.dom.extent), self.reduce_tiling_parts)
                 self.reduce_splits.append(gen)
         # for output op spatial split
         self.spatial_splits = []
         reserve_axis_count = int(self.hw_abs_dag_stage.reserve_inner_axis_count[self.output_op])
         # skip the reserved spatial axis
         for iv in self.output_op.axis[:-reserve_axis_count]:
-            gen = SplitFactorGenerator(
-                int(iv.dom.extent), self.spatial_tiling_parts)
+            gen = SplitFactorGenerator(int(iv.dom.extent), self.spatial_tiling_parts)
             self.spatial_splits.append(gen)
         # for left op reduce/spatial axis
         self.left_reduce_splits = OrderedDict()
@@ -257,28 +275,25 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             (tile_spatial, tile_reduce) = need_tiling(op, self.target_dag)
             if tile_spatial:
                 total_spatial_extents = reduce(
-                    lambda x, y: x * y, [
-                        int(iv.dom.extent) for iv in op.axis], 1)
+                    lambda x, y: x * y, [int(iv.dom.extent) for iv in op.axis], 1
+                )
                 total_spatial_extents = (
-                    total_spatial_extents
-                    + self.warp_size - 1) // self.warp_size
-                sp_gen = SplitFactorGenerator(
-                    total_spatial_extents, self.left_spatial_tiling_parts)
+                    total_spatial_extents + self.warp_size - 1
+                ) // self.warp_size
+                sp_gen = SplitFactorGenerator(total_spatial_extents, self.left_spatial_tiling_parts)
                 self.left_spatial_splits[op_id] = sp_gen
             if tile_reduce:
                 total_reduce_extents = reduce(
-                    lambda x, y: x * y, [
-                        int(iv.dom.extent) for iv in op.reduce_axis], 1)
-                total_reduce_extents = (
-                    total_reduce_extents
-                    + self.warp_size - 1) // self.warp_size
-                rd_gen = SplitFactorGenerator(
-                    total_reduce_extents, self.left_reduce_tiling_parts)
+                    lambda x, y: x * y, [int(iv.dom.extent) for iv in op.reduce_axis], 1
+                )
+                total_reduce_extents = (total_reduce_extents + self.warp_size - 1) // self.warp_size
+                rd_gen = SplitFactorGenerator(total_reduce_extents, self.left_reduce_tiling_parts)
                 self.left_reduce_splits[op_id] = rd_gen
 
         self.unroll_left = UnrollStepGenerator([16, 64, 512, 1500])
         self.vectorize = VectorizeLengthGenerator(
-            self.hw_abs_dag.target, self.main_op.input_tensors[0].dtype)
+            self.hw_abs_dag.target, self.main_op.input_tensors[0].dtype
+        )
         self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
         self.generator_lst = [
             self.vectorize,
@@ -287,7 +302,7 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             *list(self.left_spatial_splits.values()),
             *list(self.left_reduce_splits.values()),
             self.unroll_output,
-            self.unroll_left
+            self.unroll_left,
         ]
 
     def init_score_table(self):
@@ -304,10 +319,10 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
             self.main_op_id,
             self.output_op_id,
             self.hw_abs_dag_stage,
-            spatial_tiling = self.spatial_tiling_parts,
-            reduce_tiling = self.reduce_tiling_parts,
-            left_spatial_tiling = self.left_spatial_tiling_parts,
-            left_reduce_tiling = self.left_reduce_tiling_parts
+            spatial_tiling=self.spatial_tiling_parts,
+            reduce_tiling=self.reduce_tiling_parts,
+            left_spatial_tiling=self.left_spatial_tiling_parts,
+            left_reduce_tiling=self.left_reduce_tiling_parts,
         )
 
     def valid(self, record):
@@ -343,41 +358,47 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                 [gen.get(policy=policy) for gen in self.spatial_splits],
                 [gen.get(policy=policy) for gen in self.reduce_splits],
                 OrderedDict(
-                    {x: gen.get(
-                        policy=policy) for x, gen
-                        in self.left_spatial_splits.items()}),
+                    {x: gen.get(policy=policy) for x, gen in self.left_spatial_splits.items()}
+                ),
                 OrderedDict(
-                    {x: gen.get(
-                        policy=policy) for x, gen
-                        in self.left_reduce_splits.items()}),
+                    {x: gen.get(policy=policy) for x, gen in self.left_reduce_splits.items()}
+                ),
                 self.unroll_output.get(policy=policy),
-                self.unroll_left.get(policy=policy))
+                self.unroll_left.get(policy=policy),
+            )
         else:
             record = self.record_cls(
                 self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.spatial_splits, entry.record.spatial_factors)],
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.reduce_splits, entry.record.reduce_factors)],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.spatial_splits, entry.record.spatial_factors)
+                ],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.reduce_splits, entry.record.reduce_factors)
+                ],
                 OrderedDict(
-                    {y: gen.get(
-                        hint=x[0], policy="q") for (y, gen), x in zip(
-                            self.left_spatial_splits.items(),
-                            entry.record.left_spatial_factors_map)}),
+                    {
+                        y: gen.get(hint=x[0], policy="q")
+                        for (y, gen), x in zip(
+                            self.left_spatial_splits.items(), entry.record.left_spatial_factors_map
+                        )
+                    }
+                ),
                 OrderedDict(
-                    {y: gen.get(
-                        hint=x[0], policy="q") for (y, gen), x in zip(
-                            self.left_reduce_splits.items(),
-                            entry.record.left_reduce_factors_map)}),
-                self.unroll_output.get(
-                    hint=entry.record.output_unroll_step[0], policy="q"),
-                self.unroll_left.get(
-                    hint=entry.record.left_op_unroll_step[0], policy="q")
-                )
+                    {
+                        y: gen.get(hint=x[0], policy="q")
+                        for (y, gen), x in zip(
+                            self.left_reduce_splits.items(), entry.record.left_reduce_factors_map
+                        )
+                    }
+                ),
+                self.unroll_output.get(hint=entry.record.output_unroll_step[0], policy="q"),
+                self.unroll_left.get(hint=entry.record.left_op_unroll_step[0], policy="q"),
+            )
         return record
 
-    def get_records_mutate_one_generator(
-            self, record, to_mutate, steps):
+    def get_records_mutate_one_generator(self, record, to_mutate, steps):
         vec = record.vectorize
         spatial = record.spatial_factors
         reduce = record.reduce_factors
@@ -386,30 +407,21 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
         unroll_output = record.output_unroll_step
         unroll_left = record.left_op_unroll_step
 
-        next_vec = self.vectorize.get_next(
-            vec[0], to_mutate)
+        next_vec = self.vectorize.get_next(vec[0], to_mutate)
         next_spatial = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.spatial_splits, spatial)
+            gen.get_next(x[0], to_mutate) for gen, x in zip(self.spatial_splits, spatial)
         ]
-        next_reduce = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.reduce_splits, reduce)
-        ]
+        next_reduce = [gen.get_next(x[0], to_mutate) for gen, x in zip(self.reduce_splits, reduce)]
         next_left_spatial = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.left_spatial_splits.values(), left_spatial)
+            gen.get_next(x[0], to_mutate)
+            for gen, x in zip(self.left_spatial_splits.values(), left_spatial)
         ]
         next_left_reduce = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.left_reduce_splits.values(), left_reduce)
+            gen.get_next(x[0], to_mutate)
+            for gen, x in zip(self.left_reduce_splits.values(), left_reduce)
         ]
-        next_unroll_output = self.unroll_output.get_next(
-            unroll_output[0], to_mutate
-        )
-        next_unroll_left = self.unroll_left.get_next(
-            unroll_left[0], to_mutate
-        )
+        next_unroll_output = self.unroll_output.get_next(unroll_output[0], to_mutate)
+        next_unroll_left = self.unroll_left.get_next(unroll_left[0], to_mutate)
         has_mutate = False
 
         def helper(_gen, org_val):
@@ -423,21 +435,13 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
 
         for s in range(steps):
             vec = helper(next_vec, vec)
-            spatial = [
-                helper(_gen, org_val) for _gen, org_val in zip(
-                    next_spatial, spatial)
-            ]
-            reduce = [
-                helper(_gen, org_val) for _gen, org_val in zip(
-                    next_reduce, reduce)
-            ]
+            spatial = [helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)]
+            reduce = [helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)]
             left_spatial = [
-                helper(_gen, org_val) for _gen, org_val in zip(
-                    next_left_spatial, left_spatial)
+                helper(_gen, org_val) for _gen, org_val in zip(next_left_spatial, left_spatial)
             ]
             left_reduce = [
-                helper(_gen, org_val) for _gen, org_val in zip(
-                    next_left_reduce, left_reduce)
+                helper(_gen, org_val) for _gen, org_val in zip(next_left_reduce, left_reduce)
             ]
             unroll_output = helper(next_unroll_output, unroll_output)
             unroll_left = helper(next_unroll_left, unroll_left)
@@ -446,31 +450,30 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
                     vec,
                     spatial,
                     reduce,
-                    OrderedDict({
-                        x: y for x, y in zip(
-                            self.left_spatial_splits.keys(), left_spatial)}),
-                    OrderedDict({
-                        x: y for x, y in zip(
-                            self.left_reduce_splits.keys(), left_reduce)}),
+                    OrderedDict(
+                        {x: y for x, y in zip(self.left_spatial_splits.keys(), left_spatial)}
+                    ),
+                    OrderedDict(
+                        {x: y for x, y in zip(self.left_reduce_splits.keys(), left_reduce)}
+                    ),
                     unroll_output,
-                    unroll_left)
+                    unroll_left,
+                )
             has_mutate = False
 
     def feedback_value(self, entry, value):
         self.vectorize.feedback(*entry.record.vectorize, value)
-        for gen, factors in zip(
-                self.spatial_splits, entry.record.spatial_factors):
+        for gen, factors in zip(self.spatial_splits, entry.record.spatial_factors):
+            gen.feedback(*factors, value)
+        for gen, factors in zip(self.reduce_splits, entry.record.reduce_factors):
             gen.feedback(*factors, value)
         for gen, factors in zip(
-                self.reduce_splits, entry.record.reduce_factors):
+            self.left_spatial_splits.values(), entry.record.left_spatial_factors_map
+        ):
             gen.feedback(*factors, value)
         for gen, factors in zip(
-                self.left_spatial_splits.values(),
-                entry.record.left_spatial_factors_map):
-            gen.feedback(*factors, value)
-        for gen, factors in zip(
-                self.left_reduce_splits.values(),
-                entry.record.left_reduce_factors_map):
+            self.left_reduce_splits.values(), entry.record.left_reduce_factors_map
+        ):
             gen.feedback(*factors, value)
         self.unroll_output.feedback(*entry.record.output_unroll_step, value)
         self.unroll_left.feedback(*entry.record.left_op_unroll_step, value)
@@ -626,7 +629,10 @@ class CUDAScheduleApplierMultiReduce(object):
 
     def get_output_op_axis_factors(self, number):
         assert len(self.params.spatial_factors) >= number, (
-            len(self.params.spatial_factors), " vs. ", number)
+            len(self.params.spatial_factors),
+            " vs. ",
+            number,
+        )
         return [x[0] for x in self.params.spatial_factors[:number]]
 
     # def get_last_op_axis_factors(self, number):
@@ -718,8 +724,7 @@ class CUDAScheduleApplierMultiReduce(object):
         assert not (do_cache_read_for_load and do_cache_read_for_other)
 
         if do_cache_read_for_load:
-            S = sch.cache_read(
-                X(op).output(0), "shared", [X(x) for x in consumers])
+            S = sch.cache_read(X(op).output(0), "shared", [X(x) for x in consumers])
             axis = self.get_main_op_outermost_last_reduce_axis()
             # compute at to main op
             sch[S].compute_at(sch[X(self.main_op)], axis)
@@ -765,8 +770,7 @@ class CUDAScheduleApplierMultiReduce(object):
             # prepare spatial axis
             axis = sch[X(op)].op.axis
             reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
-            spatial_axis_split_parts = [
-                axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
+            spatial_axis_split_parts = [axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
 
             all_reduce_axis = sch[X(op)].op.reduce_axis
             reserve_reduce_axis = []
@@ -782,9 +786,7 @@ class CUDAScheduleApplierMultiReduce(object):
             sch[X(op)].compute_at(sch[X(self.output_op)], pos)
 
             reduce_axis_split_parts = []
-            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
-                len(split_reduce_axis)
-            )
+            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(len(split_reduce_axis))
             for iv, factors in zip(split_reduce_axis, reduce_axis_split_factors):
                 part = []
                 for f in reversed(factors[1:]):
@@ -796,24 +798,25 @@ class CUDAScheduleApplierMultiReduce(object):
             reordered_reduce_axis = [list(x) for x in zip(*reduce_axis_split_parts)]
             reordered_reduce_axis.append(reserve_reduce_axis)
             assert len(reordered_reduce_axis) > 3, "No enough reduce axis split."
-            ordered_axis = reordered_reduce_axis[:-2] + \
-                           [spatial_axis_split_parts[0]] + \
-                           reordered_reduce_axis[-2:-1] + \
-                           [spatial_axis_split_parts[1]] + \
-                           reordered_reduce_axis[-1:]
+            ordered_axis = (
+                reordered_reduce_axis[:-2]
+                + [spatial_axis_split_parts[0]]
+                + reordered_reduce_axis[-2:-1]
+                + [spatial_axis_split_parts[1]]
+                + reordered_reduce_axis[-1:]
+            )
             ordered_axis = reduce(lambda x, y: x + y, ordered_axis, [])
             sch[X(op)].reorder(*ordered_axis)
             self.state.main_op_reduce_axis = reordered_reduce_axis
             self.state.tensorize_iter[op] = ordered_axis[
-                -(reserve_spatial_num + reserve_reduce_num)]
+                -(reserve_spatial_num + reserve_reduce_num)
+            ]
         elif op == self.output_op:
             axis = sch[X(op)].op.axis
             reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             split_spatial_axis = axis[:-reserve_spatial_num]
             reserve_spatial_axis = axis[-reserve_spatial_num:]
-            spatial_axis_split_factors = self.get_output_op_axis_factors(
-                len(split_spatial_axis)
-            )
+            spatial_axis_split_factors = self.get_output_op_axis_factors(len(split_spatial_axis))
             spatial_axis_split_parts = []
             for iv, factors in zip(split_spatial_axis, spatial_axis_split_factors):
                 part = []
@@ -865,8 +868,7 @@ class CUDAScheduleApplierMultiReduce(object):
                 split_parts = list(reversed(split_parts))
                 sch[X(op)].bind(split_parts[0], self.get_bx(0))
                 sch[X(op)].bind(split_parts[-2], self.get_tx(0))
-                self.state.left_op_spatial_axis_map.update({
-                    op_id: split_parts})
+                self.state.left_op_spatial_axis_map.update({op_id: split_parts})
                 spatial_axis = split_parts
             else:
                 spatial_axis = list(sch[X(op)].op.axis)
@@ -880,14 +882,12 @@ class CUDAScheduleApplierMultiReduce(object):
                     split_parts.append(inner)
                 split_parts.append(fused)
                 split_parts = list(reversed(split_parts))
-                self.state.left_op_reduce_axis_map.update({
-                    op_id: split_parts})
+                self.state.left_op_reduce_axis_map.update({op_id: split_parts})
                 reduce_axis = split_parts
             else:
                 reduce_axis = list(sch[X(op)].op.reduce_axis)
             # interleave
-            ordered_axis = (spatial_axis[:2] + reduce_axis[:-1] +
-                            spatial_axis[2:] + reduce_axis[-1:])
+            ordered_axis = spatial_axis[:2] + reduce_axis[:-1] + spatial_axis[2:] + reduce_axis[-1:]
             sch[X(op)].reorder(*ordered_axis)
 
     def compute_at(self, op_id, op, sch, X):
@@ -934,7 +934,8 @@ class CUDAScheduleApplierMultiReduce(object):
         if not op in self.hw_abs_dag_stage.operation_role:
             return
         intrin = self.hw_abs_dag.get_intrinsic(
-            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op])
+            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op]
+        )
         axis = self.get_tensorize_iter(op)
         sch[X(op)].tensorize(axis, intrin)
 
@@ -947,7 +948,7 @@ class CUDAScheduleApplierMultiReduce(object):
             self.tiling,
             self.compute_at,
             self.unroll,
-            self.tensorize
+            self.tensorize,
         ]
 
         # initialize parameters

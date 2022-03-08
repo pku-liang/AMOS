@@ -27,7 +27,9 @@ def main():
     out_dtype = in_dtype
     target = "cuda"
     # obtain the network implementation of ResNet-18
-    model = tensor_graph.testing.models.resnet18(num_classes=1000, dtype=in_dtype, out_dtype=out_dtype)
+    model = tensor_graph.testing.models.resnet18(
+        num_classes=1000, dtype=in_dtype, out_dtype=out_dtype
+    )
     model.eval()
 
     # set the input shape
