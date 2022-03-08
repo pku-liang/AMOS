@@ -2,7 +2,7 @@ import json
 from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
-from ..compute_transform import TransformState
+from ..compute_transform import MappingState
 from ...hw_abstraction.hw_abs_base import ComputeDAG
 from ...hw_abs_dag import OperationRole, HwAbsDAGStage, InstructionScope
 from ..schedule_base import *
@@ -68,7 +68,7 @@ def empty_mali_params():
 
 class MaliScheduleGenerator(AcceleratorScheduleGenerator):
     def __init__(self, intrin_match_result,
-                 transform_state: TransformState,
+                 transform_state: MappingState,
                  eps=0.9, reduce_tiling=3, spatial_tiling=4, last_tiling=3,
                  arch="g76", log_file="mali_schedule_generator.log", steps=1):
         super(MaliScheduleGenerator, self).__init__(eps, MaliParams,

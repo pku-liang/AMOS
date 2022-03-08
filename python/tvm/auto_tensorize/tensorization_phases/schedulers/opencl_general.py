@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple, Any, Set
 from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
-from ..compute_transform import TransformState
+from ..compute_transform import MappingState
 from ...hw_abstraction.hw_abs_base import ComputeDAG
 from ...hw_abs_dag import OperationRole, HwAbsDAGStage, InstructionScope
 from ..schedule_base import *

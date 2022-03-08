@@ -11,8 +11,8 @@ from ..utils import bi_product, substitute_inputs, softmax
 from functools import reduce
 
 
-@tvm._ffi.register_object("auto_tensorize.TransformState")
-class TransformState(Object):
+@tvm._ffi.register_object("auto_tensorize.MappingState")
+class MappingState(Object):
     """
     Args:
     ---
@@ -26,12 +26,12 @@ class TransformState(Object):
 
     def __init__(self, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag):
         self.__init_handle_by_constructor__(
-            _ffi_api.TransformState, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
+            _ffi_api.MappingState, main_op_map, elem_op_map, axis_map, target_dag, intrin_dag
         )
 
 
-@tvm._ffi.register_object("auto_tensorize.TransformRequest")
-class TransformRequest(Object):
+@tvm._ffi.register_object("auto_tensorize.MappingRequest")
+class MappingRequest(Object):
     """
     Args:
     ---
@@ -52,7 +52,7 @@ class TransformRequest(Object):
         drop_output=False,
     ):
         self.__init_handle_by_constructor__(
-            _ffi_api.TransformRequest,
+            _ffi_api.MappingRequest,
             name,
             axis_map,
             reverse_axis_map,
@@ -63,7 +63,7 @@ class TransformRequest(Object):
         )
 
     def __str__(self):
-        ret = "TransformRequest("
+        ret = "MappingRequest("
         ret += str(self.name) + ",\n"
         ret += "\tAxis Map:\n"
         for k, v in self.axis_map.items():
@@ -96,7 +96,7 @@ def infer_range(vars_to_infer, original_vars, original_range_map):
     return range_map
 
 
-def transform_main_op(init, request):
+def mapping_main_op(init, request):
     """Infer ranges for expressions
 
     Parameters
@@ -108,11 +108,11 @@ def transform_main_op(init, request):
     -------
 
     """
-    n = _ffi_api.TransformMainOp(init, request)
+    n = _ffi_api.MappingMainOp(init, request)
     return n
 
 
-class UnfoldChoiceGenerator(CDParamGenerator):
+class VMappingGenerator(CDParamGenerator):
     def __init__(self, axis_map, unify=True):
         num_items = 0
         keys = []
@@ -264,8 +264,8 @@ class MappingGenerator(SAEntryGenerator):
         #     if match_point_num < 0:
         #         match_point_num = match_len
         #     assert match_point_num == match_len
-        # self.unfold_gen = UnfoldChoiceGenerator(match_point_num)
-        self.unfold_gen = UnfoldChoiceGenerator(intrin_match_result.axis_map)
+        # self.unfold_gen = VMappingGenerator(match_point_num)
+        self.unfold_gen = VMappingGenerator(intrin_match_result.axis_map)
         self.generator_lst = [self.unfold_gen]
 
     def init_score_table(self):
@@ -320,7 +320,7 @@ class MappingGenerator(SAEntryGenerator):
 class MappingApplier(object):
     def __init__(self, intrin_match_result, verbose=False, strict=True):
         assert isinstance(intrin_match_result, IntrinMatchResult)
-        self.init_state = TransformState(
+        self.init_state = MappingState(
             intrin_match_result.main_op_map,
             intrin_match_result.elem_op_map,
             intrin_match_result.axis_map,
@@ -330,7 +330,7 @@ class MappingApplier(object):
         self.verbose = verbose
         self.strict = strict
 
-    def apply_unfold(self, record, state, drop_output=False):
+    def apply_virtual_mapping(self, record, state, drop_output=False):
         # unfold
         intrin_main_op = None
         target_main_op = None
@@ -406,15 +406,15 @@ class MappingApplier(object):
             if axis not in visited:
                 time_loops.append(axis)
 
-        request = TransformRequest(
+        request = MappingRequest(
             name, fwd_axis_map, rvs_axis_map, space_loops, time_loops, drop_output=drop_output
         )
         if self.verbose:
             print(str(request), flush=True)
-        unfold_state = transform_main_op(state, request)
+        unfold_state = mapping_main_op(state, request)
         return unfold_state
 
-    def apply_fold(self, record, state, drop_output=False):
+    def apply_concrete_mapping(self, record, state, drop_output=False):
         # fold
         intrin_main_op = None
         target_main_op = None
@@ -474,7 +474,7 @@ class MappingApplier(object):
             if axis not in visited:
                 time_loops.append(axis)
 
-        request = TransformRequest(
+        request = MappingRequest(
             name,
             fwd_axis_map,
             rvs_axis_map,
@@ -485,10 +485,10 @@ class MappingApplier(object):
         )
         if self.verbose:
             print(str(request), flush=True)
-        fold_state = transform_main_op(state, request)
+        fold_state = mapping_main_op(state, request)
         return fold_state
 
     def apply(self, record, drop_output=False):
-        state = self.apply_unfold(record, self.init_state, drop_output)
-        state = self.apply_fold(record, state, drop_output)
+        state = self.apply_virtual_mapping(record, self.init_state, drop_output)
+        state = self.apply_concrete_mapping(record, state, drop_output)
         return state

@@ -115,13 +115,13 @@ def test2():
         jj: [k, k, k, k, k, k, k],
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
-    state = at.TransformState(
+    state = at.MappingState(
         main_op_map, elem_op_map, axis_map, target_dag, intrin_dag)
-    request = at.TransformRequest(
+    request = at.MappingRequest(
         ".direct",
         {ii: n.var, jj: k.var, kk: rc.var},
         {n: ii.var, k: jj.var, rc: kk.var}, [n, k, rc], [p, q, rr, rs])
-    new_state = at.transform_main_op(state, request)
+    new_state = at.mapping_main_op(state, request)
 
     new_target_dag = new_state.target_dag
     new_inputs = new_target_dag.get_inputs()
@@ -171,13 +171,13 @@ def test3():
         jj: [k, k, k, k, k, k, k],
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
-    state = at.TransformState(
+    state = at.MappingState(
         main_op_map, elem_op_map, axis_map, target_dag, intrin_dag)
-    request = at.TransformRequest(
+    request = at.MappingRequest(
         ".direct",
         {ii: n.var, jj: k.var, kk: rc.var},
         {n: ii.var, k: jj.var, rc: kk.var}, [n, k, rc], [p, q, rr, rs])
-    new_state = at.transform_main_op(state, request)
+    new_state = at.mapping_main_op(state, request)
 
     new_target_dag = new_state.target_dag
     new_inputs = new_target_dag.get_inputs()
@@ -226,19 +226,19 @@ def test4():
         jj: [k, k, k, k, k, k, k],
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
-    state = at.TransformState(
+    state = at.MappingState(
         main_op_map, elem_op_map, axis_map, target_dag, intrin_dag)
     no = tvm.tir.IterVar((0, 2), "no", 0)
     ko = tvm.tir.IterVar((0, 4), "ko", 0)
     rco = tvm.tir.IterVar((0, 8), "rco", 2)
-    request = at.TransformRequest(
+    request = at.MappingRequest(
         ".split",
         {ii: n.var % 16, jj: k.var % 16, kk: rc.var %
             16, no: n.var // 16, ko: k.var // 16, rco: rc.var // 16},
         {n: ii.var + no.var * 16, k: jj.var + ko.var * 16,
             rc: kk.var + rco.var * 16},
         [n, k, rc], [p, q, rr, rs, no, ko, rco])
-    new_state = at.transform_main_op(state, request)
+    new_state = at.mapping_main_op(state, request)
     print("Compare new state and old state:")
     print("old axis map:", state.axis_map)
     print("new axis map:", new_state.axis_map)
@@ -298,12 +298,12 @@ def test5():
         jj: [k, k, k, k, k, k, k],
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
-    state = at.TransformState(
+    state = at.MappingState(
         main_op_map, elem_op_map, axis_map, target_dag, intrin_dag)
     no = tvm.tir.IterVar((0, 2), "no", 0)
     ko = tvm.tir.IterVar((0, 4), "ko", 0)
     rco = tvm.tir.IterVar((0, 8), "rco", 2)
-    request = at.TransformRequest(
+    request = at.MappingRequest(
         ".fuse",
         {ii: (n.var * 14 + p.var) * 14 + q.var,
          jj: k.var,
@@ -316,7 +316,7 @@ def test5():
          rr: kk.var % (3 * 3) // 3,
          rs: kk.var % 3},
         [n, p, q, k, rc, rr, rs], [])
-    new_state = at.transform_main_op(state, request)
+    new_state = at.mapping_main_op(state, request)
     print("Compare new state and old state:")
     print("old axis map:", state.axis_map)
     print("new axis map:", new_state.axis_map)
@@ -376,10 +376,10 @@ def test6():
         jj: [k, k, k, k, k, k, k],
         kk: [rc, rr, rs, rc, rs, rc, rr]
     }
-    state = at.TransformState(
+    state = at.MappingState(
         main_op_map, elem_op_map, axis_map, target_dag, intrin_dag)
 
-    request = at.TransformRequest(
+    request = at.MappingRequest(
         ".fuse",
         {ii: (n.var * 14 + p.var) * 14 + q.var,
          jj: k.var,
@@ -392,7 +392,7 @@ def test6():
          rr: kk.var % (3 * 3) // 3,
          rs: kk.var % 3},
         [n, p, q, k, rc, rr, rs], [])
-    new_state = at.transform_main_op(state, request)
+    new_state = at.mapping_main_op(state, request)
 
     target_dag = new_state.target_dag
     wi, wj = target_dag.op_lst[2].axis
@@ -400,14 +400,14 @@ def test6():
     io = tvm.tir.IterVar((0, 13), "io", 0)
     jo = tvm.tir.IterVar((0, 4), "jo", 0)
     ko = tvm.tir.IterVar((0, 72), "ko", 2)
-    request = at.TransformRequest(
+    request = at.MappingRequest(
         ".split",
         {ii: wi % 16, jj: wj % 16, kk: wk % 16,
          io: wi // 16, jo: wj // 16, ko: wk // 16},
         {wi: ii + io * 16, wj: jj + jo * 16,
          wk: kk + ko * 16},
         [wi, wj, wk], [io, jo, ko])
-    new_state = at.transform_main_op(new_state, request)
+    new_state = at.mapping_main_op(new_state, request)
 
     print("Compare new state and old state:")
     print("old axis map:", state.axis_map)

@@ -19,7 +19,7 @@
 
 /*!
  * \file auto_tensorize/compute_transform.h
- * \brief Compute transform in the auto_schedule.
+ * \brief Compute mapping in the auto_schedule.
  *
  * HW abstraction DAG.
  */
@@ -40,9 +40,9 @@ namespace tvm {
 namespace auto_tensorize {
 
 /*!
- * \brief A transformation state.
+ * \brief A mapping state.
  */
-class TransformStateNode : public Object {
+class MappingStateNode : public Object {
  public:
   /*! \brief Map for main op */
   Map<te::Operation, te::Operation> main_op_map;
@@ -63,11 +63,11 @@ class TransformStateNode : public Object {
     v->Visit("intrin_dag", &intrin_dag);
   }
 
-  static constexpr const char* _type_key = "auto_tensorize.TransformState";
-  TVM_DECLARE_FINAL_OBJECT_INFO(TransformStateNode, Object);
+  static constexpr const char* _type_key = "auto_tensorize.MappingState";
+  TVM_DECLARE_FINAL_OBJECT_INFO(MappingStateNode, Object);
 };
 
-class TransformState : public ObjectRef {
+class MappingState : public ObjectRef {
  public:
   /*!
    * \brief The constructor.
@@ -77,22 +77,22 @@ class TransformState : public ObjectRef {
    * \param target_dag Target compute dag
    * \param intrin_dag Intrin compute dag
    */
-  TVM_DLL TransformState(Map<te::Operation, te::Operation> main_op_map,
+  TVM_DLL MappingState(Map<te::Operation, te::Operation> main_op_map,
                          Map<te::Operation, te::Operation> elem_op_map,
                          Map<te::IterVar, Array<IterVar>> axis_map,
                          ComputeDAG target_dag,
                          ComputeDAG intrin_dag);
 
-  TVM_DEFINE_OBJECT_REF_METHODS(TransformState, ObjectRef, TransformStateNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(TransformStateNode);
+  TVM_DEFINE_OBJECT_REF_METHODS(MappingState, ObjectRef, MappingStateNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(MappingStateNode);
 };
 
 /*!
- * \brief A transformation request.
+ * \brief A mapping request.
  */
-class TransformRequestNode : public Object {
+class MappingRequestNode : public Object {
  public:
- /*! \brief Name of this transform */
+ /*! \brief Name of this mapping */
   String name;
   /*! \brief Map for axis */
   Map<te::IterVar, PrimExpr> axis_map;
@@ -117,24 +117,24 @@ class TransformRequestNode : public Object {
     v->Visit("drop_output", &drop_output);
   }
 
-  static constexpr const char* _type_key = "auto_tensorize.TransformRequest";
-  TVM_DECLARE_FINAL_OBJECT_INFO(TransformRequestNode, Object);
+  static constexpr const char* _type_key = "auto_tensorize.MappingRequest";
+  TVM_DECLARE_FINAL_OBJECT_INFO(MappingRequestNode, Object);
 };
 
 
-class TransformRequest : public ObjectRef {
+class MappingRequest : public ObjectRef {
  public:
   /*!
    * \param axis_map Map for axis
    * \param reverse_axis_map Reverse map for axis
    */
-  TVM_DLL TransformRequest(String name, Map<te::IterVar, PrimExpr> axis_map,
+  TVM_DLL MappingRequest(String name, Map<te::IterVar, PrimExpr> axis_map,
                            Map<te::IterVar, PrimExpr> reverse_axis_map,
                            Array<te::IterVar> space_loops, Array<te::IterVar> time_loops,
                            bool need_padding, bool drop_output);
 
-  TVM_DEFINE_OBJECT_REF_METHODS(TransformRequest, ObjectRef, TransformRequestNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(TransformRequestNode);
+  TVM_DEFINE_OBJECT_REF_METHODS(MappingRequest, ObjectRef, MappingRequestNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(MappingRequestNode);
 };
 
 
@@ -240,37 +240,37 @@ Map<Var, Range> InferRange(const Map<Var, PrimExpr>& vars_to_infer, const Array<
 
 
 /*!
- * \brief Transformation on main op: fold and unfold.
+ * \brief Mapping on main op: virtual mapping and concrete mapping.
  */
-class MainOpTransformer {
+class MainOpMapper {
  public:
-  te::Operation transform_input(
+  te::Operation mapping_input(
     const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
     te::Tensor intrin_inp, te::Tensor target_inp,
-    TransformState init, TransformRequest request, TransformState& next);
+    MappingState init, MappingRequest request, MappingState& next);
 
-  te::Operation transform_main_op(
+  te::Operation mapping_main_op(
     const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
     Map<te::Tensor, te::Tensor> intrin_target_inp_map,
     Map<te::Tensor, te::Tensor> old_intrin_target_inp_map,
-    TransformState init, TransformRequest request, TransformState& next);
+    MappingState init, MappingRequest request, MappingState& next);
 
-  te::Operation transform_output(
+  te::Operation mapping_output(
     const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
     te::Tensor target_main_output,
-    TransformState init, TransformRequest request, TransformState& next);
+    MappingState init, MappingRequest request, MappingState& next);
 
-  TransformState transform(TransformState init, TransformRequest request);
+  MappingState mapping(MappingState init, MappingRequest request);
  private:
 };
 
 
 /*!
- * \brief Transform on elem ops: moving elem op stages
+ * \brief Mapping on elem ops: moving elem op stages
  *        into the scope of cache.
  * Note: we only move unary elementwise ops.
  */
-class ElemOpTransformer {
+class ElemOpMapper {
  public:
   /* Not implemented yet. 
    * We need a good algorithm to find and reorder elem ops.
@@ -279,7 +279,7 @@ class ElemOpTransformer {
 };
 
 
-TransformState main_op_transform(TransformState init, TransformRequest request);
+MappingState main_op_mapping(MappingState init, MappingRequest request);
 
 }  // namespace auto_tensorize
 
