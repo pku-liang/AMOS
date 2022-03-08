@@ -171,7 +171,7 @@ Array<IterVarMap> HwAbsExprMatcher::match(PrimExpr target, PrimExpr intrin,
   }
 }
 
-Array<IterVarMap> enumerate_mappings(Array<IterVar> target_axes, Array<IterVar> intrin_axes) {
+Array<IterVarMap> generate_mappings(Array<IterVar> target_axes, Array<IterVar> intrin_axes) {
   size_t n = target_axes.size(), r = intrin_axes.size();
   if (n < r) return Array<IterVarMap>();
 
@@ -208,8 +208,8 @@ Array<IterVarMap> enumerate_mappings(Array<IterVar> target_axes, Array<IterVar> 
   return std::move(all_itervar_mappings);
 }
 
-bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx) {
-  // std::cout << __LINE__ << "IndexExprMatcher::_match_index " << target_idx << " " << intrin_idx
+bool IndexExprMatcher::_verify_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx) {
+  // std::cout << __LINE__ << "IndexExprMatcher::_verify_index " << target_idx << " " << intrin_idx
   // << std::endl;
   tg::CheckExprEqual check_equal(true, true);
   size_t n_dim_target = target_idx.size();
@@ -246,9 +246,9 @@ bool IndexExprMatcher::_match_index(Array<PrimExpr> target_idx, Array<PrimExpr> 
   return true;
 }
 
-bool IndexExprMatcher::_match_indices(Array<Array<PrimExpr>> target_indices,
+bool IndexExprMatcher::_verify_indices(Array<Array<PrimExpr>> target_indices,
                                       Array<Array<PrimExpr>> intrin_indices) {
-  // std::cout << __LINE__ << "IndexExprMatcher::_match_indices " << target_indices << " " <<
+  // std::cout << __LINE__ << "IndexExprMatcher::_verify_indices " << target_indices << " " <<
   // intrin_indices << std::endl;
   size_t n_indices_intrin = intrin_indices.size();
 
@@ -256,7 +256,7 @@ bool IndexExprMatcher::_match_indices(Array<Array<PrimExpr>> target_indices,
     Array<PrimExpr> target_idx = target_indices[i];
     Array<PrimExpr> intrin_idx = intrin_indices[i];
 
-    if (!_match_index(target_idx, intrin_idx)) {
+    if (!_verify_index(target_idx, intrin_idx)) {
       return false;
     }
   }
@@ -296,13 +296,13 @@ Array<IterVarMap> IndexExprMatcher::match(Array<Array<PrimExpr>> target_indices,
   // << " "; std::cout << target_axes << " " << intrin_axes << std::endl;
   CHECK(target_indices.size() == intrin_indices.size());
   Array<IterVarMap> possible_itervar_mappings;
-  Array<IterVarMap> all_itervar_mappings = enumerate_mappings(target_axes, intrin_axes);
+  Array<IterVarMap> all_itervar_mappings = generate_mappings(target_axes, intrin_axes);
 
   for (IterVarMap itervar_map : all_itervar_mappings) {
     auto modified_target_indices =
         _rewrite_indices(target_indices, itervar_map, target_bounds, intrin_bounds);
 
-    if (_match_indices(modified_target_indices, intrin_indices)) {
+    if (_verify_indices(modified_target_indices, intrin_indices)) {
       possible_itervar_mappings.push_back(itervar_map);
     }
   }
