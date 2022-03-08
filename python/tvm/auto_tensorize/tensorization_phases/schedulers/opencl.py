@@ -70,10 +70,11 @@ class MaliScheduleGenerator(AcceleratorScheduleGenerator):
     def __init__(self, intrin_match_result,
                  transform_state: MappingState,
                  eps=0.9, reduce_tiling=3, spatial_tiling=4, last_tiling=3,
-                 arch="g76", log_file="mali_schedule_generator.log", steps=1):
+                 arch="g76", log_file="mali_schedule_generator.log", steps=1, verbose_init=True):
         super(MaliScheduleGenerator, self).__init__(eps, MaliParams,
                                                     steps=steps,
-                                                    log_file=log_file)
+                                                    log_file=log_file,
+                                                    verbose_init=verbose_init)
         self._init_hw_abs_dag(intrin_match_result)
         nodes = self._init_target_dag(transform_state)
         self._init_hw_abs_dag_stage(nodes)

@@ -87,9 +87,10 @@ class LLVMKernelParamGenerator(CDParamGenerator):
 class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
     def __init__(self, intrin_match_result, transform_state, eps=0.7,
             reduce_tiling=2, spatial_tiling=2, last_tiling=2,
-            log_file="llvm_schedule_generator.log", steps=1):
+            log_file="llvm_schedule_generator.log", steps=1,
+            verbose_init=True):
         super(LLVMScheduleGenerator, self).__init__(eps, LLVMParams,
-            steps=steps, log_file=log_file)
+            steps=steps, log_file=log_file, verbose_init=verbose_init)
         self.init_hw_abs_dag(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_hw_abs_dag_stage(nodes)

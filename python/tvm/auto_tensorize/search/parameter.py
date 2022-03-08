@@ -158,6 +158,7 @@ class SAEntryGenerator(EntryGenerator):
         log_file="sa_entry_generator_record.log",
         allow_repeat=False,
         topk=20,
+        verbose_init=True
     ):
         self.eps = eps
         self.entries = []
@@ -167,17 +168,20 @@ class SAEntryGenerator(EntryGenerator):
         self.log_file = log_file
         self.allow_repeat = allow_repeat
         self.topk_num = topk
-        self.init_logger()
+        self.init_logger(verbose=verbose_init)
         self.last_choice = None
         self.last_value = 0.0
         self.gen = self._get_next(self.allow_repeat)
+        self.verbose_init = verbose_init
 
-    def init_logger(self):
+    def init_logger(self, verbose=True):
         if self.log_file is not None and self.log_file != "":
-            print("Logging to %s..." % self.log_file, flush=True)
+            if verbose:
+                print("Logging to %s..." % self.log_file, flush=True)
             self.logger = open(self.log_file, "a")
         else:
-            print("Logging to %s..." % "devnull", flush=True)
+            if verbose:
+                print("Logging to %s..." % "devnull", flush=True)
             self.logger = open(os.devnull, "w")
 
     def init_param_generator(self, *args):
@@ -285,13 +289,14 @@ class SAEntryGenerator(EntryGenerator):
         self.init_score_table()
         self.log_file = log_file
         self.logger.close()
-        self.init_logger()
+        self.init_logger(verbose=self.verbose_init)
 
     def load_from_file(self, file_name, clear=False):
         if clear:
             print("Clearing...")
             self.clear(file_name)
-        print("Loading from file %s..." % file_name, flush=True)
+        if self.verbose_init:
+            print("Loading from file %s..." % file_name, flush=True)
         # assert file_name != self.log_file, "Please do not use the same log file."
         assert not self.entries, "Please clear the generator first (be caution!)."
         count = 0
@@ -304,10 +309,11 @@ class SAEntryGenerator(EntryGenerator):
                 value = obj["value"]
                 best = max(value, best)
                 self.feedback(record, value, False)
-        print(
-            "Load %d entries! The best known is %f ms" % (count, 1 / (best + 1e-10) * 1e3),
-            flush=True,
-        )
+        if self.verbose_init:
+            print(
+                "Load %d entries! The best known is %f ms" % (count, 1 / (best + 1e-10) * 1e3),
+                flush=True,
+            )
 
     def get_best_entry(self):
         assert self.entries

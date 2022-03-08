@@ -67,9 +67,9 @@ def empty_mali_general_params():
 class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
     def __init__(self, target_dag, eps=0.9, arch="g76",
                  n_re_levels=3, n_sp_levels=4,
-                 log_file="mali_general_schedule_generator.log", steps=1):
+                 log_file="mali_general_schedule_generator.log", steps=1, verbose_init=True):
         super(MaliGeneralScheduleGenerator, self).__init__(
-            eps, MaliGeneralParams, steps=steps, log_file=log_file)
+            eps, MaliGeneralParams, steps=steps, log_file=log_file, verbose_init=verbose_init)
 
         self._target_dag = target_dag
         self._n_sp_levels = n_sp_levels

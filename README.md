@@ -40,7 +40,7 @@ make -j 8
 # Environments
 python 3.6+
 ```sh
-pip install numpy decorator attrs tornado psutil xgboost cloudpickle
+pip install numpy decorator attrs tornado psutil xgboost cloudpickle pebble sklearn
 export PYTHONPATH=$PYTHONPATH:/path/to/amos/python
 ```
 

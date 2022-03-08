@@ -115,9 +115,10 @@ class CUDAScheduleGeneratorMultiReduce(AcceleratorScheduleGenerator):
     def __init__(self, intrin_match_result, transform_state, eps=0.9,
             reduce_tiling=3, spatial_tiling=4,
             left_reduce_tiling=2, left_spatial_tiling=3, arch=70,
-            log_file="cuda_schedule_generator.log", steps=1):
+            log_file="cuda_schedule_generator.log", steps=1,
+            verbose_init=True):
         super(CUDAScheduleGeneratorMultiReduce, self).__init__(eps, CUDAParamsMultiReduce,
-            steps=steps, log_file=log_file)
+            steps=steps, log_file=log_file, verbose_init=verbose_init)
         self.init_hw_abs_dag(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_hw_abs_dag_stage(nodes)

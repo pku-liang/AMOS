@@ -44,8 +44,10 @@ class CUDAProgramChecker(Checker):
     def __init__(
         self,
         check_scope=CUDACheckScope.kThread,
-        arch=70):
-        print("Using arch: sm_%d" % arch, flush=True)
+        arch=70,
+        verbose_init=True):
+        if verbose_init:
+            print("Using arch: sm_%d" % arch, flush=True)
         self.arch_info = CUDA(arch=arch)
         self.scope = check_scope
         self.max_shared_mem_bytes_per_block = self.arch_info.get_shared_memory_bytes()
@@ -91,8 +93,10 @@ class MaliProgramChecker(Checker):
     def __init__(
             self,
             check_scope=MaliCheckScope.kThreadblock,
-            arch="g76"):
-        print("Using arch: {}".format(arch), flush=True)
+            arch="g76",
+            verbose_init=True):
+        if verbose_init:
+            print("Using arch: {}".format(arch), flush=True)
         self.arch_info = Mali(arch=arch)
         self.scope = check_scope
         self.max_shared_mem_bytes_per_block = \

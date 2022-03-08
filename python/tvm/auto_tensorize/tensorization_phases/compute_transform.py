@@ -249,9 +249,16 @@ class MappingGenerator(SAEntryGenerator):
         steps=1,
         allow_repeat=False,
         topk=3,
+        verbose_init=True,
     ):
         super(MappingGenerator, self).__init__(
-            eps, Record, steps=steps, log_file=log_file, allow_repeat=allow_repeat, topk=topk
+            eps,
+            Record,
+            steps=steps,
+            log_file=log_file,
+            allow_repeat=allow_repeat,
+            topk=topk,
+            verbose_init=verbose_init,
         )
         self.init_param_generator(intrin_match_result)
         self.init_score_table()
