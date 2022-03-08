@@ -297,8 +297,8 @@ class IndexExprMatcher : public ExprVisitor {
                           Map<IterVar, Range> intrin_bounds);
 
  private:
-  bool _match_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx);
-  bool _match_indices(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices);
+  bool _verify_index(Array<PrimExpr> target_idx, Array<PrimExpr> intrin_idx);
+  bool _verify_indices(Array<Array<PrimExpr>> target_indices, Array<Array<PrimExpr>> intrin_indices);
   Array<Array<PrimExpr>> _rewrite_indices(Array<Array<PrimExpr>> indices, IterVarMap itervar_map,
                                           Map<IterVar, Range> target_bounds,
                                           Map<IterVar, Range> intrin_bounds);
