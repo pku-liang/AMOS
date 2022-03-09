@@ -431,7 +431,6 @@ def pebble_local_build_worker(index):
                     filename = "-***-".join([filename, cuda_filename])
             else:
                 if enable_perf_model:
-                    #TODO: edit
                     filename = os.path.join(
                         dirname, "tmp_func.tenet")
 
@@ -583,7 +582,7 @@ def pebble_local_run_worker(index):
                 filename, cuda_filename = build_res.filename.split("-***-")
                 try:
                     func = tenet.load_func(filename)
-                    costs = tenet.evaluate_func(func)
+                    costs = tenet.evaluate_func(func, verbose=verbose)
 
                     cuda_func = module.load_module(cuda_filename)
                     ctx = ndarray.context("cuda", dev_id)
@@ -630,9 +629,15 @@ def pebble_local_run_worker(index):
                     # print(error_msg)
         else:
             if enable_perf_model:
-                #TODO(hq): edit
                 func = tenet.load_func(build_res.filename)
-                costs = tenet.evaluate_func(func)
+                try:
+                    costs = tenet.evaluate_func(func, verbose=verbose)
+                except Exception as e:
+                    costs = (MAX_FLOAT,)
+                    error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
+                    error_msg = auto_scheduler.measure.make_error_msg()
+                    if verbose:
+                        print("\n",error_msg)
             else:
                 try:
                     func = module.load_module(build_res.filename)

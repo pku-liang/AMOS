@@ -120,30 +120,42 @@ def load_func(filename):
 
 
 def evaluate_tenet_accelerator(target):
-    _, arch = target.split(" ")
+    if str(target).startswith('tenet'):
+        _, arch = target.split(" ")
+    else:
+        arch = target
     t = TENET(arch=arch)
     return t.compute_latency()
 
 
 def get_memory_bandwidth(target, memory_scope):
-    _, arch = target.split(" ")
+    if str(target).startswith('tenet'):
+        _, arch = target.split(" ")
+    else:
+        arch = target
     t = TENET(arch=arch)
     return t.memory_bandwidth(memory_scope)
 
 
 def get_maximum_parallelism(target, level):
-    _, arch = target.split(" ")
+    if str(target).startswith('tenet'):
+        _, arch = target.split(" ")
+    else:
+        arch = target
     t = TENET(arch=arch)
     return t.parallelism(level)
 
 
 def get_maximum_memory(target, memory_scope):
-    _, arch = target.split(" ")
+    if str(target).startswith('tenet'):
+        _, arch = target.split(" ")
+    else:
+        arch = target
     t = TENET(arch=arch)
     return t.memory_size(memory_scope)
 
 
-def evaluate_func(func):
+def evaluate_func(func, verbose=False):
     memory_latency_vector = []
     compute_latency_vector = []
     for l, ([s, t], [scope, m]) in enumerate(reversed(list(zip(func.space_time_loops, func.memory_size)))):
@@ -163,10 +175,11 @@ def evaluate_func(func):
                 (real_time_iterations-1) *
                 max(memory_latency_vector[l-1], compute_latency_vector[l-1])
                 + (memory_latency_vector[l-1] + compute_latency_vector[l-1]))
-    print("Show details:", flush=True)
-    print("context:", flush=True)
-    print("space_time_loops:", func.space_time_loops, flush=True)
-    print("memory_size:", func.memory_size, flush=True)
-    for l, (c, m) in enumerate(zip(compute_latency_vector, memory_latency_vector)):
-        print(f"Level {l}: compute {c/1e9} (G)cycles, memory {m/1e9} (G)cycles", flush=True)
+    if verbose:
+        print("\nShow details:", flush=True)
+        print("context:", flush=True)
+        print("space_time_loops:", func.space_time_loops, flush=True)
+        print("memory_size:", func.memory_size, flush=True)
+        for l, (c, m) in enumerate(zip(compute_latency_vector, memory_latency_vector)):
+            print(f"Level {l}: compute {c/1e9} (G)cycles, memory {m/1e9} (G)cycles", flush=True)
     return (compute_latency_vector[-1]/1e9,)  # G cycle
