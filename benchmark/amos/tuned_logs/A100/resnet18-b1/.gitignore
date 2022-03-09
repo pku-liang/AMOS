@@ -1,2 +1,4 @@
-*
+*.log
 !.gitignore
+autoschedule_log_profile.txt
+!tg:resnet18:*.log
