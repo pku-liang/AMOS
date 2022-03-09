@@ -71,9 +71,9 @@ def tensorize_gemm_fp16fp16(
     # desired_shape_key=None
 
     result = at.auto_tensorize_v4(
-        target_dag, target, log_file, log_file, measure_opt,
+        target_dag, target, log_file, measure_opt,
         trials=trials, search_group_size=20,
-        verbose=True, transform_dump=True, enable_perf_model=True)
+        verbose_schedule=True, transform_dump=True, enable_perf_model=True, perf_percentage=1)
     if not result.defined():
         print("Can't do tensorize.")
         return
