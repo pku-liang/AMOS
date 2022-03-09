@@ -19,7 +19,7 @@
 
 /*!
  * \file auto_tensorize/compute_transform.cc
- * \brief Compute transform for auto_tensorize.
+ * \brief Compute mapping for auto_tensorize.
  */
 
 #include <tvm/auto_tensorize/compute_transform.h>
@@ -29,17 +29,17 @@ namespace tvm {
 namespace auto_tensorize {
 
 
-TVM_REGISTER_NODE_TYPE(TransformStateNode);
-TVM_REGISTER_NODE_TYPE(TransformRequestNode);
+TVM_REGISTER_NODE_TYPE(MappingStateNode);
+TVM_REGISTER_NODE_TYPE(MappingRequestNode);
 
 
-TransformState::TransformState(
+MappingState::MappingState(
       Map<te::Operation, te::Operation> main_op_map,
       Map<te::Operation, te::Operation> elem_op_map,
       Map<te::IterVar, Array<IterVar>> axis_map,
       ComputeDAG target_dag,
       ComputeDAG intrin_dag) {
-    auto node = make_object<TransformStateNode>();
+    auto node = make_object<MappingStateNode>();
     node->main_op_map = main_op_map;
     node->elem_op_map = elem_op_map;
     node->axis_map = axis_map;
@@ -49,7 +49,7 @@ TransformState::TransformState(
 }
 
 
-TransformRequest::TransformRequest(
+MappingRequest::MappingRequest(
       String name,
       Map<te::IterVar, PrimExpr> axis_map,
       Map<te::IterVar, PrimExpr> reverse_axis_map,
@@ -57,7 +57,7 @@ TransformRequest::TransformRequest(
       Array<te::IterVar> time_loops,
       bool need_padding,
       bool drop_output) {
-    auto node = make_object<TransformRequestNode>();
+    auto node = make_object<MappingRequestNode>();
     node->name = name;
     node->axis_map = axis_map;
     node->reverse_axis_map = reverse_axis_map;
@@ -178,10 +178,10 @@ Map<Var, Range> InferRange(const Map<Var, PrimExpr>& vars_to_infer, const Array<
 }
 
 
-te::Operation MainOpTransformer::transform_input(
+te::Operation MainOpMapper::mapping_input(
   const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
   te::Tensor intrin_inp, te::Tensor target_inp,
-  TransformState init, TransformRequest request, TransformState& next) {
+  MappingState init, MappingRequest request, MappingState& next) {
   // check conditions
   CHECK(intrin_cop->body.size() == 1U)
     << "Multiple intrinsic compute operation body is not supported.";
@@ -229,7 +229,7 @@ te::Operation MainOpTransformer::transform_input(
     var_to_infer.Set(new_var, new_arg);
     Map<Var, Range> new_range = InferRange(var_to_infer, original_vars, original_range_map);
     //// new space loops
-    //// the newly added transform compute does not contain reduce
+    //// the newly added mapping compute does not contain reduce
     Range new_var_range = new_range.at(new_var);
     if (request->need_padding) {
       CHECK(intrin_axis_dom.count(GetRef<Var>(as_var)));
@@ -251,7 +251,7 @@ te::Operation MainOpTransformer::transform_input(
   for (auto arg : target_args[0]) {
     //// map to original intrin vars
     PrimExpr new_arg = Substitute(arg, target_intrin_map);
-    //// map to new transform compute vars
+    //// map to new mapping compute vars
     new_arg = Substitute(new_arg, remap_to_new_vars);
     new_target_indices.push_back(new_arg);
     cv.collect(new_arg);
@@ -280,7 +280,7 @@ te::Operation MainOpTransformer::transform_input(
   args.push_back(tir::make_const(load_data.dtype(), 0.0));
   load_data = Call(load_data.dtype(), builtin::if_then_else(), args);
   load_data = Substitute(load_data, remap_to_new_time_vars);
-  // update transform state
+  // update mapping state
   //// no update
   // construct new compute op
   Array<IterVar> axis;
@@ -293,11 +293,11 @@ te::Operation MainOpTransformer::transform_input(
 }
 
 
-te::Operation MainOpTransformer::transform_main_op(
+te::Operation MainOpMapper::mapping_main_op(
   const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
   Map<te::Tensor, te::Tensor> intrin_target_inp_map,
   Map<te::Tensor, te::Tensor> old_intrin_target_inp_map,
-  TransformState init, TransformRequest request, TransformState& next) {
+  MappingState init, MappingRequest request, MappingState& next) {
   // check conditions
   CHECK(intrin_cop->body.size() == 1U)
     << "Multiple intrinsic compute operation body is not supported.";
@@ -407,7 +407,7 @@ te::Operation MainOpTransformer::transform_main_op(
     target_cop->name + request->name + ".main",
     target_cop->tag + request->name + ".main",
     {}, axis, {load_data}, target_cop->requires_grad);
-  // update transform state
+  // update mapping state
   Map<te::Operation, te::Operation> main_op_map;
   main_op_map.Set(GetRef<te::Operation>(intrin_cop), new_op);
   next.CopyOnWrite()->main_op_map = main_op_map;
@@ -436,10 +436,10 @@ te::Operation MainOpTransformer::transform_main_op(
 }
 
 
-te::Operation MainOpTransformer::transform_output(
+te::Operation MainOpMapper::mapping_output(
   const te::ComputeOpNode* intrin_cop, const te::ComputeOpNode* target_cop,
   te::Tensor target_main_output,
-  TransformState init, TransformRequest request, TransformState& next) {
+  MappingState init, MappingRequest request, MappingState& next) {
   // the space loops and time loops should not be reconstructed
   Array<Var> indices;
   // get time loops
@@ -491,19 +491,19 @@ te::Operation MainOpTransformer::transform_output(
     target_cop->name + request->name + ".output",
     target_cop->tag + request->name + ".output",
     {}, axis, {store_data}, target_cop->requires_grad);
-  // update transform state
+  // update mapping state
   //// nothing to update
   return new_op;
 }
 
 
-TransformState MainOpTransformer::transform(
-    TransformState init, TransformRequest request) {
+MappingState MainOpMapper::mapping(
+    MappingState init, MappingRequest request) {
   Array<te::Operation> new_op_lst;
   Map<te::Operation, te::Operation> old_to_new;
   te::Operation intrin_main_op;
   te::Operation target_main_op;
-  TransformState next = init;
+  MappingState next = init;
   for (auto kv : init->main_op_map) {
     intrin_main_op = kv.first;
     target_main_op = kv.second;
@@ -525,12 +525,12 @@ TransformState MainOpTransformer::transform(
       CHECK(num_inputs == (int)intrin_inputs.size());
       const te::ComputeOpNode* intrin_cop = intrin_main_op.as<te::ComputeOpNode>();
       const te::ComputeOpNode* target_cop = target_main_op.as<te::ComputeOpNode>();
-      // transform inputs
+      // mapping inputs
       Array<te::Tensor> new_inputs;
       Map<te::Tensor, te::Tensor> inp_map;
       Map<te::Tensor, te::Tensor> old_inp_map;
       for (int i = 0; i < num_inputs; ++i) {
-        te::Operation new_inp_op = transform_input(
+        te::Operation new_inp_op = mapping_input(
           intrin_cop,
           target_cop,
           intrin_inputs[i],
@@ -540,13 +540,13 @@ TransformState MainOpTransformer::transform(
           next
         );
         new_op_lst.push_back(new_inp_op);
-        //// the transform only has one output
+        //// the mapping only has one output
         new_inputs.push_back(new_inp_op.output(0));
         inp_map.Set(intrin_inputs[i], new_inp_op.output(0));
         old_inp_map.Set(intrin_inputs[i], target_inputs[i]);
       }
-      // transform main op
-      te::Operation new_op = transform_main_op(
+      // mapping main op
+      te::Operation new_op = mapping_main_op(
         intrin_cop,
         target_cop,
         inp_map,
@@ -556,11 +556,11 @@ TransformState MainOpTransformer::transform(
         next
       );
       new_op_lst.push_back(new_op);
-      // transform output
+      // mapping output
       if (request->drop_output) {
         old_to_new.Set(op, new_op);
       } else {
-        te::Operation new_output_op = transform_output(
+        te::Operation new_output_op = mapping_output(
           intrin_cop,
           target_cop,
           new_op.output(0),
@@ -605,7 +605,7 @@ TransformState MainOpTransformer::transform(
       stage = 2;
     }
   }
-  // update transform state
+  // update mapping state
   Array<te::Tensor> new_tensors;
   for (auto t : init->target_dag->tensors) {
     if (old_to_new.count(t->op)) {
@@ -628,13 +628,13 @@ TransformState MainOpTransformer::transform(
 }
 
 
-TransformState main_op_transform(TransformState init, TransformRequest request) {
-  MainOpTransformer transformer;
-  return transformer.transform(init, request);
+MappingState main_op_mapping(MappingState init, MappingRequest request) {
+  MainOpMapper transformer;
+  return transformer.mapping(init, request);
 }
 
 
-TVM_REGISTER_GLOBAL("auto_tensorize.TransformState").set_body_typed(
+TVM_REGISTER_GLOBAL("auto_tensorize.MappingState").set_body_typed(
     [](
         Map<te::Operation, te::Operation> main_op_map,
         Map<te::Operation, te::Operation> elem_op_map,
@@ -642,7 +642,7 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformState").set_body_typed(
         ComputeDAG target_dag,
         ComputeDAG intrin_dag
     ) {
-  return TransformState(
+  return MappingState(
       main_op_map,
       elem_op_map,
       axis_map,
@@ -652,7 +652,7 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformState").set_body_typed(
 });
 
 
-TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
+TVM_REGISTER_GLOBAL("auto_tensorize.MappingRequest").set_body_typed(
     [](
         String name,
         Map<te::IterVar, PrimExpr> axis_map,
@@ -662,7 +662,7 @@ TVM_REGISTER_GLOBAL("auto_tensorize.TransformRequest").set_body_typed(
         bool need_padding,
         bool drop_output
     ) {
-  return TransformRequest(
+  return MappingRequest(
       name,
       axis_map,
       reverse_axis_map,
@@ -688,11 +688,11 @@ TVM_REGISTER_GLOBAL("auto_tensorize.InferRange").set_body_typed(
 });
 
 
-TVM_REGISTER_GLOBAL("auto_tensorize.TransformMainOp").set_body_typed(
+TVM_REGISTER_GLOBAL("auto_tensorize.MappingMainOp").set_body_typed(
     [](
-        TransformState init, TransformRequest request
+        MappingState init, MappingRequest request
     ) {
-  return main_op_transform(init, request);
+  return main_op_mapping(init, request);
 });
 
 

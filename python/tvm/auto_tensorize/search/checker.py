@@ -41,11 +41,9 @@ class EmptyChecker(Checker):
 
 
 class CUDAProgramChecker(Checker):
-    def __init__(
-        self,
-        check_scope=CUDACheckScope.kThread,
-        arch=70):
-        print("Using arch: sm_%d" % arch, flush=True)
+    def __init__(self, check_scope=CUDACheckScope.kThread, arch=70, verbose_init=True):
+        if verbose_init:
+            print("Using arch: sm_%d" % arch, flush=True)
         self.arch_info = CUDA(arch=arch)
         self.scope = check_scope
         self.max_shared_mem_bytes_per_block = self.arch_info.get_shared_memory_bytes()
@@ -59,8 +57,10 @@ class CUDAProgramChecker(Checker):
             for b, size in buffer_map.items():
                 total_size += size.value
             if total_size > self.max_shared_mem_bytes_per_block:
-                raise CheckError("Shared memory excess limit bytes: %d (required) vs. %d (given)" % (
-                    total_size, self.max_shared_mem_bytes_per_block))
+                raise CheckError(
+                    "Shared memory excess limit bytes: %d (required) vs. %d (given)"
+                    % (total_size, self.max_shared_mem_bytes_per_block)
+                )
 
     def check_register_per_warp(self, ir_module):
         allow_size = self.max_register_bytes_per_thread * self.warp_size
@@ -70,8 +70,10 @@ class CUDAProgramChecker(Checker):
             for b, size in buffer_map.items():
                 total_size += size.value
             if total_size > allow_size:
-                raise CheckError("Register excess limit bytes: %d (required) vs. %d (given)" % (
-                    total_size, allow_size))
+                raise CheckError(
+                    "Register excess limit bytes: %d (required) vs. %d (given)"
+                    % (total_size, allow_size)
+                )
 
     def check(self, ir_module):
         if self.scope >= CUDACheckScope.kThreadblock:
@@ -88,19 +90,14 @@ class MaliCheckScope(object):
 
 
 class MaliProgramChecker(Checker):
-    def __init__(
-            self,
-            check_scope=MaliCheckScope.kThreadblock,
-            arch="g76"):
-        print("Using arch: {}".format(arch), flush=True)
+    def __init__(self, check_scope=MaliCheckScope.kThreadblock, arch="g76", verbose_init=True):
+        if verbose_init:
+            print("Using arch: {}".format(arch), flush=True)
         self.arch_info = Mali(arch=arch)
         self.scope = check_scope
-        self.max_shared_mem_bytes_per_block = \
-            self.arch_info.get_shared_memory_bytes()
-        self.max_register_bytes_per_thread = \
-            self.arch_info.get_register_bytes_per_thread()
-        self.max_threads_per_block = \
-            self.arch_info.max_threads()
+        self.max_shared_mem_bytes_per_block = self.arch_info.get_shared_memory_bytes()
+        self.max_register_bytes_per_thread = self.arch_info.get_register_bytes_per_thread()
+        self.max_threads_per_block = self.arch_info.max_threads()
         self.warp_size = self.arch_info.get_warp_size()
 
     def check_shared_memory(self, ir_module):
@@ -113,7 +110,9 @@ class MaliProgramChecker(Checker):
                 raise CheckError(
                     "Shared memory excess limit bytes: "
                     "{} (required) vs. {} (given)".format(
-                        total_size, self.max_shared_mem_bytes_per_block))
+                        total_size, self.max_shared_mem_bytes_per_block
+                    )
+                )
 
     def check_register_per_warp(self, ir_module):
         allow_size = self.max_register_bytes_per_thread * self.warp_size
@@ -125,8 +124,8 @@ class MaliProgramChecker(Checker):
             if total_size > allow_size:
                 raise CheckError(
                     "Register excess limit bytes: "
-                    "{} (required) vs. {} (given)".format(
-                        total_size, allow_size))
+                    "{} (required) vs. {} (given)".format(total_size, allow_size)
+                )
 
     def check_threads_per_block(self, ir_module):
         for _, v in ir_module.functions.items():
@@ -138,8 +137,8 @@ class MaliProgramChecker(Checker):
             if total_size > self.max_threads_per_block:
                 raise CheckError(
                     "Work group excess limit size: "
-                    "{} (required) vs. {} (given)".format(
-                        total_size, self.max_threads_per_block))
+                    "{} (required) vs. {} (given)".format(total_size, self.max_threads_per_block)
+                )
 
     def check(self, ir_module):
         if self.scope >= MaliCheckScope.kThreadblock:

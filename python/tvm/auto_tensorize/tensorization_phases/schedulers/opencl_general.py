@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple, Any, Set
 from ...utils import *
 from ...target import *
 from ...search import CDParamGenerator, Entry, SAEntryGenerator
-from ..compute_transform import TransformState
+from ..compute_transform import MappingState
 from ...hw_abstraction.hw_abs_base import ComputeDAG
 from ...hw_abs_dag import OperationRole, HwAbsDAGStage, InstructionScope
 from ..schedule_base import *
@@ -15,8 +15,7 @@ OpId = int
 
 
 class MaliGeneralParams(object):
-    def __init__(self, ops_sp_factors, ops_re_factors,
-                 unroll_max_step):
+    def __init__(self, ops_sp_factors, ops_re_factors, unroll_max_step):
         tmp_type = Dict[OpId, List[Tuple[List[int], Any]]]
         self.ops_sp_factors: tmp_type = ops_sp_factors
         self.ops_re_factors: tmp_type = ops_re_factors
@@ -40,10 +39,8 @@ class MaliGeneralParams(object):
         self._normalize()
 
     def _normalize(self):
-        self.ops_sp_factors = {int(i): fs for (i, fs)
-                               in self.ops_sp_factors.items()}
-        self.ops_re_factors = {int(i): fs for (i, fs)
-                               in self.ops_re_factors.items()}
+        self.ops_sp_factors = {int(i): fs for (i, fs) in self.ops_sp_factors.items()}
+        self.ops_re_factors = {int(i): fs for (i, fs) in self.ops_re_factors.items()}
 
     def __str__(self):
         obj = self.to_json()
@@ -65,11 +62,20 @@ def empty_mali_general_params():
 
 
 class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
-    def __init__(self, target_dag, eps=0.9, arch="g76",
-                 n_re_levels=3, n_sp_levels=4,
-                 log_file="mali_general_schedule_generator.log", steps=1):
+    def __init__(
+        self,
+        target_dag,
+        eps=0.9,
+        arch="g76",
+        n_re_levels=3,
+        n_sp_levels=4,
+        log_file="mali_general_schedule_generator.log",
+        steps=1,
+        verbose_init=True,
+    ):
         super(MaliGeneralScheduleGenerator, self).__init__(
-            eps, MaliGeneralParams, steps=steps, log_file=log_file)
+            eps, MaliGeneralParams, steps=steps, log_file=log_file, verbose_init=verbose_init
+        )
 
         self._target_dag = target_dag
         self._n_sp_levels = n_sp_levels
@@ -97,16 +103,15 @@ class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
         for op_id, op in enumerate(self._target_dag.op_lst):
             if is_heavy_reduce_op(op):
                 gens = [
-                    SplitFactorGenerator(
-                        int(iv.dom.extent), self._n_re_levels
-                    ) for iv in op.reduce_axis]
+                    SplitFactorGenerator(int(iv.dom.extent), self._n_re_levels)
+                    for iv in op.reduce_axis
+                ]
                 self._generators.extend(gens)
                 self._ops_re_split_gens[op_id] = gens
             if not can_inline(op, self._target_dag):
                 gens = [
-                    SplitFactorGenerator(
-                        int(iv.dom.extent), self._n_sp_levels
-                    ) for iv in op.axis]
+                    SplitFactorGenerator(int(iv.dom.extent), self._n_sp_levels) for iv in op.axis
+                ]
                 self._generators.extend(gens)
                 self._ops_sp_split_gens[op_id] = gens
         self._unroll_gen = UnrollStepGenerator([16, 64, 512, 1500])
@@ -122,8 +127,7 @@ class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
         return self._generators
 
     def get_schedule_compute_info(self):
-        raise NotImplementedError(
-            "Can get schedule compute info only for tensorizing")
+        raise NotImplementedError("Can get schedule compute info only for tensorizing")
 
     def valid(self, record):
         return True
@@ -139,23 +143,34 @@ class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
     def get_record(self, entry=None, policy="random"):
         if entry is None:
             return self.record_cls(
-                {i: [g.get(policy=policy) for g in gens]
-                 for (i, gens) in self._ops_sp_split_gens.items()},
-                {i: [g.get(policy=policy) for g in gens]
-                 for (i, gens) in self._ops_re_split_gens.items()},
+                {
+                    i: [g.get(policy=policy) for g in gens]
+                    for (i, gens) in self._ops_sp_split_gens.items()
+                },
+                {
+                    i: [g.get(policy=policy) for g in gens]
+                    for (i, gens) in self._ops_re_split_gens.items()
+                },
                 self._unroll_gen.get(policy=policy),
                 # self._vectorize_gen.get(policy=policy),
             )
         else:
             return self.record_cls(
-                {i: [g.get(hint=fs, policy="q") for (g, (fs, _)) in
-                     zip(gens, entry.record.ops_sp_factors[i])] for (i, gens)
-                 in self._ops_sp_split_gens.items()},
-                {i: [g.get(hint=fs, policy="q") for (g, (fs, _)) in
-                     zip(gens, entry.record.ops_re_factors[i])] for (i, gens)
-                 in self._ops_re_split_gens.items()},
-                self._unroll_gen.get(
-                    hint=entry.record.unroll_max_step[0], policy="q"),
+                {
+                    i: [
+                        g.get(hint=fs, policy="q")
+                        for (g, (fs, _)) in zip(gens, entry.record.ops_sp_factors[i])
+                    ]
+                    for (i, gens) in self._ops_sp_split_gens.items()
+                },
+                {
+                    i: [
+                        g.get(hint=fs, policy="q")
+                        for (g, (fs, _)) in zip(gens, entry.record.ops_re_factors[i])
+                    ]
+                    for (i, gens) in self._ops_re_split_gens.items()
+                },
+                self._unroll_gen.get(hint=entry.record.unroll_max_step[0], policy="q"),
                 # self._vectorize_gen.get(
                 #     hint=entry.record.vectorize_size[0], policy="q"),
             )
@@ -166,12 +181,14 @@ class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
         unroll = record.unroll_max_step
         # vectorize = record.vectorize_size
 
-        next_sp = {i: [g.get_next(fs, to_mutate) for (g, (fs, _)) in
-                       zip(gens, sp_fs[i])] for (i, gens) in
-                   self._ops_sp_split_gens.items()}
-        next_re = {i: [g.get_next(fs, to_mutate) for (g, (fs, _)) in
-                       zip(gens, re_fs[i])] for (i, gens) in
-                   self._ops_re_split_gens.items()}
+        next_sp = {
+            i: [g.get_next(fs, to_mutate) for (g, (fs, _)) in zip(gens, sp_fs[i])]
+            for (i, gens) in self._ops_sp_split_gens.items()
+        }
+        next_re = {
+            i: [g.get_next(fs, to_mutate) for (g, (fs, _)) in zip(gens, re_fs[i])]
+            for (i, gens) in self._ops_re_split_gens.items()
+        }
         next_unroll = self._unroll_gen.get_next(unroll[0], to_mutate)
         # next_vectorize = self._vectorize_gen.get_next(vectorize[0], to_mutate)
 
@@ -187,17 +204,23 @@ class MaliGeneralScheduleGenerator(AcceleratorScheduleGenerator):
             return ret
 
         for s in range(steps):
-            sp_fs = {i: [helper(g, fs) for (g, fs) in zip(gens, sp_fs[i])]
-                     for (i, gens) in next_sp.items()}
-            re_fs = {i: [helper(g, fs) for (g, fs) in zip(gens, re_fs[i])]
-                     for (i, gens) in next_re.items()}
+            sp_fs = {
+                i: [helper(g, fs) for (g, fs) in zip(gens, sp_fs[i])]
+                for (i, gens) in next_sp.items()
+            }
+            re_fs = {
+                i: [helper(g, fs) for (g, fs) in zip(gens, re_fs[i])]
+                for (i, gens) in next_re.items()
+            }
             unroll = helper(next_unroll, unroll)
             # vectorize = helper(next_vectorize, vectorize)
             if has_mutate:
-                yield self.record_cls(sp_fs, re_fs,
-                                      unroll,
-                                      # vectorize
-                                      )
+                yield self.record_cls(
+                    sp_fs,
+                    re_fs,
+                    unroll,
+                    # vectorize
+                )
             has_mutate = False
 
     def feedback_value(self, entry, value):
@@ -250,8 +273,7 @@ class MaliGeneralScheduleApplier(object):
         return ivo, ivi
 
     def _fuse(self, stage: Stage, *ivs):
-        fused_ext = reduce(lambda a, b: a * b,
-                           (self._get_iv_extent(iv) for iv in ivs), 1)
+        fused_ext = reduce(lambda a, b: a * b, (self._get_iv_extent(iv) for iv in ivs), 1)
         fused_iv = stage.fuse(*ivs)
         self._state.ivs_extent[fused_iv] = fused_ext
         return fused_iv
@@ -278,7 +300,7 @@ class MaliGeneralScheduleApplier(object):
         for part in tiled_parts:
             n_axes = len(part)
             tmp_part = []
-            for sub_part in (part[:n_axes // 2], part[n_axes // 2:]):
+            for sub_part in (part[: n_axes // 2], part[n_axes // 2 :]):
                 fuse_axis = self._fuse(stage, *sub_part)
                 tmp_part.append(fuse_axis)
             fused_parts.append(tmp_part)
@@ -290,8 +312,10 @@ class MaliGeneralScheduleApplier(object):
 
     @staticmethod
     def _bind_axes(stage: Stage, tiled_parts):
-        thread_parts = [[te.thread_axis(f"blockIdx.{x}") for x in "xyz"],
-                        [te.thread_axis(f"threadIdx.{x}") for x in "xyz"]]
+        thread_parts = [
+            [te.thread_axis(f"blockIdx.{x}") for x in "xyz"],
+            [te.thread_axis(f"threadIdx.{x}") for x in "xyz"],
+        ]
         kernel_scope = None
         n_thread_parts = 0
         for tiled_part, thread_part in zip(tiled_parts, thread_parts):
@@ -337,8 +361,7 @@ class MaliGeneralScheduleApplier(object):
 
         def sch_spatial():
             sp_factors = self._get_sp_factors(op_id)
-            sp_parts = self._tile_and_fuse_axes(
-                op_stg, op_stg.op.axis, sp_factors)
+            sp_parts = self._tile_and_fuse_axes(op_stg, op_stg.op.axis, sp_factors)
 
             kernel_scope, n_thread_parts = self._bind_axes(op_stg, sp_parts)
             if len(sp_parts) > n_thread_parts:
@@ -346,8 +369,7 @@ class MaliGeneralScheduleApplier(object):
                 sp_parts[-1].extend(self._split_vectorize(op_stg, last_iv))
                 [op_stg.unroll(iv) for iv in sp_parts[-1][:-1]]
 
-            op_stg.pragma(kernel_scope, "auto_unroll_max_step",
-                          self._params.unroll_max_step[0])
+            op_stg.pragma(kernel_scope, "auto_unroll_max_step", self._params.unroll_max_step[0])
 
             return kernel_scope
 
@@ -360,16 +382,10 @@ class MaliGeneralScheduleApplier(object):
             wc_stg: Stage = sch[X(wc)]
             wc_stg.compute_at(op_stg, kernel_scope)
             re_factors = self._get_re_factors(op_id)
-            re_parts = self._split_axes(
-                wc_stg, wc_stg.op.reduce_axis, re_factors)
+            re_parts = self._split_axes(wc_stg, wc_stg.op.reduce_axis, re_factors)
             re_parts = [list(x) for x in zip(*re_parts)]
             sp_parts = [[iv] for iv in wc_stg.op.axis]
-            ordered_parts = (
-                re_parts[:-1] +
-                sp_parts[:1] +
-                re_parts[-1:] +
-                sp_parts[1:]
-            )
+            ordered_parts = re_parts[:-1] + sp_parts[:1] + re_parts[-1:] + sp_parts[1:]
             wc_stg.reorder(*(iv for part in ordered_parts for iv in part))
             [wc_stg.unroll(iv) for part in sp_parts for iv in part]
             [wc_stg.unroll(iv) for iv in re_parts[-1]]

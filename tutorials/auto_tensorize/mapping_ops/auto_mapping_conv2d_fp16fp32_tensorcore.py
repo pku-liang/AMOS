@@ -1,3 +1,14 @@
+"""
+AutoTensorize: find mappings for a conv2d layer
+===========================================
+**Author**: `Size Zheng <https://github.com/KnowingNothing>`
+
+
+In this tutorial, AMOS will find mappings for conv2d
+using heuristic methods.
+The target ISA is Tensor Core.
+Then AMOS explores different schedules for this mapping.
+"""
 import tvm
 import os
 from tvm import auto_tensorize as at

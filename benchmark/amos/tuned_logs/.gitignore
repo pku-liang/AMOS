@@ -1,0 +1,4 @@
+*.py
+fc_model
+evaluate_pool
+*pkl_memorize_py3

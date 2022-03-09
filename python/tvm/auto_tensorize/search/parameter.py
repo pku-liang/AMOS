@@ -158,6 +158,7 @@ class SAEntryGenerator(EntryGenerator):
         log_file="sa_entry_generator_record.log",
         allow_repeat=False,
         topk=20,
+        verbose_init=True,
     ):
         self.eps = eps
         self.entries = []
@@ -167,17 +168,20 @@ class SAEntryGenerator(EntryGenerator):
         self.log_file = log_file
         self.allow_repeat = allow_repeat
         self.topk_num = topk
-        self.init_logger()
+        self.init_logger(verbose=verbose_init)
         self.last_choice = None
         self.last_value = 0.0
         self.gen = self._get_next(self.allow_repeat)
+        self.verbose_init = verbose_init
 
-    def init_logger(self):
+    def init_logger(self, verbose=True):
         if self.log_file is not None and self.log_file != "":
-            print("Logging to %s..." % self.log_file, flush=True)
+            if verbose:
+                print("Logging to %s..." % self.log_file, flush=True)
             self.logger = open(self.log_file, "a")
         else:
-            print("Logging to %s..." % "devnull", flush=True)
+            if verbose:
+                print("Logging to %s..." % "devnull", flush=True)
             self.logger = open(os.devnull, "w")
 
     def init_param_generator(self, *args):
@@ -285,13 +289,14 @@ class SAEntryGenerator(EntryGenerator):
         self.init_score_table()
         self.log_file = log_file
         self.logger.close()
-        self.init_logger()
+        self.init_logger(verbose=self.verbose_init)
 
     def load_from_file(self, file_name, clear=False):
         if clear:
             print("Clearing...")
             self.clear(file_name)
-        print("Loading from file %s..." % file_name, flush=True)
+        if self.verbose_init:
+            print("Loading from file %s..." % file_name, flush=True)
         # assert file_name != self.log_file, "Please do not use the same log file."
         assert not self.entries, "Please clear the generator first (be caution!)."
         count = 0
@@ -304,10 +309,11 @@ class SAEntryGenerator(EntryGenerator):
                 value = obj["value"]
                 best = max(value, best)
                 self.feedback(record, value, False)
-        print(
-            "Load %d entries! The best known is %f ms" % (count, 1 / (best + 1e-10) * 1e3),
-            flush=True,
-        )
+        if self.verbose_init:
+            print(
+                "Load %d entries! The best known is %f ms" % (count, 1 / (best + 1e-10) * 1e3),
+                flush=True,
+            )
 
     def get_best_entry(self):
         assert self.entries
@@ -537,6 +543,7 @@ def find_optimized_parameters_v2(
         print("Search %d trials costs %f seconds" % (trials, toc - tic), flush=True)
     return best_value, best_params
 
+
 def find_optimized_parameters_v3(
     match_results,
     schedule_gen,
@@ -551,7 +558,7 @@ def find_optimized_parameters_v3(
     verbose=False,
     build_parallel=1,
     run_parallel=1,
-    perf_percentage=0.5
+    perf_percentage=0.5,
 ):
     """
     Combine the performance model estimation and profiling to find optimized parameters
@@ -561,7 +568,7 @@ def find_optimized_parameters_v3(
     perf_percentage: double = 0.5
         choose (search_group_size * perf_percentage) candidate params after perfomance model estimation
     """
-    assert not perf_percentage>1
+    assert not perf_percentage > 1
     best_value = 1 / MAX_FLOAT
     best_params = None
     if schedule_gen.has_entry():
@@ -595,19 +602,33 @@ def find_optimized_parameters_v3(
                     # print(str(params))
                     params_lst_perf.append(params)
             assert params_lst_perf
-            
+
             if verbose:
                 print("performance model estimation...", flush=True)
             build_results_perf = builder(
-                schedule_app, params_lst_perf, measure_opt, checker, n_parallel=build_parallel, enable_perf_model=True
+                schedule_app,
+                params_lst_perf,
+                measure_opt,
+                checker,
+                n_parallel=build_parallel,
+                enable_perf_model=True,
             )
-            run_results_perf = runner(build_results_perf, measure_opt, n_parallel=run_parallel, enable_perf_model=True)
-            
-            params_value_lst = [[params, perf_res.costs[0]] # latency
-                                for params, perf_res in zip(params_lst_perf, run_results_perf)]
-            params_value_lst.sort(key=lambda x:x[1])
-            params_lst = list(map(lambda x:x[0], params_value_lst[:math.ceil(len(params_value_lst)*perf_percentage)]))
-            
+            run_results_perf = runner(
+                build_results_perf, measure_opt, n_parallel=run_parallel, enable_perf_model=True
+            )
+
+            params_value_lst = [
+                [params, perf_res.costs[0]]  # latency
+                for params, perf_res in zip(params_lst_perf, run_results_perf)
+            ]
+            params_value_lst.sort(key=lambda x: x[1])
+            params_lst = list(
+                map(
+                    lambda x: x[0],
+                    params_value_lst[: math.ceil(len(params_value_lst) * perf_percentage)],
+                )
+            )
+
             build_results = builder(
                 schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
             )

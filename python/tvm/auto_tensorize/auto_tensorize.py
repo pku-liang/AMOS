@@ -336,7 +336,7 @@ def auto_tensorize_v2(
     gen = MappingGenerator(match_result)
     record = gen.get(policy="random")
     # here is transform policy
-    record.unfold_choice = ([1 for _ in record.unfold_choice[0]], record.unfold_choice[1])
+    record.vmap_choice = ([1 for _ in record.vmap_choice[0]], record.vmap_choice[1])
     app = MappingApplier(match_result, verbose=transform_dump)
     new_state = app.apply(record)
 

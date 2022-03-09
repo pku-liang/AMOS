@@ -7,9 +7,7 @@ from ..schedule_base import *
 
 
 class LLVMState(object):
-    def __init__(
-            self, inlined, main_op_reduce_axis,
-            output_op_axis, last_op_axis, tensorize_iter):
+    def __init__(self, inlined, main_op_reduce_axis, output_op_axis, last_op_axis, tensorize_iter):
         self.inlined = inlined
         self.main_op_reduce_axis = main_op_reduce_axis
         self.output_op_axis = output_op_axis
@@ -24,11 +22,15 @@ def empty_llvm_state():
 
 class LLVMParams(object):
     def __init__(
-            self, inline, vectorize, spatial_factors, reduce_factors,
-            last_factors,
-            # output_unroll_step,
-            # last_unroll_step
-            ):
+        self,
+        inline,
+        vectorize,
+        spatial_factors,
+        reduce_factors,
+        last_factors,
+        # output_unroll_step,
+        # last_unroll_step
+    ):
         self.inline = inline
         self.vectorize = vectorize
         self.spatial_factors = spatial_factors
@@ -61,6 +63,7 @@ class LLVMParams(object):
     def __str__(self):
         obj = self.to_json()
         new_obj = {}
+
         def handle(v):
             if isinstance(v, list):
                 return [handle(x) for x in v]
@@ -85,11 +88,21 @@ class LLVMKernelParamGenerator(CDParamGenerator):
 
 
 class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
-    def __init__(self, intrin_match_result, transform_state, eps=0.7,
-            reduce_tiling=2, spatial_tiling=2, last_tiling=2,
-            log_file="llvm_schedule_generator.log", steps=1):
-        super(LLVMScheduleGenerator, self).__init__(eps, LLVMParams,
-            steps=steps, log_file=log_file)
+    def __init__(
+        self,
+        intrin_match_result,
+        transform_state,
+        eps=0.7,
+        reduce_tiling=2,
+        spatial_tiling=2,
+        last_tiling=2,
+        log_file="llvm_schedule_generator.log",
+        steps=1,
+        verbose_init=True,
+    ):
+        super(LLVMScheduleGenerator, self).__init__(
+            eps, LLVMParams, steps=steps, log_file=log_file, verbose_init=verbose_init
+        )
         self.init_hw_abs_dag(intrin_match_result)
         nodes = self.init_target_dag(transform_state)
         self.init_hw_abs_dag_stage(nodes)
@@ -131,7 +144,8 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
             target_main_op,
             self.hw_abs_dag,
             self.compute_key,
-            self.shape_key)
+            self.shape_key,
+        )
         # nodes: dict {hw_abs name : new tensor}
         (_, _, nodes, _, _) = info
         # get new main op
@@ -146,8 +160,8 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
             if cur in self.hw_abs_dag.hw_abs_dict:
                 return True
             return False
-        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(
-            cond1=cond)
+
+        hw_abs_names, read_graph, feed_graph = self.hw_abs_dag.serialize_dag(cond1=cond)
 
         operation_role = {}
         hw_abs_map = {}
@@ -161,17 +175,15 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
         for name in hw_abs_names:
             op = nodes[name][0].op
             hw_abs_map[op] = name
-            spatial_axis, reduce_axis = \
-                self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
-                    self.compute_key, self.shape_key, name)
+            spatial_axis, reduce_axis = self.hw_abs_dag.get_hw_abs_compute_reserve_axis(
+                self.compute_key, self.shape_key, name
+            )
             reserve_inner_axis_count[op] = len(spatial_axis)
             if name == self.hw_abs_dag.main_hw_abs_name:
                 operation_role[op] = OperationRole.main_op
                 for i, red in enumerate(reduce_axis):
-                    main_op_reserve_reduce_axis.append(
-                        len(op.reduce_axis) - len(reduce_axis) + i)
-                    main_op_reserve_reduce_axis_factor.append(
-                        int(red.dom.extent))
+                    main_op_reserve_reduce_axis.append(len(op.reduce_axis) - len(reduce_axis) + i)
+                    main_op_reserve_reduce_axis_factor.append(int(red.dom.extent))
             elif name not in read_graph:
                 operation_role[op] = OperationRole.load_op
                 load_from_shared[op] = 1
@@ -195,7 +207,7 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
             main_op_reserve_reduce_axis_factor,
             load_from_shared,
             store_to_shared,
-            self.hw_abs_dag.scope
+            self.hw_abs_dag.scope,
         )
 
     def init_param_generator(self):
@@ -207,27 +219,24 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
         # skip the reserved reduce axis
         for i, iv in enumerate(self.main_op.reduce_axis):
             if i not in reserve_reduce_axis:
-                gen = SplitFactorGenerator(
-                    int(iv.dom.extent), self.reduce_tiling_parts)
+                gen = SplitFactorGenerator(int(iv.dom.extent), self.reduce_tiling_parts)
                 self.reduce_splits.append(gen)
         # for output op spatial split
         self.spatial_splits = []
         reserve_axis_count = int(self.hw_abs_dag_stage.reserve_inner_axis_count[self.output_op])
         # skip the reserved spatial axis
         for iv in self.output_op.axis[:-reserve_axis_count]:
-            gen = SplitFactorGenerator(
-                int(iv.dom.extent), self.spatial_tiling_parts)
+            gen = SplitFactorGenerator(int(iv.dom.extent), self.spatial_tiling_parts)
             self.spatial_splits.append(gen)
         # for last op spatial axis
         last_total_extent = 1
         for iv in self.target_dag.op_lst[-1].axis:
             last_total_extent *= int(iv.dom.extent)
-        self.last_splits = [
-            SplitFactorGenerator(last_total_extent,
-                                 self.last_op_tiling_parts)]
+        self.last_splits = [SplitFactorGenerator(last_total_extent, self.last_op_tiling_parts)]
         self.inline = InlineGenerator()
         self.vectorize = VectorizeLengthGenerator(
-            self.hw_abs_dag.target, self.main_op.input_tensors[0].dtype)
+            self.hw_abs_dag.target, self.main_op.input_tensors[0].dtype
+        )
         # self.unroll_output = UnrollStepGenerator([16, 64, 512, 1500])
         # self.unroll_last = UnrollStepGenerator([16, 64, 512, 1500])
         self.generator_lst = [
@@ -254,9 +263,9 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
             self.main_op_id,
             self.output_op_id,
             self.hw_abs_dag_stage,
-            spatial_tiling = self.spatial_tiling_parts,
-            reduce_tiling = self.reduce_tiling_parts,
-            last_tiling = self.last_op_tiling_parts
+            spatial_tiling=self.spatial_tiling_parts,
+            reduce_tiling=self.reduce_tiling_parts,
+            last_tiling=self.last_op_tiling_parts,
         )
 
     def valid(self, record):
@@ -271,7 +280,7 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
             obj["last_factors"],
             # obj["output_unroll_step"],
             # obj["last_unroll_step"]
-            )
+        )
 
     def get_record(self, entry=None, policy="random"):
         if entry is None:
@@ -283,26 +292,31 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
                 [gen.get(policy=policy) for gen in self.last_splits],
                 # self.unroll_output.get(policy=policy),
                 # self.unroll_last.get(policy=policy)
-                )
+            )
         else:
             record = self.record_cls(
                 self.inline.get(hint=entry.record.inline[0], policy="q"),
                 self.vectorize.get(hint=entry.record.vectorize[0], policy="q"),
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.spatial_splits, entry.record.spatial_factors)],
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.reduce_splits, entry.record.reduce_factors)],
-                [gen.get(hint=x[0], policy="q") for gen, x in zip(
-                    self.last_splits, entry.record.last_factors)],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.spatial_splits, entry.record.spatial_factors)
+                ],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.reduce_splits, entry.record.reduce_factors)
+                ],
+                [
+                    gen.get(hint=x[0], policy="q")
+                    for gen, x in zip(self.last_splits, entry.record.last_factors)
+                ],
                 # self.unroll_output.get(
                 #     hint=entry.record.output_unroll_step[0], policy="q"),
                 # self.unroll_last.get(
                 #     hint=entry.record.last_unroll_step[0], policy="q"),
-                )
+            )
         return record
 
-    def get_records_mutate_one_generator(
-        self, record, to_mutate, steps):
+    def get_records_mutate_one_generator(self, record, to_mutate, steps):
         inline = record.inline
         vec = record.vectorize
         spatial = record.spatial_factors
@@ -311,23 +325,13 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
         # unroll_output = record.output_unroll_step
         # unroll_last = record.last_unroll_step
 
-        next_inline = self.inline.get_next(
-            inline[0], to_mutate
-        )
-        next_vec = self.vectorize.get_next(
-            vec[0], to_mutate)
+        next_inline = self.inline.get_next(inline[0], to_mutate)
+        next_vec = self.vectorize.get_next(vec[0], to_mutate)
         next_spatial = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.spatial_splits, spatial)
+            gen.get_next(x[0], to_mutate) for gen, x in zip(self.spatial_splits, spatial)
         ]
-        next_reduce = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.reduce_splits, reduce)
-        ]
-        next_last = [
-            gen.get_next(x[0], to_mutate) for gen, x in zip(
-                self.last_splits, last)
-        ]
+        next_reduce = [gen.get_next(x[0], to_mutate) for gen, x in zip(self.reduce_splits, reduce)]
+        next_last = [gen.get_next(x[0], to_mutate) for gen, x in zip(self.last_splits, last)]
         # next_unroll_output = self.unroll_output.get_next(
         #     unroll_output[0], to_mutate
         # )
@@ -349,15 +353,9 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
         for s in range(steps):
             inline = helper(next_inline, inline)
             vec = helper(next_vec, vec)
-            spatial = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)
-            ]
-            reduce = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)
-            ]
-            last = [
-                helper(_gen, org_val) for _gen, org_val in zip(next_last, last)
-            ]
+            spatial = [helper(_gen, org_val) for _gen, org_val in zip(next_spatial, spatial)]
+            reduce = [helper(_gen, org_val) for _gen, org_val in zip(next_reduce, reduce)]
+            last = [helper(_gen, org_val) for _gen, org_val in zip(next_last, last)]
             # unroll_output = helper(next_unroll_output, unroll_output)
             # unroll_last = helper(next_unroll_last, unroll_last)
             if has_mutate:
@@ -369,7 +367,7 @@ class LLVMScheduleGenerator(AcceleratorScheduleGenerator):
                     last,
                     # unroll_output,
                     # unroll_last
-                    )
+                )
             has_mutate = False
 
     def feedback_value(self, entry, value):
@@ -437,7 +435,10 @@ class LLVMScheduleApplier(object):
 
     def get_output_op_axis_factors(self, number):
         assert len(self.params.spatial_factors) >= number, (
-            len(self.params.spatial_factors), " vs. ", number)
+            len(self.params.spatial_factors),
+            " vs. ",
+            number,
+        )
         return [x[0] for x in self.params.spatial_factors[:number]]
 
     def get_last_op_axis_factors(self, number):
@@ -465,9 +466,11 @@ class LLVMScheduleApplier(object):
                 consumers = self.target_dag.feed_graph[op]
                 if len(consumers) <= 0:
                     return
-                if len(consumers) == 1 and \
-                    consumers[0] in self.hw_abs_dag_stage.operation_role and \
-                        self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.main_op:
+                if (
+                    len(consumers) == 1
+                    and consumers[0] in self.hw_abs_dag_stage.operation_role
+                    and self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.main_op
+                ):
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         return
@@ -514,9 +517,7 @@ class LLVMScheduleApplier(object):
             reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
             split_spatial_axis = axis[:-reserve_spatial_num]
             reserve_spatial_axis = axis[-reserve_spatial_num:]
-            spatial_axis_split_factors = self.get_output_op_axis_factors(
-                len(split_spatial_axis)
-            )
+            spatial_axis_split_factors = self.get_output_op_axis_factors(len(split_spatial_axis))
             spatial_axis_split_parts = []
             for iv, factors in zip(split_spatial_axis, spatial_axis_split_factors):
                 part = []
@@ -548,8 +549,7 @@ class LLVMScheduleApplier(object):
             sch[LL].compute_at(sch[Output], final_axis[-2][0])
             axis = sch[LL].op.axis
             reserve_spatial_num = int(self.hw_abs_dag_stage.reserve_inner_axis_count[op])
-            spatial_axis_split_parts = [
-                axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
+            spatial_axis_split_parts = [axis[:-reserve_spatial_num], axis[-reserve_spatial_num:]]
 
             all_reduce_axis = sch[LL].op.reduce_axis
             reserve_reduce_axis = []
@@ -561,11 +561,9 @@ class LLVMScheduleApplier(object):
                 else:
                     split_reduce_axis.append(iv)
             reserve_reduce_num = len(reserve_reduce_axis)
-            
+
             reduce_axis_split_parts = []
-            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(
-                len(split_reduce_axis)
-            )
+            reduce_axis_split_factors = self.get_main_op_reduce_axis_factors(len(split_reduce_axis))
             for iv, factors in zip(split_reduce_axis, reduce_axis_split_factors):
                 part = []
                 for f in reversed(factors[1:]):
@@ -577,17 +575,20 @@ class LLVMScheduleApplier(object):
             reordered_reduce_axis = [list(x) for x in zip(*reduce_axis_split_parts)]
             reordered_reduce_axis.append(reserve_reduce_axis)
             assert len(reordered_reduce_axis) > 2, "No enough reduce axis split."
-            ordered_axis = reordered_reduce_axis[:-2] + \
-                           [spatial_axis_split_parts[0]] + \
-                           reordered_reduce_axis[-2:-1] + \
-                           [spatial_axis_split_parts[1]] + \
-                           reordered_reduce_axis[-1:]
+            ordered_axis = (
+                reordered_reduce_axis[:-2]
+                + [spatial_axis_split_parts[0]]
+                + reordered_reduce_axis[-2:-1]
+                + [spatial_axis_split_parts[1]]
+                + reordered_reduce_axis[-1:]
+            )
             ordered_axis = reduce(lambda x, y: x + y, ordered_axis, [])
             sch[LL].reorder(*ordered_axis)
             sch[LL].unroll(spatial_axis_split_parts[0][-1])
             self.state.main_op_reduce_axis = reordered_reduce_axis
             self.state.tensorize_iter[op] = ordered_axis[
-                -(reserve_spatial_num + reserve_reduce_num)]
+                -(reserve_spatial_num + reserve_reduce_num)
+            ]
             self.state.transformed_main_op = LL
         elif op == self.target_dag.op_lst[-1]:
             # last op
@@ -615,9 +616,11 @@ class LLVMScheduleApplier(object):
                 consumers = self.target_dag.feed_graph[op]
                 if len(consumers) <= 0:
                     return
-                if len(consumers) == 1 and \
-                    consumers[0] in self.hw_abs_dag_stage.operation_role and \
-                        self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.main_op:
+                if (
+                    len(consumers) == 1
+                    and consumers[0] in self.hw_abs_dag_stage.operation_role
+                    and self.hw_abs_dag_stage.operation_role[consumers[0]] == OperationRole.main_op
+                ):
                     do_inline = self.get_inline_choice()
                     if not do_inline:
                         do_tiling = True
@@ -646,11 +649,12 @@ class LLVMScheduleApplier(object):
         if not op in self.hw_abs_dag_stage.operation_role:
             return
         intrin = self.hw_abs_dag.get_intrinsic(
-            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op])
+            self.compute_key, self.shape_key, self.hw_abs_dag_stage.hw_abs_key[op]
+        )
         axis = self.get_tensorize_iter(op)
         assert op == self.main_op
         sch[self.state.transformed_main_op].tensorize(axis, intrin)
-    
+
     def apply(self, sch, params, mapping_func=lambda x: x):
         X = mapping_func
         primitives = [
@@ -660,9 +664,9 @@ class LLVMScheduleApplier(object):
             self.tiling,
             self.compute_at,
             self.unroll,
-            self.tensorize
+            self.tensorize,
         ]
-        
+
         # initialize parameters
         self.initialize_parameters(params)
         # check if parameters are ready
