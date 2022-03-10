@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.math_gpu.tensorcore_conv import conv_tc
+# from akg.ops.math_gpu.tensorcore_conv import conv_tc
+from akg.ops.nn.gpu.tensorcore_conv import TensorcoreConv
 from tests.common.gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
+from akg.utils.result_analysis import target_profiling
 from akg.utils.format_transform import to_tvm_nd_array
 
 
@@ -71,7 +72,9 @@ def gen_data_im2col(shape_data, shape_filter, stride, padding, dilation, dtype, 
 def test_ms_conv_tc(shape_data, shape_filter, stride, padding, dilation, dtype, out_dtype="float32", poly_sch=True, attrs=None):
     op_attrs = [stride, padding, dilation, out_dtype]
     default_attrs = {"target": "cuda", "enable_auto_fuse": False}
-    default_attrs.update({"pragma_enable_matmul": True, "pragma_enable_conv_tensor_core": True})
+    # default_attrs.update({"pragma_enable_matmul": True, "pragma_enable_conv_tensor_core": True})
+    # default_attrs.update({"pragma_enable_matmul":True})
+    default_attrs.update({"pragma_enable_conv_tensor_core": True})
     if attrs:
         default_attrs.update(attrs)
 
@@ -79,9 +82,8 @@ def test_ms_conv_tc(shape_data, shape_filter, stride, padding, dilation, dtype, 
         shape_data, shape_filter, stride, padding, dilation, dtype, out_dtype)
 
     if poly_sch:
-        mod = utils.op_build_test(conv_tc, (data.shape, weight.shape), (
+        mod = utils.op_build_test(TensorcoreConv, (data.shape, weight.shape), (
             dtype, dtype), op_attrs=op_attrs, attrs=default_attrs, kernel_name="conv_tc_auto")
-
     args = (data, weight, output)
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-3, atol=1.e-8)
@@ -93,7 +95,7 @@ def test_ms_conv_tc(shape_data, shape_filter, stride, padding, dilation, dtype, 
 
     data, weight, output, expect = to_tvm_nd_array(
         [data, weight, output, expect])
-    gpu_profiling(mod, data, weight, output, expect, repeat_time=100)
+    target_profiling(mod, data, weight, output, expect, repeat_time=100)
 
 if __name__=="__main__":
     #shape_data: n,h,w,c
@@ -101,7 +103,7 @@ if __name__=="__main__":
     #stride = []: s_h, s_w
     #padding = []: p_l, p_r, p_t, p_b
     #dilation = []: d_h, d_w
-    batches = [1, 16]
+    batches = [1]
     dtype = "float16"
     for n in batches:
         print("n = ", n)
