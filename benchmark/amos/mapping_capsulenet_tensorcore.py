@@ -23,7 +23,7 @@ def main(batch, dtype, trials):
     model.eval()
 
     # set the input shape
-    img_shape = [batch_size, 3, 28, 28]
+    img_shape = [batch_size, 1, 28, 28]
     # use tensor_graph frontend to construct a symbolic input tensor
     img_tensor = tensor_graph.core.GraphTensor(img_shape, in_dtype, name="data")
 

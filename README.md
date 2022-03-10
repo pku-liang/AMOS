@@ -445,11 +445,37 @@ src/target/source/codegen_c.cc
 are modified.
 The detailed list of modified code outside `auto_tensorize` directory is omitted.
 
-
 ### 1. Hardware abstraction implementation
-to be written.
-### 2. Mapping generation & exploration part
-to be written.
+
+#### `HardwareAbstraction`
+
+We define `HardwareAbstraction` as a unified user interface to abstract hardware intrinsic.
+
+For a given hardware intrinsic, the `HardwareAbstraction` describe its loop structure (implemented as TVM tensor expression) as well as generation rule (with the help of `tvm.te.TensorIntrin`). When we want to schedule a compute, we can use intrinsic loop structure to match the compute's loops to generate & verify possible software-hardware mappings, and generate the final source code based on its generation rule.
+
+There're two main sub-class of `HardwareAbstraction`: `ComputeAbstraction` and `MemoryAbstraction`. The former one is used to describe compute intrinsic like `wmma::mma_sync` of Tensor Core. The latter one is used to describe memory loading/storing intrinsic like `wmma::load_matrix_sync` of Tensor Core.
+
+We implement it mainly in `python/tvm/auto_tensorize/hw_abstraction/*`, `include/tvm/auto_tensorize/hw_abstraction.h`, and `src/auto_tensorize/hw_abstraction.cc`. We also pre-implement abstractions for some exsiting hardwares such as NVIDIA GPU (with Tensor Core), Intel CPU (with AVX512), and Mali GPU (with arm_dot intrinsic) in the corresponding subdirectories of `python/tvm/auto_tensorize/hw_abstraction/*`. 
+
+#### `HardwareAbstractionDAG` 
+
+Generally speaking, compute intrinsics are cooperating with memory intrinsics because of the data-path between on-chip and off-chip memory. We define `HardwareAbstractionDAG` to describe the relations among intrinsics. A `HardwareAbstractionDAG` contains a direct cyclic graph of several `HardwareAbstraction`s with a `ComputeAbstraction` as the "main abstraction". For example, two `MemoryAbstraction`s for `wmma::load_matrix_sync`, one `MemoryAbstraction` for `wmma::store_matrix_sync`, and one `ComputeAbstraction` for `wmma::mma_sync` construct a `HardwareAbstractionDAG`, where the abstraction for `wmma::mma_sync` is the main abstraction.
+
+We implement it mainly in `python/tvm/auto_tensorize/hw_abs_dag/*`, `include/tvm/auto_tensorize/hw_abs_dag.h`, and `src/auto_tensorize/hw_abs_dag.cc`. We also pre-implement abstraction DAGs for some exsiting hardwares such as NVIDIA GPU (with Tensor Core), Intel CPU (with AVX512), and Mali GPU (with arm_dot intrinsic) in the corresponding subdirectories of `python/tvm/auto_tensorize/hw_abs_dag/*`. 
+
+### 2. Mapping generation & verification
+
+We define a function `MatchIntrinsic` to generate and verify possible software-hardware mappings based on the graph & expression & loop structure of a `HardwareAbstractionDAG` and the structure of a target compute to schedule. 
+
+First, it uses `HwAbsDAGMatcher` to match the DAG of the target compute with the DAG of the hardware abstraction. 
+
+Second, for a matched DAG, it uses `HwAbsExprMatcher` to match the expression structure of the compute with the "main `HardwareAbstraction`". 
+
+Third, if the expression structures match, it uses `IndexExprMatcher` to generate and verify the possible software-hardware loop mappings based on the loop structures of the target compute and the "main `HardwareAbstraction`".
+
+We implement it mainly in `python/tvm/auto_tensorize/tensorization_phases/intrin_match.py`, `include/tvm/auto_tensorize/matcher.h`, and `src/auto_tensorize/matcher.cc`.
+
+
 
 ### 3. Mapping exploration
 to be written.

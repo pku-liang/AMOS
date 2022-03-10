@@ -1,0 +1,3 @@
+*.log
+!.gitignore
+autoschedule_log_profile.txt
