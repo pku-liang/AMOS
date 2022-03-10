@@ -1,0 +1,1 @@
+{"mapping": "(0,0,1,0,0,1,1)", "params": {"inline": [0, -1], "vectorize": [8, -1], "spatial_factors": [[[7, 1, 1, 1], [1, 0, 0]], [[2, 1, 1, 1], [0, 0, 0]], [[14, 2, 2, 1], [-1, 1, 0]]], "reduce_factors": [[[3, 2, 6], [-1, -1]]], "last_factors": [[[98, 2, 32], [0, 0]]], "output_unroll_step": [512, -1], "last_unroll_step": [512, -1]}, "cost": 3.816058945430514e-05}

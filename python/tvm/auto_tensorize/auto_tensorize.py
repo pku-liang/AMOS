@@ -11,7 +11,7 @@ from .tensorization_phases import (
     CUDAScheduleApplier,
     CUDAScheduleGeneratorV2,
     CUDAScheduleApplierV2,
-    CUDAScheduleGeneratorV3, 
+    CUDAScheduleGeneratorV3,
     CUDAScheduleApplierV3,
     CUDAScheduleGeneratorSplitK,
     CUDAScheduleApplierSplitK,
@@ -35,11 +35,12 @@ from .policy import first_fit, best_fit, all_fit, choose_one
 
 
 class AutoTensorizeResult(object):
-    def __init__(self, sch_gen=None, sch_app=None, params=None, perf=None):
+    def __init__(self, sch_gen=None, sch_app=None, params=None, perf=None, mapping=None):
         self.sch_gen = sch_gen
         self.sch_app = sch_app
         self.params = params
         self.perf = perf
+        self.mapping = mapping
 
     def defined(self):
         return (
@@ -772,6 +773,7 @@ def auto_tensorize_v4(
     best_value = 1 / MAX_FLOAT
     best_ctx = None
     best_params = None
+    best_mapping = None
     pure_test = False
 
     if trials == 0:
@@ -832,14 +834,6 @@ def auto_tensorize_v4(
                         if not enable_split_K:
                             if use_shared_store:
                                 raise NotImplementedError()
-                                # schedule_gen = CUDAScheduleGeneratorV3(
-                                #     match_result, new_state, log_file=current_log_file,
-                                #     arch=get_cuda_compute_version(measure_opt.dev_id))
-                                # if os.path.exists(current_log_file) and os.path.isfile(current_log_file):
-                                #     schedule_gen.load_from_file(current_log_file)
-                                # sc_info = schedule_gen.get_schedule_compute_info()
-                                # schedule_app = CUDAScheduleApplierV3(
-                                #     match_result, sc_info)
                             else:
                                 if enable_perf_model:
                                     schedule_gen = CUDAScheduleGeneratorV3(
@@ -991,9 +985,6 @@ def auto_tensorize_v4(
                     entry = sch_ctx.schedule_gen.get_best_entry()
                     # we store 1/time_cost in file
                     params, value = entry.record, entry.value
-                    # print("Evaluation only:", params, value, flush=True)
-                    if not pure_test:
-                        gen.feedback(record, value)
                 except Exception as e:
                     params = None
                     value = 1 / MAX_FLOAT
@@ -1006,6 +997,7 @@ def auto_tensorize_v4(
                     best_value = value
                     best_ctx = sch_ctx
                     best_params = params
+                    best_mapping = record
                     if transform_dump:
                         print("Dump IR after transform:", flush=True)
                         new_target_dag = new_state.target_dag
@@ -1053,5 +1045,9 @@ def auto_tensorize_v4(
     if not pure_test:
         print(f"Mapping exploration uses time {(end - beg)} s.", flush=True)
     return AutoTensorizeResult(
-        best_ctx.schedule_gen, best_ctx.schedule_app, best_params, 1 / best_value
+        best_ctx.schedule_gen,
+        best_ctx.schedule_app,
+        best_params,
+        1 / best_value,
+        mapping=best_mapping,
     )

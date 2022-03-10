@@ -629,6 +629,10 @@ def find_optimized_parameters_v3(
                 )
             )
 
+            for value in params_value_lst:
+                print(value[1])
+            if verbose:
+                print("profiling...", flush=True)
             build_results = builder(
                 schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
             )
@@ -640,6 +644,7 @@ def find_optimized_parameters_v3(
                     print(res)
                 # use absolute performance
                 value = 1 / np.mean([x.value for x in res.costs])
+                print("###",value)
                 max_value = max(max_value, value)
                 if value > 1 / MAX_FLOAT:  # valid results
                     schedule_gen.feedback(params, value)
