@@ -1,7 +1,8 @@
 import torch
 import numpy as np
+import argparse
 
-def conv1d(N, C, L, K, KL, stride, padding, dilation, dtype):
+def conv1d(N, C, L, K, KL, stride, padding, dilation, dtype, number, repeats):
   A_np = np.random.uniform(-10, 10, [N, C, L]).astype("float32")
   B_np = np.random.uniform(-10, 10, [K, C, KL]).astype("float32")
 
@@ -41,10 +42,7 @@ def conv1d(N, C, L, K, KL, stride, padding, dilation, dtype):
     B_torch = torch.tensor(B_np).type(torch.float64).cuda()
   else:
     assert False, "wrong type: " + dtype
-
-  number = 10
-  repeats = 10
-
+  
   for i in range(repeats):
       time_record = []
       for j in range(number):
@@ -78,19 +76,53 @@ byte_net_shapes = [
     (1024, 892, 250,   1,       1,     0,        1)
 ]
 
+example_text = """
+    example:
+        python conv1d.py --batch 16 --enable_cudnn --number 5 --repeats 5 --begin 0 --num 8 --dtype FP16
+        python conv1d.py --batch 8 --number 10 --repeats 10 --begin 0 --num 4 --dtype TF32
+"""
+
 
 if __name__ == "__main__":
-    assert torch.backends.cudnn.is_available()
-    torch.backends.cudnn.enabled = True
-    batches = [2**i for i in range(1)]
-    beg = 0
-    num = len(byte_net_shapes)
-    print("N, C, L, K, KL, stride, padding, dilation, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
-      for batch in batches:
-          costs = []
-          for i, shape in enumerate(byte_net_shapes[beg:beg+num]):
-              (C, L, K, KL, stride, padding, dilation) = shape
-              N = batch
-              conv1d(N, C, L, K, KL, stride, padding, dilation, dtype)
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--batch", type=int, default=1)
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--begin", type=int, choices=list(range(len(byte_net_shapes))), default=0)
+    parser.add_argument(
+        "--num",
+        type=int,
+        choices=list(range(1, len(byte_net_shapes) + 1)),
+        default=len(byte_net_shapes),
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    batch = args.batch
+    beg = args.begin
+    num = args.num
+
+    costs = []
+    for i, shape in enumerate(byte_net_shapes[beg:beg+num]):
+        (C, L, K, KL, stride, padding, dilation) = shape
+        N = batch
+        conv1d(N, C, L, K, KL, stride, padding, dilation, args.dtype, args.number, args.repeats)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

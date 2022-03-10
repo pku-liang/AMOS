@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import argparse
 # from torch.cuda.amp import autocast
 
 
@@ -101,18 +102,41 @@ def yolo_v1():
   model = YOLONetV1()
   return model
 
+example_text = """
+    example:
+        python yolo_v1.py --batch 1 --enable_cudnn --number 100 --repeats 10
+        python yolo_v1.py --batch 1 --number 20 --repeats 10
+"""
 
 if __name__ == "__main__":
-  torch.backends.cudnn.enabled = True
+  parser = argparse.ArgumentParser(
+      prog="base_maker",
+      description="template maker",
+      epilog=example_text,
+      formatter_class=argparse.RawDescriptionHelpFormatter,
+  )
+  parser.add_argument('--batch', type=int, default=1)
+  parser.add_argument('--enable_cudnn', action='store_true')
+  parser.add_argument('--number', type=int, default=10)
+  parser.add_argument('--repeats', type=int, default=10)
+
+  args = parser.parse_args()
+
+  if args.enable_cudnn:
+    assert torch.backends.cudnn.is_available()
+    torch.backends.cudnn.enabled = True
+  else:
+    torch.backends.cudnn.enabled = False
+  
+  batch = args.batch
+  number = args.number
+  repeats = args.repeats
   # all in float16
   model = yolo_v1().cuda().half()
-  batch = 1
   dtype = "float16"
   img = np.random.uniform(-1, 1, [batch, 3, 448, 448]).astype(dtype)
   img_tensor = torch.tensor(img).cuda()
   model(img_tensor)
-  number = 100
-  repeats = 10
   torch.cuda.synchronize()
   start = torch.cuda.Event(enable_timing=True)
   end = torch.cuda.Event(enable_timing=True)

@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import argparse
+
 
 def scan_prof(M, N, K, dtype):
   A_np = np.random.uniform(-10, 10, [M, K]).astype("float32")
@@ -43,8 +45,8 @@ def scan_prof(M, N, K, dtype):
   else:
     assert False, "wrong type: " + dtype
 
-  number = 10
-  repeats = 10
+  global RUN_NUMBER
+  number, repeats = RUN_NUMBER
 
   for i in range(repeats):
       time_record = []
@@ -75,15 +77,51 @@ scan_shape = [
   (1024, 1024, 1024)
 ]
 
+example_text = """
+    example:
+        python scan.py --enable_cudnn --number 5 --repeats 5 --begin 0 --num 2 --dtype FP16
+        python scan.py --number 10 --repeats 10 --begin 0 --num 5 --dtype TF32
+"""
+
 if __name__ == "__main__":
-    assert torch.backends.cudnn.is_available()
-    torch.backends.cudnn.enabled = True
-    beg = 0
-    num = len(scan_shape)
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--begin", type=int, choices=list(range(len(scan_shape))), default=0)
+    parser.add_argument(
+        "--num",
+        type=int,
+        choices=list(range(1, len(scan_shape) + 1)),
+        default=len(scan_shape),
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    beg = args.begin
+    num = args.num
+    RUN_NUMBER = (args.number, args.repeats)
+
     print("M, N, K, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
-        costs = []
-        for i, shape in enumerate(scan_shape[beg:beg+num]):
-          (M, N, K) = shape
-          scan_prof(M, N, K, dtype)
+    costs = []
+    for i, shape in enumerate(scan_shape[beg:beg+num]):
+      (M, N, K) = shape
+      scan_prof(M, N, K, args.dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

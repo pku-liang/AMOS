@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import argparse
+
 
 def mean_prof(N, C, H, W, dtype):
   A_np = np.random.uniform(-10, 10, [N, C, H, W]).astype("float32")
@@ -43,8 +45,8 @@ def mean_prof(N, C, H, W, dtype):
   else:
     assert False, "wrong type: " + dtype
 
-  number = 10
-  repeats = 10
+  global RUN_NUMBER
+  number, repeats = RUN_NUMBER
 
   for i in range(repeats):
       time_record = []
@@ -65,6 +67,11 @@ def mean_prof(N, C, H, W, dtype):
   #print("conv2d, dtype = %s, A: %s, B: %s, C:%s" % (dtype, A_torch.dtype, B_torch.dtype, C_torch.dtype))
   print(",".join(map(str, [N, C, H, W, dtype, mean_cost])))
 
+example_text = """
+    example:
+        python variance.py --enable_cudnn --number 5 --repeats 5 --begin 0 --num 11 --dtype FP16
+        python variance.py --number 10 --repeats 10 --begin 0 --num 5 --dtype TF32
+"""
 
 res18_shapes_b1 = [
     # resnet-18
@@ -83,14 +90,45 @@ res18_shapes_b1 = [
 ]
 
 if __name__ == "__main__":
-    assert torch.backends.cudnn.is_available()
-    torch.backends.cudnn.enabled = True
-    beg = 0
-    num = len(res18_shapes_b1)
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--begin", type=int, choices=list(range(len(res18_shapes_b1))), default=0)
+    parser.add_argument(
+        "--num",
+        type=int,
+        choices=list(range(1, len(res18_shapes_b1) + 1)),
+        default=len(res18_shapes_b1),
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    beg = args.begin
+    num = args.num
+
+    RUN_NUMBER = (args.number, args.repeats)
+
     print("N, C, H, W, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
-        costs = []
-        for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
-          (N, C, H, W, _, _, _, _, _, _, _, _, _) = shape
-          mean_prof(N, C, H, W, dtype)
+    costs = []
+    for i, shape in enumerate(res18_shapes_b1[beg:beg+num]):
+      (N, C, H, W, _, _, _, _, _, _, _, _, _) = shape
+      mean_prof(N, C, H, W, args.dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

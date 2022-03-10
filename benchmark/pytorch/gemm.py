@@ -1,4 +1,5 @@
 import torch
+import argparse
 import numpy as np
 
 def gemm(H, W, K, dtype):
@@ -40,8 +41,8 @@ def gemm(H, W, K, dtype):
     A_torch = torch.tensor(A_np).type(torch.float64).cuda()
     B_torch = torch.tensor(B_np).type(torch.float64).cuda()
 
-  number = 10
-  repeats = 10
+  global RUN_NUMBER
+  number, repeats = RUN_NUMBER
 
   for i in range(repeats):
       time_record = []
@@ -65,17 +66,44 @@ def gemm(H, W, K, dtype):
   print("------------------")
 
 
-if __name__ == "__main__":
-  assert torch.backends.cudnn.is_available()
-  torch.backends.cudnn.enabled = True
-  # H, W, K for [H, K] * [K, W]
-  H, W, K = 1024, 1024, 1024
-  gemm(H, W, K, "FP16")
-  # gemm(H, W, K, "BF16") # Only on A100. On V100, this will throw exception
-  gemm(H, W, K, "FP32")
-  gemm(H, W, K, "TF32") # Only on A100
-  # gemm(H, W, K, "INT8") # No support for INT8 gemm
-  # gemm(H, W, K, "BOOL") # No support for BOOL gemm
-  gemm(H, W, K, "FP64") # Only on A100
+example_text = """
+    example:
+        python gemm.py --H 1024 --W 1024 --k 1024 --enable_cudnn --number 5 --repeats 5 --dtype FP16
+        python gemm.py --H 512 --W 512 --k 512 --number 10 --repeats 10 --dtype FP32
+"""
 
-  print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--H", type=int, default=1024)
+    parser.add_argument("--W", type=int, default=1024)
+    parser.add_argument("--K", type=int, default=1024)
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    RUN_NUMBER = (args.number, args.repeats)
+
+    # H, W, K for [H, K] * [K, W]
+    gemm(args.H, args.W, args.K, args.dtype)
+
+    print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

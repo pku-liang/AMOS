@@ -1,6 +1,7 @@
 import inspect
 import math
 from typing import Any, Callable, Dict
+import argparse
 
 import numpy as np
 import torch
@@ -693,11 +694,34 @@ class BertModel(nn.Module):
 
         return pooled_output or sequence_output
 
+example_text = """
+    example:
+        python bert_base.py --batch 16 --enable_cudnn --number 5 --repeats 5
+        python bert_base.py --batch 8 --number 8 --repeats 8
+"""
+
 
 if __name__ == "__main__":
-    print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = True
-    batch = 16
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('--enable_cudnn', action='store_true')
+    parser.add_argument('--number', type=int, default=10)
+    parser.add_argument('--repeats', type=int, default=10)
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+    
+    batch = args.batch
 
     config = BertConfig.from_dict(BERT_BASE_UNCASED_CONFIG)
     model = BertModel(config, add_pooling_layer=False).cuda().half()
@@ -709,8 +733,8 @@ if __name__ == "__main__":
     # warm up
     out = model(embedding_output)
 
-    number = 10
-    repeats = 10
+    number = args.number
+    repeats = args.repeats
     for i in range(repeats):
         time_record = []
         for j in range(number):

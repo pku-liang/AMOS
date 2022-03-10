@@ -129,13 +129,35 @@ class MobileNetV2(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
+example_text = """
+    example:
+        python mobile_v2.py --batch 16--enable_cudnn --number 5 --repeats 5
+        python mobile_v2.py --batch 1 --number 8 --repeats 8
+"""
 
 if __name__ == "__main__":
-    # The following code is used for profiling with dummy data input on CUDA 0
-    print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = True
-    batch_size = 1
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('--enable_cudnn', action='store_true')
+    parser.add_argument('--number', type=int, default=10)
+    parser.add_argument('--repeats', type=int, default=10)
 
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    batch_size = args.batch
+    
+    # The following code is used for profiling with dummy data input on CUDA 0
     model = MobileNetV2().cuda().half()
     model.eval()
 
@@ -144,8 +166,8 @@ if __name__ == "__main__":
     # warm up
     out = model(img_tensor)
 
-    number = 10
-    repeats = 10
+    number = args.number
+    repeats = args.repeats
     for i in range(repeats):
         time_record = []
         for j in range(number):

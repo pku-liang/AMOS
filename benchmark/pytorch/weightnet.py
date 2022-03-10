@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import argparse
 
 class WeightNet(nn.Module):
     # https://github.com/megvii-model/WeightNet/blob/669b5f4c0c46fd30cd0fedf5e5a63161e9e94bcc/weightnet.py
@@ -32,9 +33,31 @@ class WeightNet(nn.Module):
         x = F.conv2d(x, weight=x_w, stride=self.stride, padding=self.pad)
         return x
 
+example_text = """
+    example:
+        python weightnet.py --enable_cudnn --number 10 --repeats 5
+        python weightnet.py --number 10 --repeats 10
+"""
+
 if __name__ == "__main__":
-    print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = True
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('--enable_cudnn', action='store_true')
+    parser.add_argument('--number', type=int, default=10)
+    parser.add_argument('--repeats', type=int, default=10)
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+    
     batch_size = 1 # Only target batch_size = 1
 
     model = WeightNet().cuda().half()
@@ -46,8 +69,8 @@ if __name__ == "__main__":
     # warm up
     out = model(x, x_gap)
 
-    number = 10
-    repeats = 10
+    number = args.number
+    repeats = args.repeats
     for i in range(repeats):
         time_record = []
         for j in range(number):

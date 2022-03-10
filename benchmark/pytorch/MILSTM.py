@@ -92,12 +92,36 @@ class MILSTM(nn.Module):
         out = self.classifier(new_h)
         return out
 
+example_text = """
+    example:
+        python MILSTM.py --batch 16 --enable_cudnn --number 5 --repeats 5 --input_size 512
+        python MILSTM.py --batch 8 --number 8 --repeats 8 --inputsize 256
+"""
+
 
 if __name__ == "__main__":
-    print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = True
-    batch_size = 16
-    input_size = 512
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('--batch', type=int, default=16)
+    parser.add_argument('--enable_cudnn', action='store_true')
+    parser.add_argument('--number', type=int, default=10)
+    parser.add_argument('--repeats', type=int, default=10)
+    parser.add_argument('--input_size', type=int, default=512)
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+    
+    batch_size = args.batch
+    input_size = args.input_size
 
     model = MILSTM(input_size=input_size).cuda().half()
     model.eval()
@@ -107,8 +131,8 @@ if __name__ == "__main__":
     # warm up
     out = model(img_tensor)
 
-    number = 10
-    repeats = 10
+    number = args.number
+    repeats = args.repeats
     for i in range(repeats):
         time_record = []
         for j in range(number):

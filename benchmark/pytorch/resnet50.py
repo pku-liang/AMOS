@@ -5,6 +5,7 @@ copied from pytorch official implementation
 import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
+import argparse
 import numpy as np
 # from torch.cuda.amp import autocast
 
@@ -366,11 +367,34 @@ def wide_resnet101_2(pretrained=False, progress=True, **kwargs):
     return _resnet('wide_resnet101_2', Bottleneck, [3, 4, 23, 3],
                    pretrained, progress, **kwargs)
 
+example_text = """
+    example:
+        python resnet50.py --batch 16 --enable_cudnn --number 5 --repeats 5
+        python resnet50.py --batch 8 --number 8 --repeats 8
+"""
+
 
 if __name__ == "__main__":
-    print(torch.backends.cudnn.is_available())
-    torch.backends.cudnn.enabled = False
-    batch = 16
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('--enable_cudnn', action='store_true')
+    parser.add_argument('--number', type=int, default=10)
+    parser.add_argument('--repeats', type=int, default=10)
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+    
+    batch = args.batch
 
     model = resnet50(pretrained=False, num_classes=1000).cuda().half()
     model.eval()
@@ -380,8 +404,8 @@ if __name__ == "__main__":
     # warm up
     out = model(img_tensor)
 
-    number = 10
-    repeats = 10
+    number = args.number
+    repeats = args.repeats
     for i in range(repeats):
         time_record = []
         for j in range(number):

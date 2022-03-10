@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import argparse
+
 
 def conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, dtype):
   A_np = np.random.uniform(-10, 10, [N, C, D, H, W]).astype("float32")
@@ -42,8 +44,8 @@ def conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dil
   else:
     assert False, "wrong type: " + dtype
 
-  number = 10
-  repeats = 10
+  global RUN_NUMBER
+  number, repeats = RUN_NUMBER
 
   for i in range(repeats):
       time_record = []
@@ -89,20 +91,56 @@ res3d_18_shapes = [
     ( _, 256,  L//8,   7,   7, 512,   3,   3,   3,        1,      1,         1,       1,        1), # layer4 x 3
 ]
 
+example_text = """
+    example:
+        python conv3d.py --batch 16 --enable_cudnn --number 5 --repeats 5 --begin 0 --num 11 --dtype FP16
+        python conv3d.py --batch 8 --number 10 --repeats 10 --begin 0 --num 5 --dtype TF32
+"""
+
 if __name__ == "__main__":
-  assert torch.backends.cudnn.is_available()
-  torch.backends.cudnn.enabled = True
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--batch", type=int, default=1)
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--begin", type=int, choices=list(range(len(res3d_18_shapes))), default=0)
+    parser.add_argument(
+        "--num",
+        type=int,
+        choices=list(range(1, len(res3d_18_shapes) + 1)),
+        default=len(res3d_18_shapes),
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
 
-  batches = [2**i for i in range(1)]
-  beg = 0
-  num = len(res3d_18_shapes)
-  print("N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, type, cost")
-  for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: #"INT8", "BOOL"
-    for batch in batches:
-        costs = []
-        for i, shape in enumerate(res3d_18_shapes[beg:beg+num]):
-            (_, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation) = shape
-            N = batch
-            conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, dtype)
+    args = parser.parse_args()
 
-  print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    batch = args.batch
+    beg = args.begin
+    num = args.num
+
+    RUN_NUMBER = (args.number, args.repeats)
+
+    print("N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, type, cost")
+    costs = []
+    for i, shape in enumerate(res3d_18_shapes[beg:beg+num]):
+        (_, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation) = shape
+        N = batch
+        conv3d(N, C, D, H, W, K, KD, R, S, stride_d, stride, padding_d, padding, dilation, args.dtype)
+
+    print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

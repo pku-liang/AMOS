@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import argparse
 
 def weight_conv(N, I, O, groups, dtype):
   channel_per_group = I // groups
@@ -44,8 +45,8 @@ def weight_conv(N, I, O, groups, dtype):
   else:
     assert False, "wrong type: " + dtype
 
-  number = 10
-  repeats = 10
+  global RUN_NUMBER
+  number, repeats = RUN_NUMBER
 
   for i in range(repeats):
       time_record = []
@@ -84,19 +85,55 @@ shuffle_v2_cfg = [
     (448, 50176, 448),
 ]
 
+example_text = """
+    example:
+        python wcv.py --batch 1024 --enable_cudnn --number 5 --repeats 5 --begin 0 --num 11 --dtype FP16
+        python wcv.py --batch 512 --number 10 --repeats 10 --begin 0 --num 5 --dtype TF32
+"""
 
 if __name__ == "__main__":
-    assert torch.backends.cudnn.is_available()
-    torch.backends.cudnn.enabled = True
-    batches = [1024]
-    beg = 0
-    num = len(shuffle_v2_cfg)
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--batch", type=int, default=1)
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--begin", type=int, choices=list(range(len(shuffle_v2_cfg))), default=0)
+    parser.add_argument(
+        "--num",
+        type=int,
+        choices=list(range(1, len(shuffle_v2_cfg) + 1)),
+        default=len(shuffle_v2_cfg),
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    batch = args.batch
+    beg = args.begin
+    num = args.num
+
+    RUN_NUMBER = (args.number, args.repeats)
+
     print("batch, in_channels, out_channels, groups, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: # "INT8", "BOOL"
-      for batch in batches:
-          costs = []
-          for i, shape in enumerate(shuffle_v2_cfg[beg:beg+num]):
-              (I, O, groups) = shape
-              N = batch
-              weight_conv(N, I, O, groups, dtype)
+    costs = []
+    for i, shape in enumerate(shuffle_v2_cfg[beg:beg+num]):
+        (I, O, groups) = shape
+        N = batch
+        weight_conv(N, I, O, groups, args.dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))

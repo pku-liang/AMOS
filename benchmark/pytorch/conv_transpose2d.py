@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import argparse
 
 def conv_transpose2d(H, W, N, C, K, kernel_size, stride, padding, dtype):
   A_np = np.random.uniform(-10, 10, [N, K, H, W]).astype("float32")
@@ -42,8 +43,8 @@ def conv_transpose2d(H, W, N, C, K, kernel_size, stride, padding, dtype):
   else:
     assert False, "wrong type: " + dtype
 
-  number = 10
-  repeats = 10
+  global RUN_NUMBER
+  number, repeats = RUN_NUMBER
 
   for i in range(repeats):
       time_record = []
@@ -85,19 +86,55 @@ transpose2d_config = [
     ( _, 256,   7,   7, 512,           3,      1,       1,        1), # layer4 x 3
 ]
 
+example_text = """
+    example:
+        python conv_transpose2d.py --batch 16 --enable_cudnn --number 5 --repeats 5 --begin 0 --num 10 --dtype FP16
+        python conv_transpose2d.py --batch 8 --number 10 --repeats 10 --begin 0 --num 5 --dtype TF32
+"""
+
 if __name__ == "__main__":
-    assert torch.backends.cudnn.is_available()
-    torch.backends.cudnn.enabled = True
-    batches = [2**i for i in range(1)]
-    beg = 0
-    print("N, C, H, W, K, R, S, stride, padding, type, cost")
-    for dtype in ["FP16", "FP32", "TF32", "FP64", "BF16"]: #"INT8", "BOOL", 
-      for batch in batches:
-        costs = []
-        for i, shape in enumerate(transpose2d_config):
-            (  N,   C,   H,   W,   K, kernel_size, stride, padding, dilation) = shape
-            iH = (H + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
-            iW = (W + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
-            N = batch
-            conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, dtype)
+    parser = argparse.ArgumentParser(
+        prog="base_maker",
+        description="template maker",
+        epilog=example_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--batch", type=int, default=1)
+    parser.add_argument("--enable_cudnn", action="store_true")
+    parser.add_argument("--number", type=int, default=10)
+    parser.add_argument("--repeats", type=int, default=10)
+    parser.add_argument("--begin", type=int, choices=list(range(len(transpose2d_config))), default=0)
+    parser.add_argument(
+        "--num",
+        type=int,
+        choices=list(range(1, len(transpose2d_config) + 1)),
+        default=len(transpose2d_config),
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["FP16", "FP32", "TF32", "FP64", "BF16", "INT8", "BOOL"],
+        default="FP16",
+    )
+
+    args = parser.parse_args()
+
+    if args.enable_cudnn:
+        assert torch.backends.cudnn.is_available()
+        torch.backends.cudnn.enabled = True
+    else:
+        torch.backends.cudnn.enabled = False
+
+    batch = args.batch
+    beg = args.begin
+    num = args.num
+    RUN_NUMBER = (args.number, args.repeats)
+    
+    costs = []
+    for i, shape in enumerate(transpose2d_config[beg : beg + num]):
+        (  N,   C,   H,   W,   K, kernel_size, stride, padding, dilation) = shape
+        iH = (H + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
+        iW = (W + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
+        N = batch
+        conv_transpose2d(iH, iW, N, C, K, kernel_size, stride, padding, args.dtype)
     print("cudnn: %s" % ("enabled" if torch.backends.cudnn.enabled else "disabled"))
