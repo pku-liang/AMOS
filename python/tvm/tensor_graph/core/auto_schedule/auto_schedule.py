@@ -1150,11 +1150,12 @@ class AutoTensorizeContextV3(object):
                         best_mapping = record_key
                         best_params = params
                         best_cost = 1 / entry.value
-        with open(best_file, "w") as fout:
-            obj = {"mapping": best_mapping,
-                   "params": best_params.to_json(), "cost": best_cost}
-            string = json.dumps(obj)
-            fout.write(string)
+        if best_sch is not None:
+            with open(best_file, "w") as fout:
+                obj = {"mapping": best_mapping,
+                    "params": best_params.to_json(), "cost": best_cost}
+                string = json.dumps(obj)
+                fout.write(string)
         return best_sch, best_args, best_cost
 
     def get_measure_opt(self):
