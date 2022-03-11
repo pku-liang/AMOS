@@ -478,7 +478,17 @@ We implement it mainly in `python/tvm/auto_tensorize/tensorization_phases/intrin
 
 
 ### 3. Mapping exploration
-to be written.
+For every possible software-hardware mapping, we first generate corresponding schedules with random parameters, then validate them by our validation checker. We then use two steps to find the optimal mapping and its schedule parameters, coarse-grained and fine-grained, respectively.
+
+First, each valid mapping and its schedules are estimated by our performance model to find top-K parameter options. Second, we profile these parameters according to the estimated results to find the best one. This process is repeated thousands of times to find the best mapping.
+
+Users can turn on the estimation step by setting `enable_perf_model=True`, and select the percentage of the chosen parameters by configuring `perf_percentage`.
+
+Users who want to explore mappings only through performance model estimation can set `target='tenet'+'real target' `, e.g. `tenet cuda`.
+
+We implement the exploration process mainly in `python/tvm/auto_tensorize/search/parameter.py` and `python/tvm/auto_tensorize/search/measure.py`. 
+
+The schedule generators and appliers for different target platforms are implemented in `python/tvm/auto_tensorize/tensorization_phases/schedulers/*`, and the performance model is implemented in `python/tvm/auto_tensorize/backend/*` .
 
 
 
