@@ -25,10 +25,24 @@ from ..backend import tenet
 
 class MeasureOptions(object):
     def __init__(
-        self, target="llvm", build_func="default", target_host="llvm", timeout=10,
-            verbose=1, number=100, repeat=1, min_repeat_ms=150,
-            cooldown_interval=0, enable_cpu_cache_flush=1,
-            dev_id=0, use_rpc=False, key=None, host=None, port=None, priority=1):
+        self,
+        target="llvm",
+        build_func="default",
+        target_host="llvm",
+        timeout=10,
+        verbose=1,
+        number=100,
+        repeat=1,
+        min_repeat_ms=150,
+        cooldown_interval=0,
+        enable_cpu_cache_flush=1,
+        dev_id=0,
+        use_rpc=False,
+        key=None,
+        host=None,
+        port=None,
+        priority=1,
+    ):
         self.target = target
         self.build_func = build_func
         self.target_host = target_host
@@ -65,8 +79,7 @@ def get_np_arrays(tensors):
         if str(dtype) == "bfloat16":
             # For now, just simply use float16
             dtype = "float16"
-        np_ary = np.random.uniform(-1, 1, [int(x)
-                                           for x in t.shape]).astype(dtype)
+        np_ary = np.random.uniform(-1, 1, [int(x) for x in t.shape]).astype(dtype)
         ret.append(np_ary)
     return ret
 
@@ -89,8 +102,7 @@ def get_tvm_arrays(tensors, ctx):
         if str(dtype) in ["int4", "int1"]:
             tvm_ary = tvm.nd.empty([int(x) for x in t.shape], dtype, ctx)
         else:
-            np_ary = np.random.uniform(-1, 1, [int(x)
-                                               for x in t.shape]).astype(dtype)
+            np_ary = np.random.uniform(-1, 1, [int(x) for x in t.shape]).astype(dtype)
             tvm_ary = tvm.nd.array(np_ary, ctx)
         ret.append(tvm_ary)
     return ret
@@ -99,21 +111,17 @@ def get_tvm_arrays(tensors, ctx):
 def evaluate_graph_worker(dummy):
     global GRAPH_EVALUATE_INPUTS
     multi_graph, sch_tensors, target, dev_id, number = GRAPH_EVALUATE_INPUTS
-    results = tg.runtime.evaluate_graph(
-        multi_graph, sch_tensors, target, dev_id, number)
+    results = tg.runtime.evaluate_graph(multi_graph, sch_tensors, target, dev_id, number)
     return np.mean([float(x.value) for x in results])
 
 
-def evaluate_graph(
-        multi_graph, sch_tensors, target, dev_id, number=10, new_process=False):
+def evaluate_graph(multi_graph, sch_tensors, target, dev_id, number=10, new_process=False):
     if not new_process:
-        results = tg.runtime.evaluate_graph(
-            multi_graph, sch_tensors, target, dev_id, number)
+        results = tg.runtime.evaluate_graph(multi_graph, sch_tensors, target, dev_id, number)
         return np.mean([float(x.value) for x in results])
     else:
         global GRAPH_EVALUATE_INPUTS
-        GRAPH_EVALUATE_INPUTS = (
-            multi_graph, sch_tensors, target, dev_id, number)
+        GRAPH_EVALUATE_INPUTS = (multi_graph, sch_tensors, target, dev_id, number)
         with ProcessPool(1) as pool:
             future = pool.map(evaluate_graph_worker, [0], timeout=100)
             iterator = future.result()
@@ -157,7 +165,8 @@ def evaluate_schedule_worker(dummy):
         remote.upload(lib_file)
         func = remote.load_module(os.path.split(lib_file)[-1])
     evaluator = func.time_evaluator(
-        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
+        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms
+    )
     ctx.sync()
     cost = evaluator(*arrays).mean * 1e3
     return cost
@@ -177,12 +186,12 @@ def evaluate_schedule(sch, args, measure_opt, new_process=False):
             port = measure_opt.port
             priority = measure_opt.priority
             timeout = measure_opt.timeout
-            remote = auto_scheduler.utils.request_remote(
-                key, host, port, priority, timeout)
+            remote = auto_scheduler.utils.request_remote(key, host, port, priority, timeout)
         ctx = (remote if use_rpc else tvm).context(target, dev_id)
         arrays = get_tvm_arrays(args, ctx)
-        func = tvm.build(sch, args, target=target,
-                         target_host=measure_opt.target_host if use_rpc else None)
+        func = tvm.build(
+            sch, args, target=target, target_host=measure_opt.target_host if use_rpc else None
+        )
         if use_rpc:
             fd, lib = tempfile.mkstemp(prefix="tmp_func", suffix=".so")
             os.close(fd)
@@ -191,7 +200,8 @@ def evaluate_schedule(sch, args, measure_opt, new_process=False):
             func = remote.load_module(os.path.split(lib)[-1])
             os.unlink(lib)
         evaluator = func.time_evaluator(
-            func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
+            func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms
+        )
         ctx.sync()
         cost = evaluator(*arrays).mean * 1e3
         return cost
@@ -244,7 +254,8 @@ def evaluate_schedules_worker(idx):
         remote.upload(lib_file)
         func = remote.load_module(os.path.split(lib_file)[-1])
     evaluator = func.time_evaluator(
-        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms)
+        func.entry_name, ctx, number=number, min_repeat_ms=min_repeat_ms
+    )
     ctx.sync()
     cost = evaluator(*arrays).mean * 1e3
     return cost
@@ -254,8 +265,7 @@ def evaluate_schedules(schs, args_lst, measure_opt):
     global EVALUTE_SCHEDULES_INPUTS
     EVALUTE_SCHEDULES_INPUTS = (schs, args_lst, measure_opt)
     with ProcessPool(1) as pool:
-        future = pool.map(evaluate_schedules_worker,
-                          range(len(schs)), timeout=100)
+        future = pool.map(evaluate_schedules_worker, range(len(schs)), timeout=100)
         iterator = future.result()
         results = []
         while True:
@@ -290,8 +300,11 @@ def evaluate_params_worker(dump):
             print(tvm.lower(sch, args, simple_mode=True), flush=True)
         if str(measure_opt.target).startswith("tenet"):
             func = tenet.build(
-                sch, args, schedule_app.tenet_ctx,
-                target=measure_opt.target, target_host=measure_opt.target_host
+                sch,
+                args,
+                schedule_app.tenet_ctx,
+                target=measure_opt.target,
+                target_host=measure_opt.target_host,
             )
             cost = tenet.evaluate_func(func)[0]
         else:
@@ -319,11 +332,11 @@ def evaluate_params(schedule_app, params, measure_opt, timeout=100, dump=False):
                 print("Evaluate Timeout.", flush=True)
                 results = MAX_FLOAT
             except Exception as error:
-                print("Evaluate Fatal Error\n",
-                      auto_scheduler.measure.make_error_msg(), flush=True)
+                print("Evaluate Fatal Error\n", auto_scheduler.measure.make_error_msg(), flush=True)
                 results = MAX_FLOAT
 
     return results
+
 
 # this is similar to auto_scheduler
 # we modify existing measure functions to adapt to auto_tensorize
@@ -364,7 +377,7 @@ def pebble_local_build_worker(index):
         timeout,
         verbose,
         checker,
-        enable_perf_model
+        enable_perf_model,
     ) = GLOBAL_BUILD_INPUTS
     assert isinstance(build_func, str)
 
@@ -398,13 +411,10 @@ def pebble_local_build_worker(index):
         if error_no == 0:
             dirname = tempfile.mkdtemp()
             if str(target).startswith("tenet"):
-                filename = os.path.join(
-                    dirname, "tmp_func.tenet")
+                filename = os.path.join(dirname, "tmp_func.tenet")
 
                 func = tenet.build(
-                    sch, args, sch_app.tenet_ctx,
-                    target=target, target_host=target_host,
-                    name=name
+                    sch, args, sch_app.tenet_ctx, target=target, target_host=target_host, name=name
                 )
 
                 func.save(filename)
@@ -412,45 +422,43 @@ def pebble_local_build_worker(index):
                 parts = str(target).split(" ")
                 assert len(parts) > 1
                 if parts[1] == "cuda":
-                    cuda_filename = os.path.join(
-                        dirname, "tmp_func." + build_func.output_format)
+                    cuda_filename = os.path.join(dirname, "tmp_func." + build_func.output_format)
 
                     try:
                         # TODO(merrymercy): Port the unroll pass.
                         with transform.PassContext():
                             func = build_module.build(
-                                sch, args, target="cuda", target_host=target_host,
-                                name=name
+                                sch, args, target="cuda", target_host=target_host, name=name
                             )
                         func.export_library(cuda_filename, build_func)
                     # pylint: disable=broad-except
                     except Exception:
                         error_no = auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
                         error_msg = auto_scheduler.measure.make_error_msg()
-                
+
                     filename = "-***-".join([filename, cuda_filename])
             else:
                 if enable_perf_model:
-                    filename = os.path.join(
-                        dirname, "tmp_func.tenet")
+                    filename = os.path.join(dirname, "tmp_func.tenet")
 
                     func = tenet.build(
-                        sch, args, sch_app.tenet_ctx,
-                        target=target, target_host=target_host,
-                        name=name
+                        sch,
+                        args,
+                        sch_app.tenet_ctx,
+                        target=target,
+                        target_host=target_host,
+                        name=name,
                     )
 
                     func.save(filename)
                 else:
-                    filename = os.path.join(
-                        dirname, "tmp_func." + build_func.output_format)
+                    filename = os.path.join(dirname, "tmp_func." + build_func.output_format)
 
                     try:
                         # TODO(merrymercy): Port the unroll pass.
                         with transform.PassContext():
                             func = build_module.build(
-                                sch, args, target=target, target_host=target_host,
-                                name=name
+                                sch, args, target=target, target_host=target_host, name=name
                             )
                         func.export_library(filename, build_func)
                     # pylint: disable=broad-except
@@ -472,7 +480,8 @@ def pebble_local_build_worker(index):
 
 
 def pebble_local_builder_build(
-        sch_app, params_lst, measure_opt, checker, n_parallel=1, name="main", enable_perf_model=False):
+    sch_app, params_lst, measure_opt, checker, n_parallel=1, name="main", enable_perf_model=False
+):
     """
     Build function of LocalBuilder to build the MeasureInputs to runnable modules.
 
@@ -505,12 +514,20 @@ def pebble_local_builder_build(
     global GLOBAL_BUILD_INPUTS
 
     GLOBAL_BUILD_INPUTS = (
-        sch_app, params_lst, build_func, name,
-        target, target_host, timeout, verbose, checker, enable_perf_model)
+        sch_app,
+        params_lst,
+        build_func,
+        name,
+        target,
+        target_host,
+        timeout,
+        verbose,
+        checker,
+        enable_perf_model,
+    )
 
     with ProcessPool(n_parallel) as pool:
-        future = pool.map(pebble_local_build_worker, range(
-            len(params_lst)), timeout=timeout)
+        future = pool.map(pebble_local_build_worker, range(len(params_lst)), timeout=timeout)
         iterator = future.result()
 
         results = []
@@ -522,7 +539,13 @@ def pebble_local_builder_build(
             except TimeoutError as error:
                 if verbose >= 1:
                     print(".T", end="", flush=True)
-                result = None, [], auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT, None, timeout
+                result = (
+                    None,
+                    [],
+                    auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT,
+                    None,
+                    timeout,
+                )
             except Exception as error:
                 if verbose >= 1:
                     print(".F", end="", flush=True)
@@ -601,10 +624,10 @@ def pebble_local_run_worker(index):
                         # f_preproc=f_prepare,
                     )
                     args = [
-                        ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                        ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx)
+                        for x in build_res.args
                     ]
-                    random_fill = tvm.get_global_func(
-                        "tvm.contrib.random.random_fill", True)
+                    random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
                     assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
                     for arg in args:
                         if str(arg.dtype) in ["int4"]:
@@ -636,8 +659,8 @@ def pebble_local_run_worker(index):
                     costs = (MAX_FLOAT,)
                     error_no = auto_scheduler.measure.MeasureErrorNo.RUNTIME_DEVICE
                     error_msg = auto_scheduler.measure.make_error_msg()
-                    if verbose:
-                        print("\n",error_msg)
+                    # if verbose:
+                    #     print("\n",error_msg)
             else:
                 try:
                     func = module.load_module(build_res.filename)
@@ -666,10 +689,12 @@ def pebble_local_run_worker(index):
                 if error_no == 0:
                     try:
                         args = [
-                            ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                            ndarray.empty(
+                                auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx
+                            )
+                            for x in build_res.args
                         ]
-                        random_fill = tvm.get_global_func(
-                            "tvm.contrib.random.random_fill", True)
+                        random_fill = tvm.get_global_func("tvm.contrib.random.random_fill", True)
                         assert random_fill, "Please make sure USE_RANDOM is ON in the config.cmake"
                         for arg in args:
                             if str(arg.dtype) in ["int4"]:
@@ -699,7 +724,9 @@ def pebble_local_run_worker(index):
     return timed_func(build_results[index])
 
 
-def pebble_local_runner_run(build_results, measure_opt, name="main", n_parallel=1, enable_perf_model=False):
+def pebble_local_runner_run(
+    build_results, measure_opt, name="main", n_parallel=1, enable_perf_model=False
+):
     target = measure_opt.target
     dev_id = measure_opt.dev_id
     timeout = measure_opt.timeout
@@ -726,8 +753,7 @@ def pebble_local_runner_run(build_results, measure_opt, name="main", n_parallel=
     )
     measure_results = []
     with ProcessPool(n_parallel) as pool:
-        future = pool.map(pebble_local_run_worker, range(
-            len(build_results)), timeout=timeout)
+        future = pool.map(pebble_local_run_worker, range(len(build_results)), timeout=timeout)
         iterator = future.result()
 
         while True:
@@ -756,8 +782,7 @@ def pebble_local_runner_run(build_results, measure_opt, name="main", n_parallel=
                     timeout + timeout,
                     time.time(),
                 )
-            measure_results.append(
-                auto_scheduler.measure.MeasureResult(*result))
+            measure_results.append(auto_scheduler.measure.MeasureResult(*result))
 
     if verbose >= 1:
         print("", flush=True)
@@ -815,8 +840,7 @@ def pebble_rpc_run_worker(index):
         error_msg = None
         try:
             # upload built module
-            remote = auto_scheduler.utils.request_remote(
-                key, host, port, priority, timeout)
+            remote = auto_scheduler.utils.request_remote(key, host, port, priority, timeout)
             remote.upload(build_res.filename)
             func = remote.load_module(os.path.split(build_res.filename)[1])
             ctx = remote.context(str(target), dev_id)
@@ -843,7 +867,8 @@ def pebble_rpc_run_worker(index):
         if error_no == 0:
             try:
                 args = [
-                    ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx) for x in build_res.args
+                    ndarray.empty(auto_scheduler.utils.get_const_tuple(x.shape), x.dtype, ctx)
+                    for x in build_res.args
                 ]
                 # try:
                 #     random_fill = remote.get_function("tvm.contrib.random.random_fill")
@@ -920,8 +945,7 @@ def pebble_rpc_runner_run(build_results, measure_opt, name="main"):
 
     measure_results = []
     with ProcessPool(1) as pool:
-        future = pool.map(pebble_rpc_run_worker, range(
-            len(build_results)), timeout=timeout)
+        future = pool.map(pebble_rpc_run_worker, range(len(build_results)), timeout=timeout)
         iterator = future.result()
 
         while True:
@@ -949,8 +973,7 @@ def pebble_rpc_runner_run(build_results, measure_opt, name="main"):
                     timeout + timeout,
                     time.time(),
                 )
-            measure_results.append(
-                auto_scheduler.measure.MeasureResult(*result))
+            measure_results.append(auto_scheduler.measure.MeasureResult(*result))
 
     if verbose >= 1:
         print("", flush=True)
@@ -965,15 +988,7 @@ def tg_parallel_build_worker(name):
     # This can avoid expensive serialization of TVM IR when using multiprocessing.Pool
     if not GLOBAL_BUILD_INPUTS:
         raise ValueError("GLOBAL_BUILD_INPUTS not found")
-    (
-        sch_app,
-        params_lst,
-        build_func,
-        target,
-        target_host,
-        verbose,
-        checker
-    ) = GLOBAL_BUILD_INPUTS
+    (sch_app, params_lst, build_func, target, target_host, verbose, checker) = GLOBAL_BUILD_INPUTS
     assert isinstance(build_func, str)
 
     if build_func == "default":
@@ -1004,16 +1019,14 @@ def tg_parallel_build_worker(name):
             err_nos.append(auto_scheduler.measure.MeasureErrorNo.NO_ERROR)
             err_msgs.append(None)
         except Exception:
-            err_nos.append(
-                auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR)
+            err_nos.append(auto_scheduler.measure.MeasureErrorNo.INSTANTIATION_ERROR)
             err_msgs.append(auto_scheduler.measure.make_error_msg())
         filenames.append("")
 
     if schs:
         mod_err_nos = []
         mod_err_msgs = []
-        mods = tg.parallel_build(
-            schs, args, target=target, target_host=target_host, name=name)
+        mods = tg.parallel_build(schs, args, target=target, target_host=target_host, name=name)
         p_mod = 0
         for i, err in enumerate(err_nos):
             if err == auto_scheduler.measure.MeasureErrorNo.NO_ERROR:
@@ -1024,20 +1037,15 @@ def tg_parallel_build_worker(name):
                 if mod is None:
                     if verbose >= 1:
                         print(".E", end="", flush=True)
-                    mod_err_nos.append(
-                        auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST
-                    )
-                    mod_err_msgs.append(
-                        "Build error in tg.parallel_build"
-                    )
+                    mod_err_nos.append(auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST)
+                    mod_err_msgs.append("Build error in tg.parallel_build")
                 else:
                     if verbose >= 1:
                         print(".Y", end="", flush=True)
                     mod_err_nos.append(err)
                     mod_err_msgs.append(err_msgs[i])
                     dirname = tempfile.mkdtemp()
-                    filename = os.path.join(
-                        dirname, "tmp_func." + build_func.output_format)
+                    filename = os.path.join(dirname, "tmp_func." + build_func.output_format)
                     filenames[i] = filename
                     mod.export_library(filename, build_func)
             else:
@@ -1050,19 +1058,14 @@ def tg_parallel_build_worker(name):
 
     toc = time.time()
     for no, msg, filename in zip(err_nos, err_msgs, filenames):
-        rets.append(
-            (
-                filename, args, no, msg, toc - tic
-            )
-        )
+        rets.append((filename, args, no, msg, toc - tic))
 
     if verbose >= 1:
         print("", flush=True)
     return rets
 
 
-def tg_parallel_builder_build(
-        sch_app, params_lst, measure_opt, checker, name="main"):
+def tg_parallel_builder_build(sch_app, params_lst, measure_opt, checker, name="main"):
     target = measure_opt.target
     target_host = measure_opt.target_host
     build_func = measure_opt.build_func
@@ -1070,15 +1073,7 @@ def tg_parallel_builder_build(
     verbose = measure_opt.verbose
     global GLOBAL_BUILD_INPUTS
 
-    GLOBAL_BUILD_INPUTS = (
-        sch_app,
-        params_lst,
-        build_func,
-        target,
-        target_host,
-        verbose,
-        checker
-    )
+    GLOBAL_BUILD_INPUTS = (sch_app, params_lst, build_func, target, target_host, verbose, checker)
 
     with ProcessPool(1) as pool:
         future = pool.map(tg_parallel_build_worker, [name], timeout=timeout)
@@ -1093,17 +1088,18 @@ def tg_parallel_builder_build(
                 if verbose >= 1:
                     print("Build Timeout.", flush=True)
                 results = [
-                    (None, [],
-                     auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT,
-                     None, timeout) for i in range(len(params_lst))]
+                    (None, [], auto_scheduler.measure.MeasureErrorNo.BUILD_TIMEOUT, None, timeout)
+                    for i in range(len(params_lst))
+                ]
             except Exception as error:
                 if verbose >= 1:
-                    print("Build Fatal Error\n",
-                          auto_scheduler.measure.make_error_msg(), flush=True)
+                    print(
+                        "Build Fatal Error\n", auto_scheduler.measure.make_error_msg(), flush=True
+                    )
                 results = [
-                    (None, [],
-                     auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST,
-                     None, timeout) for i in range(len(params_lst))]
+                    (None, [], auto_scheduler.measure.MeasureErrorNo.COMPILE_HOST, None, timeout)
+                    for i in range(len(params_lst))
+                ]
 
         results = [auto_scheduler.measure.BuildResult(*x) for x in results]
 

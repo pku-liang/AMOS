@@ -603,8 +603,7 @@ def find_optimized_parameters_v3(
                     params_lst_perf.append(params)
             assert params_lst_perf
 
-            if verbose:
-                print("performance model estimation...", flush=True)
+            print("performance model estimation...", flush=True)
             build_results_perf = builder(
                 schedule_app,
                 params_lst_perf,
@@ -631,20 +630,19 @@ def find_optimized_parameters_v3(
 
             for value in params_value_lst:
                 print(value[1])
-            if verbose:
-                print("profiling...", flush=True)
+            print("profiling...", flush=True)
             build_results = builder(
                 schedule_app, params_lst, measure_opt, checker, n_parallel=build_parallel
             )
             run_results = runner(build_results, measure_opt, n_parallel=run_parallel)
 
             max_value = 1 / MAX_FLOAT
-            for params, res in zip(params_lst, run_results):
+            for i, (params, res) in enumerate(zip(params_lst, run_results)):
                 if verbose:
                     print(res)
                 # use absolute performance
                 value = 1 / np.mean([x.value for x in res.costs])
-                print("###",value)
+                print("No.", i + 1, "execution time", 1 / value)
                 max_value = max(max_value, value)
                 if value > 1 / MAX_FLOAT:  # valid results
                     schedule_gen.feedback(params, value)

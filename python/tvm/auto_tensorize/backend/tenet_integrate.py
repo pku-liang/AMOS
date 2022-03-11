@@ -53,13 +53,21 @@ class TenetContext(object):
         self.memory_scopes[level] = scope
 
     def __repr__(self):
-        levels = "\n".join([f"level_{i}:" + str({
-            'space': self.space_time_loops[i][0],
-            'time': self.space_time_loops[i][1],
-            'memory': self.memory_scopes[i]
-        }) for i in range(self.level)])
+        levels = "\n".join(
+            [
+                f"level_{i}:"
+                + str(
+                    {
+                        "space": self.space_time_loops[i][0],
+                        "time": self.space_time_loops[i][1],
+                        "memory": self.memory_scopes[i],
+                    }
+                )
+                for i in range(self.level)
+            ]
+        )
         return str(levels)
-    
+
     def __str__(self):
         return self.__repr__()
 
@@ -71,9 +79,11 @@ class TenetFunc(object):
         self.target = target
 
     def save(self, filename):
-        obj = {"memory_size": self.memory_size,
-               "space_time_loops": self.space_time_loops,
-               "target": self.target}
+        obj = {
+            "memory_size": self.memory_size,
+            "space_time_loops": self.space_time_loops,
+            "target": self.target,
+        }
         with open(filename, "w") as fout:
             fout.write(json.dumps(obj))
 
@@ -86,11 +96,11 @@ def get_buffer_size(scope, stmt):
     return _ffi_api.get_buffer_size(scope, stmt)
 
 
-def build(sch, args, ctx, target="tenet gemm",
-            target_host="llvm", name="main"):
+def build(sch, args, ctx, target="tenet gemm", target_host="llvm", name="main"):
     ir_module = tvm.lower(sch, args, simple_mode=True)
     # print(ir_module)
     from tvm.te import schedule
+
     sch = sch.normalize()
     bounds = schedule.InferBound(sch)
     # calculate memory size
@@ -108,7 +118,7 @@ def build(sch, args, ctx, target="tenet gemm",
         tt = [bounds[x].extent.value for x in t]
         space_time_loops.append([ss, tt])
     # print(space_time_loops)
-    
+
     return TenetFunc(memory_size, space_time_loops, target)
 
 
@@ -120,7 +130,7 @@ def load_func(filename):
 
 
 def evaluate_tenet_accelerator(target):
-    if str(target).startswith('tenet'):
+    if str(target).startswith("tenet"):
         _, arch = target.split(" ")
     else:
         arch = target
@@ -129,7 +139,7 @@ def evaluate_tenet_accelerator(target):
 
 
 def get_memory_bandwidth(target, memory_scope):
-    if str(target).startswith('tenet'):
+    if str(target).startswith("tenet"):
         _, arch = target.split(" ")
     else:
         arch = target
@@ -138,7 +148,7 @@ def get_memory_bandwidth(target, memory_scope):
 
 
 def get_maximum_parallelism(target, level):
-    if str(target).startswith('tenet'):
+    if str(target).startswith("tenet"):
         _, arch = target.split(" ")
     else:
         arch = target
@@ -147,7 +157,7 @@ def get_maximum_parallelism(target, level):
 
 
 def get_maximum_memory(target, memory_scope):
-    if str(target).startswith('tenet'):
+    if str(target).startswith("tenet"):
         _, arch = target.split(" ")
     else:
         arch = target
@@ -155,31 +165,38 @@ def get_maximum_memory(target, memory_scope):
     return t.memory_size(memory_scope)
 
 
-def evaluate_func(func, verbose=False):
+def evaluate_func(func, verbose=0):
     memory_latency_vector = []
     compute_latency_vector = []
-    for l, ([s, t], [scope, m]) in enumerate(reversed(list(zip(func.space_time_loops, func.memory_size)))):
+    for l, ([s, t], [scope, m]) in enumerate(
+        reversed(list(zip(func.space_time_loops, func.memory_size)))
+    ):
         bandwidth = get_memory_bandwidth(func.target, scope)
         parallelism = get_maximum_parallelism(func.target, l)
         capacity = get_maximum_memory(func.target, scope)
         if m > capacity:
-            raise RuntimeError(f"Memory exceed limit {scope}: need({m/(2**10)}K), given({capacity/(2**10)}K)")
+            raise RuntimeError(
+                f"Memory exceed limit {scope}: need({m/(2**10)}K), given({capacity/(2**10)}K)"
+            )
         memory_latency_vector.append(m / bandwidth)
         space_iterations = reduce(lambda x, y: x * y, s, 1)
         time_iterations = reduce(lambda x, y: x * y, t, 1)
         real_time_iterations = time_iterations * (space_iterations + parallelism - 1) // parallelism
         if l == 0:
-            compute_latency_vector.append(real_time_iterations * evaluate_tenet_accelerator(func.target))
+            compute_latency_vector.append(
+                real_time_iterations * evaluate_tenet_accelerator(func.target)
+            )
         else:
             compute_latency_vector.append(
-                (real_time_iterations-1) *
-                max(memory_latency_vector[l-1], compute_latency_vector[l-1])
-                + (memory_latency_vector[l-1] + compute_latency_vector[l-1]))
-    if verbose:
+                (real_time_iterations - 1)
+                * max(memory_latency_vector[l - 1], compute_latency_vector[l - 1])
+                + (memory_latency_vector[l - 1] + compute_latency_vector[l - 1])
+            )
+    if verbose >= 2:
         print("\nShow details:", flush=True)
         print("context:", flush=True)
         print("space_time_loops:", func.space_time_loops, flush=True)
         print("memory_size:", func.memory_size, flush=True)
         for l, (c, m) in enumerate(zip(compute_latency_vector, memory_latency_vector)):
             print(f"Level {l}: compute {c/1e9} (G)cycles, memory {m/1e9} (G)cycles", flush=True)
-    return (compute_latency_vector[-1]/1e9,)  # G cycle
+    return (compute_latency_vector[-1] / 1e9,)  # G cycle
