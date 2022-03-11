@@ -8,11 +8,6 @@ def conv2d_cuda(N, C, H, W, K, R, S, stride, padding, dilation, dtype):
     A_np = np.random.uniform(-10, 10, [N, C, H, W]).astype("float32")
     B_np = np.random.uniform(-10, 10, [K, C, R, S]).astype("float32")
 
-    # What's supported by NVIDIA? Refer to https://docs.nvidia.com/cuda/ampere-tuning-guide/index.html
-
-    # What's supported by pytorch? I don't know
-    # Please sudo nvprof them!
-
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
 
