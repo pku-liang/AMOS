@@ -120,6 +120,8 @@ def mapping_tensorcore(
     simple_mode=True,
     trials=-1,
     verbose=False,
+    use_perf_model=False,
+    perf_model_ratio=0.6,
 ):
     A, B, Conv = transposed_conv2d(
         N, C, H, W, K, kernel_size, stride, padding, output_padding, dilation, in_dtype, out_dtype
@@ -168,6 +170,8 @@ def mapping_tensorcore(
             search_group_size=5,
             transform_dump=verbose,
             transform_strict=False,
+            enable_perf_model=use_perf_model,
+            perf_percentage=perf_model_ratio,
         )
         if not result.defined():
             print("Can't do tensorize.")
@@ -248,8 +252,13 @@ if __name__ == "__main__":
     parser.add_argument("--simple_mode", type=int, default=1, choices=[0, 1])
     parser.add_argument("--trials", type=int, default=-1)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--use_perf_model", action="store_true")
+    parser.add_argument("--perf_model_ratio", type=float, default=0.6)
 
     args = parser.parse_args()
+    assert 0 < args.perf_model_ratio <= 1.0
+    if args.use_perf_model:
+        assert args.simple_mode == 0, "Performance model is only supported without simple_mode"
     batches = [args.batch]
     beg = args.begin
     num = args.num
@@ -286,6 +295,8 @@ if __name__ == "__main__":
                     simple_mode=args.simple_mode,
                     trials=args.trials,
                     verbose=args.verbose,
+                    use_perf_model=args.use_perf_model,
+                    perf_model_ratio=args.perf_model_ratio,
                 )
                 costs.append(cost)
             except Exception as e:
