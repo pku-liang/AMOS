@@ -506,7 +506,7 @@ def auto_tensorize_v3(
                 flush=True,
             )
 
-        record_key = record.as_key()
+        record_key = record.as_tuple()
         if record_key in schedule_context_cache:
             sch_ctx = schedule_context_cache[record_key]
         else:

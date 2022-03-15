@@ -235,6 +235,9 @@ class Record(object):
 
     def as_key(self):
         return "(" + ",".join(map(str, self.vmap_choice[0])) + ")"
+    
+    def as_tuple(self):
+        return tuple(self.vmap_choice[0])
 
     def __str__(self):
         return json.dumps(self.to_json())
