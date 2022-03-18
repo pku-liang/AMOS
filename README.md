@@ -1,7 +1,8 @@
 # AMOS: Enabling Automatic Mapping for Tensor Computations On Spatial Accelerators with Hardware Abstraction
 
 
-[**Install**](#install) | [**Tutorials**](#tutorials) | [**Dive into the code**](#dive-into-the-code) | [**Documentations**](#documentations)
+[**Install**](#install) | [**Tutorials**](#tutorials) | [**Dive into the code**](#dive-into-the-code) | 
+[**Benchmark**](#benchmark) | [**Documentations**](#documentations)
 
 
 ## What is AMOS
@@ -490,7 +491,16 @@ We implement the exploration process mainly in `python/tvm/auto_tensorize/search
 
 The schedule generators and appliers for different target platforms are implemented in `python/tvm/auto_tensorize/tensorization_phases/schedulers/*`, and the performance model is implemented in `python/tvm/auto_tensorize/backend/*` .
 
+## Benchmark
+To run the benchmarks of AMOS, please see the directory benchmark/amos. We have prepared a series of mapping_*.py files. For example, to run the conv2d mapping file and map conv2d to FP16 Tensor Core:
+```sh
+python mapping_conv2d_tensorcore.py --trials 100 --in_dtype float16 --out_dtype float16 --begin 0 --num 1 --batch 1
+```
 
+To run the benchmarks of PyTorch and CuDNN, please see the directory benchmark/pytorch. For example, to run conv2d mapping file with CuDNN:
+```sh
+python conv2d.py --target cuda --batch 1 --enable_cudnn --number 5 --repeats 5 --begin 0 --num 1 --dtype FP16
+```
 
 ## Documentations
 to be added.
