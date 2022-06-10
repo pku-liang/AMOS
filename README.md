@@ -48,6 +48,7 @@ git clone git@github.com:llvm/llvm-project.git
 cd llvm-project
 git checkout llvmorg-10.0.0
 mkdir build
+cd build
 cmake -DCMAKE_INSTALL_PREFIX=/home/<your-home-dir>/LLVM/llvm-10 -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;lld;lldb" ../llvm
 make -j 20
 make install
@@ -105,7 +106,7 @@ source <vir-name>
 
 Then, install python dependencies of TVM after activating your virtual environment.
 ```sh
-(<vir-name>) pip install numpy decorator attrs tornado psutil xgboost cloudpickle synr pebble sklearn
+(<vir-name>) pip install numpy decorator attrs tornado psutil xgboost==1.5.0 cloudpickle synr pebble sklearn
 ```
 
 At last, setup the environments.
