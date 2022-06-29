@@ -507,5 +507,34 @@ python conv2d.py --target cuda --batch 1 --enable_cudnn --number 5 --repeats 5 -
 Check out the [AMOS Documentation](https://amos-docs.readthedocs.io/en/latest/index.html) site for installation instructions, tutorials, API references, and more.
 
 ## Cite us
-to be added.
+```sh
+@inproceedings{DBLP:conf/isca/0001CWJHLWLY022,
+  author    = {Size Zheng and
+               Renze Chen and
+               Anjiang Wei and
+               Yicheng Jin and
+               Qin Han and
+               Liqiang Lu and
+               Bingyang Wu and
+               Xiuhong Li and
+               Shengen Yan and
+               Yun Liang},
+  editor    = {Valentina Salapura and
+               Mohamed Zahran and
+               Fred Chong and
+               Lingjia Tang},
+  title     = {{AMOS:} enabling automatic mapping for tensor computations on spatial
+               accelerators with hardware abstraction},
+  booktitle = {{ISCA} '22: The 49th Annual International Symposium on Computer Architecture,
+               New York, New York, USA, June 18 - 22, 2022},
+  pages     = {874--887},
+  publisher = {{ACM}},
+  year      = {2022},
+  url       = {https://doi.org/10.1145/3470496.3527440},
+  doi       = {10.1145/3470496.3527440},
+  timestamp = {Wed, 01 Jun 2022 14:59:23 +0200},
+  biburl    = {https://dblp.org/rec/conf/isca/0001CWJHLWLY022.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
 
