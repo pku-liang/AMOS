@@ -507,7 +507,7 @@ python conv2d.py --target cuda --batch 1 --enable_cudnn --number 5 --repeats 5 -
 Check out the [AMOS Documentation](https://amos-docs.readthedocs.io/en/latest/index.html) site for installation instructions, tutorials, API references, and more.
 
 ## Cite us
-```sh
+```bibtex
 @inproceedings{DBLP:conf/isca/0001CWJHLWLY022,
   author    = {Size Zheng and
                Renze Chen and
